@@ -4,9 +4,19 @@ import { LevelSelectScreen } from './ui/LevelSelectScreen.js';
 import { SettingsScreen } from './ui/SettingsScreen.js';
 import { PlayScreen } from './ui/PlayScreen.js';
 import { LevelStore } from './level/LevelStore.js';
+import { AssetManifest } from './assets/AssetManifest.js';
+import { AssetStore } from './assets/AssetStore.js';
+import { AssetLoader } from './assets/AssetLoader.js';
 
 const devMode = import.meta.env.MODE !== 'production';
-const levelStore = new LevelStore();
+
+// Initialize asset infrastructure
+const manifest = new AssetManifest();
+await manifest.init();
+const assetStore = new AssetStore(manifest);
+const assetLoader = new AssetLoader(assetStore, manifest);
+
+const levelStore = new LevelStore(assetStore);
 const sm = new ScreenManager();
 
 const menu = new MainMenuScreen(document.body, {
