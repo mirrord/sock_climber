@@ -19,7 +19,7 @@ export class LevelSelectScreen {
 
   enter() {
     this._root = document.createElement('div');
-    this._root.className = 'puppets-overlay';
+    this._root.className = 'sock_climber-overlay';
     this._render();
     this._container.appendChild(this._root);
   }

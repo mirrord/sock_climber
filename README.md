@@ -1,10 +1,10 @@
-# Puppets
+# Sock Climber
 
 A precision platformer built on Three.js, focused on extremely responsive controls and tight timing.
 
 ## Vision
 
-Puppets is a platformer where every millisecond of input matters. The game prioritizes:
+Sock Climber is a platformer where every millisecond of input matters. The game prioritizes:
 
 - **Instant response** — zero-latency input pipeline, frame-perfect actions
 - **Tight timing** — precise jump windows, coyote time, input buffering

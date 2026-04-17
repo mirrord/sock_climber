@@ -20,7 +20,7 @@ export class MainMenuScreen {
 
   enter() {
     this._root = document.createElement('div');
-    this._root.className = 'puppets-overlay';
+    this._root.className = 'sock_climber-overlay';
     const devItems = this._devMode ? `
         <li><button class="menu-btn" data-action="levelBuilder">Level Builder</button></li>
         <li><button class="menu-btn" data-action="objectEditor">Object Editor</button></li>` : '';

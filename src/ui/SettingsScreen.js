@@ -17,7 +17,7 @@ export class SettingsScreen {
 
   enter() {
     this._root = document.createElement('div');
-    this._root.className = 'puppets-overlay';
+    this._root.className = 'sock_climber-overlay';
     this._root.innerHTML = `
       <div class="panel">
         <h2>Settings</h2>

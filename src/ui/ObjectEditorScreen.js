@@ -8,7 +8,7 @@ const COLLISION_GROUP_NAMES = Object.entries(COLLISION_GROUP)
   .filter(([, v]) => v > 0)
   .map(([name, value]) => ({ name, value }));
 
-const OE_STYLE_ID = 'puppets-objed-styles';
+const OE_STYLE_ID = 'sock_climber-objed-styles';
 
 function injectOEStyles() {
   if (document.getElementById(OE_STYLE_ID)) return;
