@@ -1,5 +1,3 @@
-import { TILE, TILE_NAMES } from '../level/Level.js';
-
 /**
  * Minimal DOM-based toolbar for the level editor.
  * Created once and attached to a container element.
@@ -7,12 +5,17 @@ import { TILE, TILE_NAMES } from '../level/Level.js';
 export class EditorUI {
   /**
    * @param {HTMLElement} container
-   * @param {object} callbacks — { onSelectTile, onClear, onTogglePlay, onExport, onImport, onUndo, onToggleObjects }
+   * @param {object} callbacks — { onTogglePlay, onExport, onImport, onToggleObjects, onResize, onBackgrounds }
+   * @param {object} [options] — { initialWidth, initialHeight }
    */
-  constructor(container, callbacks) {
+  constructor(container, callbacks, options = {}) {
     this._callbacks = callbacks;
     this._root = document.createElement('div');
     this._root.id = 'editor-ui';
+
+    const w = options.initialWidth ?? 30;
+    const h = options.initialHeight ?? 20;
+
     this._root.innerHTML = `
       <style>
         #editor-ui {
@@ -22,22 +25,25 @@ export class EditorUI {
           font-family: monospace; font-size: 13px;
           align-items: center; flex-wrap: wrap;
         }
-        #editor-ui button, #editor-ui select {
+        #editor-ui button, #editor-ui select, #editor-ui input[type=number] {
           background: #2a2a4a; color: #eee; border: 1px solid #555;
           padding: 4px 10px; cursor: pointer; font-family: inherit; font-size: 13px;
           border-radius: 3px;
         }
+        #editor-ui input[type=number] { width: 52px; padding: 4px 6px; cursor: text; }
         #editor-ui button:hover { background: #3a3a6a; }
         #editor-ui .sep { width: 1px; height: 22px; background: #555; margin: 0 4px; }
+        #editor-ui .size-label { color: #aac; }
         #editor-ui .mode-label { font-weight: bold; margin-left: 8px; }
         #editor-ui .mode-label.play { color: #48bfe3; }
       </style>
-      <label>Tile:
-        <select id="tile-select"></select>
-      </label>
+      <span class="size-label">Size:</span>
+      <input id="inp-w" type="number" min="5" max="500" value="${w}" title="Width (columns)">
+      <span class="size-label">×</span>
+      <input id="inp-h" type="number" min="5" max="500" value="${h}" title="Height (rows)">
+      <button id="btn-resize">Apply</button>
       <div class="sep"></div>
-      <button id="btn-undo" title="Ctrl+Z">Undo</button>
-      <button id="btn-clear">Clear</button>
+      <button id="btn-backgrounds">Backgrounds</button>
       <div class="sep"></div>
       <button id="btn-play" title="Tab">▶ Play</button>
       <div class="sep"></div>
@@ -49,21 +55,18 @@ export class EditorUI {
     `;
     container.appendChild(this._root);
 
-    // Tile selector
-    const sel = this._root.querySelector('#tile-select');
-    for (const [value, name] of Object.entries(TILE_NAMES)) {
-      if (Number(value) === TILE.EMPTY) continue; // can't paint empty, use right-click
-      const opt = document.createElement('option');
-      opt.value = value;
-      opt.textContent = name;
-      sel.appendChild(opt);
-    }
-    sel.value = String(TILE.SOLID);
-    sel.addEventListener('change', () => callbacks.onSelectTile(Number(sel.value)));
+    this._wInput = this._root.querySelector('#inp-w');
+    this._hInput = this._root.querySelector('#inp-h');
 
-    // Buttons
-    this._root.querySelector('#btn-undo').addEventListener('click', callbacks.onUndo);
-    this._root.querySelector('#btn-clear').addEventListener('click', callbacks.onClear);
+    this._root.querySelector('#btn-resize').addEventListener('click', () => {
+      const w = Math.max(5, Math.min(500, parseInt(this._wInput.value, 10) || 30));
+      const h = Math.max(5, Math.min(500, parseInt(this._hInput.value, 10) || 20));
+      this._wInput.value = String(w);
+      this._hInput.value = String(h);
+      callbacks.onResize(w, h);
+    });
+
+    this._root.querySelector('#btn-backgrounds').addEventListener('click', callbacks.onBackgrounds);
     this._root.querySelector('#btn-play').addEventListener('click', callbacks.onTogglePlay);
     this._root.querySelector('#btn-export').addEventListener('click', callbacks.onExport);
     this._root.querySelector('#btn-import').addEventListener('click', callbacks.onImport);
@@ -73,18 +76,22 @@ export class EditorUI {
     this._playBtn = this._root.querySelector('#btn-play');
   }
 
+  /** Sync size inputs after a programmatic resize (e.g. import). */
+  setSize(w, h) {
+    this._wInput.value = String(w);
+    this._hInput.value = String(h);
+  }
+
   /** Update mode display. */
   setMode(mode) {
     if (mode === 'play') {
       this._modeLabel.textContent = 'PLAY';
       this._modeLabel.classList.add('play');
       this._playBtn.textContent = '✎ Edit';
-      this._root.style.display = 'flex';
     } else {
       this._modeLabel.textContent = 'EDIT';
       this._modeLabel.classList.remove('play');
       this._playBtn.textContent = '▶ Play';
-      this._root.style.display = 'flex';
     }
   }
 

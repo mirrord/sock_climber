@@ -63,6 +63,13 @@ export class ObjectEditorUI {
         #object-editor-panel .checkbox-group { display: flex; flex-wrap: wrap; gap: 6px; }
         #object-editor-panel .checkbox-group label { display: inline-flex; align-items: center; gap: 3px; color: #ccc; }
         #object-editor-panel .empty-msg { color: #667; font-style: italic; }
+        #object-editor-panel .close-btn {
+          display: block; width: 100%; padding: 6px 0; margin-bottom: 8px;
+          background: none; border: 1px solid #555; color: #888;
+          cursor: pointer; font-family: inherit; font-size: 13px;
+          border-radius: 4px; text-align: center;
+        }
+        #object-editor-panel .close-btn:hover { color: #eee; border-color: #aaa; }
       </style>
       <div id="oe-content"></div>
     `;
@@ -89,6 +96,12 @@ export class ObjectEditorUI {
 
   refresh() {
     this._content.innerHTML = '';
+    const closeBtn = this._el('button', 'close-btn', '✕ Close');
+    closeBtn.addEventListener('click', () => {
+      this._editor.current = null;
+      this.hide();
+    });
+    this._content.appendChild(closeBtn);
     this._renderTemplateBar();
     this._renderLibrary();
     if (this._editor.current) {

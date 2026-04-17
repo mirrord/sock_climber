@@ -26,6 +26,8 @@ export class Level {
     this.height = height;
     /** Flat Uint8Array: row-major [y * width + x] */
     this.tiles = new Uint8Array(width * height);
+    /** @type {Array<{url: string, parallax: number}>} */
+    this.backgroundLayers = [];
   }
 
   /** @returns {boolean} */
@@ -81,6 +83,7 @@ export class Level {
       width: this.width,
       height: this.height,
       tiles: Array.from(this.tiles),
+      backgroundLayers: this.backgroundLayers.map(l => ({ ...l })),
     };
   }
 
@@ -88,6 +91,7 @@ export class Level {
   static fromJSON(data) {
     const level = new Level(data.width, data.height);
     level.tiles = new Uint8Array(data.tiles);
+    level.backgroundLayers = (data.backgroundLayers || []).map(l => ({ ...l }));
     return level;
   }
 }
