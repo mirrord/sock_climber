@@ -1,4 +1,5 @@
 import { ObjectEditor } from '../objects/ObjectEditor.js';
+import { SpriteAnimationManager } from './SpriteAnimationManager.js';
 import { getTemplateList, getTemplate } from '../objects/templates.js';
 import { COLLISION_GROUP } from '../objects/GameObject.js';
 import { STANDARD_BEHAVIORS, createBehavior } from '../objects/Behavior.js';
@@ -133,6 +134,8 @@ export class ObjectEditorScreen {
     this._unsavedIds = new Set();
     /** @type {string|null} ID of the currently-selected library item */
     this._selectedLibId = null;
+    /** @type {Array<object>} imported sprite sheets (persisted in localStorage) */
+    this._spriteSheets = this._loadSpriteSheets();
     injectOEStyles();
   }
 
@@ -172,6 +175,7 @@ export class ObjectEditorScreen {
     this._editor = null;
     this._unsavedIds.clear();
     this._selectedLibId = null;
+    this._spriteAnimManager = null;
     if (this._root) {
       this._root.remove();
       this._root = null;
@@ -480,20 +484,61 @@ export class ObjectEditorScreen {
     this._leftPanel.appendChild(section);
   }
 
-  // ---- CENTER PANEL: viewport placeholder ----
+  // ---- CENTER PANEL: sprite animation manager ----
 
   _refreshCenter() {
     this._centerPanel.innerHTML = '';
     const obj = this._editor.current;
-    const ph = this._el('div', 'placeholder');
-    if (obj) {
-      ph.innerHTML = `<div style="font-size:48px; margin-bottom:12px;">🎭</div>
-        <div>${obj.name}</div>
-        <div style="font-size:11px; color:#556; margin-top:4px;">Animation preview coming soon</div>`;
-    } else {
+
+    if (!obj) {
+      const ph = this._el('div', 'placeholder');
       ph.textContent = 'No object selected';
+      this._centerPanel.appendChild(ph);
+      return;
     }
-    this._centerPanel.appendChild(ph);
+
+    this._spriteAnimManager = new SpriteAnimationManager(this._centerPanel, {
+      getAnimations: () => obj.animations,
+      addAnimation: (anim) => {
+        this._editor.addAnimation(anim);
+        this._markUnsaved();
+      },
+      removeAnimation: (id) => {
+        this._editor.removeAnimation(id);
+        this._markUnsaved();
+      },
+      updateAnimation: (id, patch) => {
+        this._editor.updateAnimation(id, patch);
+        this._markUnsaved();
+      },
+      getSpriteSheets: () => this._spriteSheets,
+      addSpriteSheet: (sheet) => {
+        this._spriteSheets.push(sheet);
+        this._saveSpriteSheets();
+      },
+    });
+    this._spriteAnimManager.render();
+  }
+
+  // ---- Sprite sheet persistence ----
+
+  static get _SHEET_STORAGE_KEY() { return 'sock_climber_oe_sprite_sheets'; }
+
+  _loadSpriteSheets() {
+    try {
+      const raw = localStorage.getItem(ObjectEditorScreen._SHEET_STORAGE_KEY);
+      if (raw) return JSON.parse(raw);
+    } catch (_) { /* ignore */ }
+    return [];
+  }
+
+  _saveSpriteSheets() {
+    try {
+      localStorage.setItem(
+        ObjectEditorScreen._SHEET_STORAGE_KEY,
+        JSON.stringify(this._spriteSheets),
+      );
+    } catch (_) { /* ignore quota errors */ }
   }
 
   // ---- RIGHT PANEL: object list ----

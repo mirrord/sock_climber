@@ -112,6 +112,28 @@ export class ObjectEditor {
     this.current.properties[key] = value;
   }
 
+  // ---- Animations ----
+
+  /** Add a sprite animation definition to the current object. */
+  addAnimation(anim) {
+    this._requireCurrent();
+    this.current.animations.push({ ...anim });
+  }
+
+  /** Remove a sprite animation by id. */
+  removeAnimation(animId) {
+    this._requireCurrent();
+    const idx = this.current.animations.findIndex((a) => a.id === animId);
+    if (idx !== -1) this.current.animations.splice(idx, 1);
+  }
+
+  /** Overwrite fields of an existing animation by id. */
+  updateAnimation(animId, patch) {
+    this._requireCurrent();
+    const anim = this.current.animations.find((a) => a.id === animId);
+    if (anim) Object.assign(anim, patch);
+  }
+
   // ---- Private ----
 
   _requireCurrent() {

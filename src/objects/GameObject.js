@@ -37,6 +37,7 @@ export class GameObject {
     behaviors = [],
     triggers = [],
     properties = {},
+    animations = [],
     id = null,
   }) {
     this.id = id || `obj_${_nextId++}`;
@@ -47,6 +48,7 @@ export class GameObject {
     this.behaviors = behaviors;
     this.triggers = triggers;
     this.properties = { ...properties };
+    this.animations = animations.map((a) => ({ ...a }));
   }
 
   /** @param {Behavior} behavior */
@@ -80,6 +82,7 @@ export class GameObject {
       behaviors: this.behaviors.map((b) => b.toJSON()),
       triggers: this.triggers.map((t) => t.toJSON()),
       properties: { ...this.properties },
+      animations: this.animations.map((a) => ({ ...a })),
     };
   }
 
@@ -88,6 +91,7 @@ export class GameObject {
       ...data,
       behaviors: (data.behaviors || []).map((b) => Behavior.fromJSON(b)),
       triggers: (data.triggers || []).map((t) => BehaviorTrigger.fromJSON(t)),
+      animations: data.animations || [],
     });
   }
 
@@ -101,6 +105,7 @@ export class GameObject {
       behaviors: this.behaviors.map((b) => b.clone()),
       triggers: this.triggers.map((t) => t.clone()),
       properties: { ...this.properties },
+      animations: this.animations.map((a) => ({ ...a })),
     });
   }
 }
