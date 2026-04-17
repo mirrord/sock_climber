@@ -7,6 +7,8 @@ import { LevelStore } from './level/LevelStore.js';
 import { AssetManifest } from './assets/AssetManifest.js';
 import { AssetStore } from './assets/AssetStore.js';
 import { AssetLoader } from './assets/AssetLoader.js';
+import { SettingsStore } from './settings/SettingsStore.js';
+import { ActionMap } from './input/ActionMap.js';
 
 const devMode = import.meta.env.MODE !== 'production';
 
@@ -17,6 +19,8 @@ const assetStore = new AssetStore(manifest);
 const assetLoader = new AssetLoader(assetStore, manifest);
 
 const levelStore = new LevelStore(assetStore);
+const settingsStore = new SettingsStore();
+const actionMap = new ActionMap(settingsStore);
 const sm = new ScreenManager();
 
 const menu = new MainMenuScreen(document.body, {
@@ -33,7 +37,7 @@ const levelSelect = new LevelSelectScreen(document.body, levelStore, {
 
 const settings = new SettingsScreen(document.body, {
   onBack: () => sm.back(),
-});
+}, { settings: settingsStore, actionMap });
 
 const play = new PlayScreen(document.body, levelStore, {
   onBack: () => sm.back(),
