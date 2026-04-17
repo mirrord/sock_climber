@@ -1,5 +1,5 @@
 {
-  "name": sock_climber,
+  "name": "sock_climber",
   "version": "1.0.0",
   "description": "A precision platformer built on Three.js, focused on extremely responsive controls and tight timing.",
   "type": "module",
