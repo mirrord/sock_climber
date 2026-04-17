@@ -2,6 +2,38 @@ import * as THREE from 'three';
 import { TILE } from '../level/Level.js';
 import { TILE_SIZE } from '../editor/editorConstants.js';
 
+/** Dead-zone threshold for analogue sticks. */
+const STICK_DEAD = 0.5;
+
+/**
+ * Map raw Gamepad API state to the three boolean inputs PlayMode needs.
+ * Pure function — safe to call with mock data in tests.
+ *
+ * Standard mapping (W3C):
+ *   button 0  = A / Cross         → jump
+ *   button 12 = D-Pad Up          → jump
+ *   button 14 = D-Pad Left        → left
+ *   button 15 = D-Pad Right       → right
+ *   axis  0   = Left stick horiz  → left / right
+ *
+ * @param {Iterable<Gamepad|null|undefined>} gamepads
+ * @returns {{ left: boolean, right: boolean, jump: boolean }}
+ */
+export function pollGamepadInput(gamepads) {
+  const result = { left: false, right: false, jump: false };
+  for (const gp of gamepads) {
+    if (!gp) continue;
+    if (gp.buttons[14]?.pressed)           result.left  = true;
+    if (gp.buttons[15]?.pressed)           result.right = true;
+    if (gp.buttons[0]?.pressed)            result.jump  = true;
+    if (gp.buttons[12]?.pressed)           result.jump  = true;
+    const ax = gp.axes[0] ?? 0;
+    if (ax < -STICK_DEAD)                  result.left  = true;
+    if (ax >  STICK_DEAD)                  result.right = true;
+  }
+  return result;
+}
+
 const GRAVITY = -30;        // m/s²
 const MOVE_SPEED = 7;       // m/s
 const JUMP_VELOCITY = 12;   // m/s
@@ -18,8 +50,10 @@ export class PlayMode {
    * @param {import('../level/Level.js').Level} level
    * @param {THREE.Scene} scene
    * @param {THREE.Camera} camera
+   * @param {object} [options]
+   * @param {() => Iterable<Gamepad|null>} [options.getGamepads] — injectable for testing
    */
-  constructor(level, scene, camera) {
+  constructor(level, scene, camera, { getGamepads } = {}) {
     this.level = level;
     this.scene = scene;
     this.camera = camera;
@@ -36,9 +70,19 @@ export class PlayMode {
     this.grounded = false;
     this._accumulator = 0;
 
-    // Input state
+    // Keyboard input state (set by keydown/keyup)
     this._keys = { left: false, right: false, jump: false };
     this._jumpConsumed = false;
+
+    // Gamepad input state (polled each frame)
+    this._gpKeys     = { left: false, right: false, jump: false };
+    this._gpJumpPrev = false;
+    this._getGamepads = getGamepads ?? (() => {
+      if (typeof navigator !== 'undefined' && typeof navigator.getGamepads === 'function') {
+        return navigator.getGamepads();
+      }
+      return [];
+    });
 
     // Player mesh
     const geo = new THREE.PlaneGeometry(PLAYER_W * TILE_SIZE, PLAYER_H * TILE_SIZE);
@@ -56,6 +100,7 @@ export class PlayMode {
 
   /** Advance simulation and sync visuals. */
   update(dt) {
+    this._sampleGamepad();
     this._accumulator += dt;
     while (this._accumulator >= FIXED_DT) {
       this._fixedUpdate(FIXED_DT);
@@ -75,6 +120,21 @@ export class PlayMode {
   }
 
   // ---- Private ----
+
+  /**
+   * Poll all connected gamepads and merge their state into _gpKeys.
+   * Detects jump-button release to reset _jumpConsumed (mirrors keyboard behaviour).
+   */
+  _sampleGamepad() {
+    this._gpKeys = pollGamepadInput(this._getGamepads());
+
+    // Falling edge on gamepad jump → reset consumed flag so the next
+    // button press can trigger a new jump (same as key-up for keyboard).
+    if (this._gpJumpPrev && !this._gpKeys.jump) {
+      this._jumpConsumed = false;
+    }
+    this._gpJumpPrev = this._gpKeys.jump;
+  }
 
   _handleKey(e, down) {
     switch (e.code) {
@@ -96,13 +156,18 @@ export class PlayMode {
   }
 
   _fixedUpdate(dt) {
+    // Merge keyboard and gamepad inputs
+    const moveLeft  = this._keys.left  || this._gpKeys.left;
+    const moveRight = this._keys.right || this._gpKeys.right;
+    const wantsJump = this._keys.jump  || this._gpKeys.jump;
+
     // Horizontal movement
     this.vx = 0;
-    if (this._keys.left) this.vx = -MOVE_SPEED;
-    if (this._keys.right) this.vx = MOVE_SPEED;
+    if (moveLeft)  this.vx = -MOVE_SPEED;
+    if (moveRight) this.vx =  MOVE_SPEED;
 
     // Jump
-    if (this._keys.jump && this.grounded && !this._jumpConsumed) {
+    if (wantsJump && this.grounded && !this._jumpConsumed) {
       this.vy = JUMP_VELOCITY;
       this.grounded = false;
       this._jumpConsumed = true;
