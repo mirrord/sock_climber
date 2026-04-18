@@ -84,11 +84,29 @@ In-memory key/value store mapping level names to serialized JSON strings. Used b
 ## Planned / In Progress
 
 ### Player Mechanics
-- [ ] Ground movement (acceleration, deceleration, max speed)
+
+**`PlayerController`** (`src/player/PlayerController.js`) — Pure-physics controller (no Three.js). Call `step(inputSnapshot, dt)` once per fixed tick. All numeric parameters are tunable via constructor config.
+
+**`PlayerState`** (`src/player/PlayerState.js`) — `STATE` constants + pure `deriveState(flags)` function. States: `idle`, `running`, `jumping`, `falling`, `crouching`, `wallSlide`.
+
+| Behaviour | Config flags | Tuning params |
+|-----------|-------------|---------------|
+| **Crouch** | `enableCrouch` | `crouchHeightScale` (default 0.5) |
+| **Wall slide** | `enableWallSlide` | `wallSlideGravityScale` (default 0.5) |
+| **Wall kick** | `enableWallKick` | `wallKickVX`, `wallKickVY` (default 6, 12) |
+| **Dash jump** | `enableDashJump` | `dashJumpSpeedScale` (default 2.0) |
+
+- **Crouch**: grounded-only; hitbox height shrinks to `playerH × crouchHeightScale`, width stays constant.
+- **Wall slide**: while airborne and adjacent to a solid wall, effective gravity is `gravity × wallSlideGravityScale`. Activates from the frame *after* first wall contact.
+- **Wall kick**: while airborne and adjacent to a wall, a fresh jump press launches the player away from the wall at `wallKickVX` horizontally and `wallKickVY` vertically. Jump-held guard prevents multiple kicks per press.
+- **Dash jump**: holding dash at the moment of a ground jump sets `_dashJumping = true`; horizontal speed is `moveSpeed × dashJumpSpeedScale` for the entire airborne phase. Resets on landing.
+
+Wall adjacency is detected via `_updateWallContact()` at the end of each step (proximity-based, not velocity-based), so the player does not need to hold a direction to maintain wall contact.
+
+- [ ] Ground movement (acceleration, deceleration)
 - [ ] Variable-height jump (hold = higher)
 - [ ] Coyote time (grace frames after leaving edge)
 - [ ] Jump buffering (press jump slightly before landing)
-- [ ] Wall slide / wall jump
 - [ ] Dash (single-use, resets on ground)
 - [ ] Moving platforms
 

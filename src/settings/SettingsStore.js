@@ -9,6 +9,7 @@ export const SETTINGS_DEFAULTS = Object.freeze({
     moveRight: 'ArrowRight',
     jump:      'Space',
     dash:      'ShiftLeft',
+    crouch:    'ArrowDown',
     pause:     'Escape',
   }),
   gamepadBindings: Object.freeze({
@@ -16,6 +17,7 @@ export const SETTINGS_DEFAULTS = Object.freeze({
     moveRight: Object.freeze({ type: 'button', index: 15 }), // D-Pad Right
     jump:      Object.freeze({ type: 'button', index: 0 }),  // A / Cross
     dash:      Object.freeze({ type: 'button', index: 2 }),  // X / Square
+    crouch:    Object.freeze({ type: 'button', index: 13 }), // D-Pad Down
     pause:     Object.freeze({ type: 'button', index: 9 }),  // Start
   }),
 });

@@ -1,5 +1,5 @@
 /** All recognised game actions. */
-export const ACTIONS = Object.freeze(['moveLeft', 'moveRight', 'jump', 'dash', 'pause']);
+export const ACTIONS = Object.freeze(['moveLeft', 'moveRight', 'jump', 'dash', 'crouch', 'pause']);
 
 /** Human-readable labels displayed in the settings UI. */
 export const ACTION_LABELS = Object.freeze({
@@ -7,6 +7,7 @@ export const ACTION_LABELS = Object.freeze({
   moveRight: 'Move Right',
   jump:      'Jump',
   dash:      'Dash',
+  crouch:    'Crouch',
   pause:     'Pause',
 });
 
