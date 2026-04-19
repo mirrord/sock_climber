@@ -80,12 +80,24 @@ export class EditorApp {
     this._ui.setMode(this._editor.mode);
 
     if (this._editor.mode === 'play') {
+      // Rebuild objects first so their meshes exist before PlayMode references them
+      const objectDefs = this._buildObjectDefsMap();
+      this._renderer.rebuildObjects(this._editor.level, objectDefs);
+      this._renderer.hideHover();
+
+      const playerObj = this._editor.level.findObjectByType('player');
+      const playerMesh = playerObj ? this._renderer.getObjectMesh(playerObj.id) : null;
+      const playerDef = objectDefs.get('player') ?? null;
+      const onAnimationChange = (playerObj && playerDef)
+        ? (animDef) => this._renderer.setObjectAnimation(playerObj.id, animDef)
+        : null;
+
       this._playMode = new PlayMode(
         this._editor.level,
         this._renderer.scene,
-        this._renderer.camera
+        this._renderer.camera,
+        { playerMesh, playerDef, onAnimationChange }
       );
-      this._renderer.hideHover();
     } else {
       if (this._playMode) {
         this._playMode.dispose();
@@ -105,6 +117,7 @@ export class EditorApp {
 
     if (this._playMode && this._editor.mode === 'play') {
       this._playMode.update(dt);
+      this._renderer.updateObjectAnimations(dt);
     }
 
     this._renderer.render();
@@ -413,6 +426,15 @@ export class EditorApp {
       this._renderBgPanel();
     });
     this._bgContent.appendChild(addBtn);
+  }
+
+  /** Build a Map<type, GameObject> from the object editor library for animation lookup. */
+  _buildObjectDefsMap() {
+    const map = new Map();
+    for (const obj of this._objectEditor.library) {
+      map.set(obj.type, obj);
+    }
+    return map;
   }
 
   dispose() {

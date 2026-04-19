@@ -43,7 +43,7 @@ const settings = new SettingsScreen(document.body, {
 
 const play = new PlayScreen(document.body, levelStore, {
   onBack: () => sm.back(),
-});
+}, objectStore);
 
 sm.register('menu', menu);
 sm.register('levelSelect', levelSelect);

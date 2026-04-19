@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { TILE } from '../level/Level.js';
 import { TILE_COLORS, GRID_COLOR, TILE_SIZE } from './editorConstants.js';
+import { resolveIdleAnimDef, advanceAnimFrame } from './animUtils.js';
 
 /** Colors for placed object types, keyed by type string. */
 const OBJECT_COLORS = {
@@ -68,6 +69,18 @@ export class EditorRenderer {
     // Placed-objects group — rebuilt via rebuildObjects()
     this._objectsGroup = new THREE.Group();
     this.scene.add(this._objectsGroup);
+
+    /** @type {Array<{mesh: THREE.Mesh, animDef: object, sheet: object, frame: number, timeAcc: number}>} */
+    this._objectAnimStates = [];
+
+    /** @type {Map<string, {mesh: THREE.Mesh, animDef: object, sheet: object, frame: number, timeAcc: number}>} Keyed by placed-object id. */
+    this._objectAnimStateById = new Map();
+
+    /** @type {Array<{id: string, dataUrl: string, width: number, height: number}>} Cached from last rebuildObjects call. */
+    this._spriteSheetCatalogue = [];
+
+    /** @type {Map<string, THREE.Mesh>} Keyed by placed-object id. */
+    this._objectMeshById = new Map();
 
     // Reusable geometry for tiles
     this._tileGeo = new THREE.PlaneGeometry(TILE_SIZE * 0.95, TILE_SIZE * 0.95);
@@ -173,29 +186,103 @@ export class EditorRenderer {
   /**
    * Rebuild the visual representations of all placed objects from a Level.
    * Call after any place / remove operation.
+   *
    * @param {import('../level/Level.js').Level} level
+   * @param {Map<string, import('../objects/GameObject.js').GameObject>} [objectDefs]
+   *   Optional map of type → GameObject used to look up idle animation data.
+   * @param {Array<{id: string, dataUrl: string, width: number, height: number}>} [spriteSheets]
+   *   Optional sprite sheet catalogue. Loaded from localStorage when omitted.
    */
-  rebuildObjects(level) {
-    // Remove old meshes
+  rebuildObjects(level, objectDefs = null, spriteSheets = null) {
+    // Clear old meshes and dispose their GPU resources
+    this._objectAnimStates = [];
+    this._objectAnimStateById.clear();
+    this._objectMeshById.clear();
     while (this._objectsGroup.children.length) {
       const child = this._objectsGroup.children[0];
+      if (child.material?.map) child.material.map.dispose();
       child.geometry.dispose();
       child.material.dispose();
       this._objectsGroup.remove(child);
     }
 
+    const sheets = spriteSheets ?? this._loadSpriteSheets();
+    this._spriteSheetCatalogue = sheets;
+
     for (const obj of level.objects) {
-      const color = OBJECT_COLORS[obj.type] ?? OBJECT_COLOR_DEFAULT;
-      // Slightly smaller than a tile so it sits inside the grid cell visually
-      const geo = new THREE.PlaneGeometry(TILE_SIZE * 0.7, TILE_SIZE * 0.7);
-      const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85 });
-      const mesh = new THREE.Mesh(geo, mat);
+      const def = objectDefs?.get(obj.type) ?? null;
+      const idleAnimDef = def ? resolveIdleAnimDef(def) : null;
+      const sheet = idleAnimDef?.spriteSheetId
+        ? sheets.find((s) => s.id === idleAnimDef.spriteSheetId) ?? null
+        : null;
+
+      let mesh;
+      if (idleAnimDef && sheet) {
+        mesh = this._createAnimatedObjectMesh(idleAnimDef, sheet);
+        const state = { mesh, animDef: idleAnimDef, sheet, frame: 0, timeAcc: 0 };
+        this._objectAnimStates.push(state);
+        this._objectAnimStateById.set(obj.id, state);
+      } else {
+        mesh = this._createColorObjectMesh(obj);
+      }
+
       mesh.position.set(
         (obj.x - this._offsetX + 0.5) * TILE_SIZE,
         (obj.y - this._offsetY + 0.5) * TILE_SIZE,
         0.15,   // just above tiles
       );
+      this._objectMeshById.set(obj.id, mesh);
       this._objectsGroup.add(mesh);
+    }
+  }
+
+  /**
+   * Return the Three.js mesh for a placed object, or null if not found.
+   * Valid after rebuildObjects() has been called.
+   * @param {string} id — placed object id
+   * @returns {THREE.Mesh|null}
+   */
+  getObjectMesh(id) {
+    return this._objectMeshById.get(id) ?? null;
+  }
+
+  /**
+   * Switch the active animation for a placed object identified by id.
+   * Only works for objects that were built with an animated mesh (i.e. those
+   * that had a resolvable idle animation during rebuildObjects).
+   * Resets to frame 0 and immediately applies the new frame.
+   *
+   * @param {string} id — placed object id
+   * @param {object|null} animDef — animation definition from GameObject.animations[]
+   */
+  setObjectAnimation(id, animDef) {
+    if (!animDef) return;
+    const state = this._objectAnimStateById.get(id);
+    if (!state) return;
+    const sheet = animDef.spriteSheetId
+      ? this._spriteSheetCatalogue.find((s) => s.id === animDef.spriteSheetId) ?? null
+      : null;
+    if (!sheet) return;
+    state.animDef = animDef;
+    state.sheet = sheet;
+    state.frame = 0;
+    state.timeAcc = 0;
+    this._applyAnimFrame(state.mesh, animDef, sheet, 0);
+  }
+
+  /**
+   * Advance per-object sprite animations.
+   * Call once per frame during play/test mode.
+   * @param {number} dt — elapsed seconds
+   */
+  updateObjectAnimations(dt) {
+    for (const state of this._objectAnimStates) {
+      const next = advanceAnimFrame(state, dt);
+      if (next.frame !== state.frame) {
+        this._applyAnimFrame(state.mesh, state.animDef, state.sheet, next.frame);
+      }
+      state.frame = next.frame;
+      state.timeAcc = next.timeAcc;
     }
   }
 
@@ -221,6 +308,74 @@ export class EditorRenderer {
   }
 
   // ---- Private ----
+
+  /** Load sprite sheet catalogue from localStorage. */
+  _loadSpriteSheets() {
+    try {
+      const raw = localStorage.getItem('sock_climber_oe_sprite_sheets');
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  /** Create a color-coded fallback mesh for a placed object. */
+  _createColorObjectMesh(placedObj) {
+    const color = OBJECT_COLORS[placedObj.type] ?? OBJECT_COLOR_DEFAULT;
+    const geo = new THREE.PlaneGeometry(TILE_SIZE * 0.7, TILE_SIZE * 0.7);
+    const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85 });
+    return new THREE.Mesh(geo, mat);
+  }
+
+  /**
+   * Create a sprite mesh for an object using its configured idle animation frame 0.
+   * @param {object} animDef
+   * @param {{dataUrl: string, width: number, height: number}} sheet
+   * @returns {THREE.Mesh}
+   */
+  _createAnimatedObjectMesh(animDef, sheet) {
+    const fw = animDef.frameWidth;
+    const fh = animDef.frameHeight;
+    const framesPerRow = Math.max(1, Math.floor(sheet.width / fw));
+    const rx = fw / sheet.width;
+    const ry = fh / sheet.height;
+
+    const texture = new THREE.TextureLoader().load(sheet.dataUrl);
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    texture.repeat.set(rx, ry);
+
+    const frameIndex = animDef.frameStart;
+    const col = frameIndex % framesPerRow;
+    const row = Math.floor(frameIndex / framesPerRow);
+    texture.offset.set(col * rx, 1 - (row + 1) * ry);
+
+    const aspect = fh > 0 ? fw / fh : 1;
+    const height = TILE_SIZE * 0.9;
+    const geo = new THREE.PlaneGeometry(height * aspect, height);
+    const mat = new THREE.MeshBasicMaterial({ map: texture, transparent: true });
+    return new THREE.Mesh(geo, mat);
+  }
+
+  /**
+   * Update the UV offset on an animated object mesh to show the given frame.
+   * @param {THREE.Mesh} mesh
+   * @param {object} animDef
+   * @param {{width: number, height: number}} sheet
+   * @param {number} frame — 0-based frame index within the animation
+   */
+  _applyAnimFrame(mesh, animDef, sheet, frame) {
+    const fw = animDef.frameWidth;
+    const fh = animDef.frameHeight;
+    const framesPerRow = Math.max(1, Math.floor(sheet.width / fw));
+    const rx = fw / sheet.width;
+    const ry = fh / sheet.height;
+    const frameIndex = animDef.frameStart + frame;
+    const col = frameIndex % framesPerRow;
+    const row = Math.floor(frameIndex / framesPerRow);
+    mesh.material.map.offset.set(col * rx, 1 - (row + 1) * ry);
+    mesh.material.map.needsUpdate = true;
+  }
 
   _createHoverIndicator(color = 0xffffff, opacity = 0.25) {
     const geo = new THREE.PlaneGeometry(TILE_SIZE, TILE_SIZE);

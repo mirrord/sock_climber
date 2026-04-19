@@ -12,11 +12,13 @@ export class PlayScreen {
    * @param {HTMLElement} container
    * @param {import('../level/LevelStore.js').LevelStore} levelStore
    * @param {object} callbacks — { onBack }
+   * @param {import('../objects/ObjectStore.js').ObjectStore} [objectStore]
    */
-  constructor(container, levelStore, callbacks) {
+  constructor(container, levelStore, callbacks, objectStore = null) {
     this._container = container;
     this._store = levelStore;
     this._callbacks = callbacks;
+    this._objectStore = objectStore;
     this._renderer = null;
     this._playMode = null;
     this._rafId = null;
@@ -39,11 +41,26 @@ export class PlayScreen {
     this._renderer.rebuildFromLevel(level);
     this._renderer.hideHover();
 
+    // Rebuild placed objects with their configured animations
+    const objectDefs = this._objectStore ? this._buildObjectDefsMap() : null;
+    this._renderer.rebuildObjects(level, objectDefs);
+
+    // Find the mesh the renderer built for the level's player object
+    const playerObj = level.findObjectByType('player');
+    const playerMesh = playerObj ? this._renderer.getObjectMesh(playerObj.id) : null;
+
+    // Resolve the player's GameObject definition for animation switching
+    const playerDef = objectDefs?.get('player') ?? null;
+    const onAnimationChange = (playerObj && playerDef)
+      ? (animDef) => this._renderer.setObjectAnimation(playerObj.id, animDef)
+      : null;
+
     // Player
     this._playMode = new PlayMode(
       level,
       this._renderer.scene,
-      this._renderer.camera
+      this._renderer.camera,
+      { playerMesh, playerDef, onAnimationChange }
     );
 
     // HUD with level name + back
@@ -102,7 +119,17 @@ export class PlayScreen {
       this._playMode.update(dt);
     }
     if (this._renderer) {
+      this._renderer.updateObjectAnimations(dt);
       this._renderer.render();
     }
+  }
+
+  /** Build a Map<type, GameObject> from the object store for animation lookup. */
+  _buildObjectDefsMap() {
+    const map = new Map();
+    for (const obj of this._objectStore.loadAll()) {
+      map.set(obj.type, obj);
+    }
+    return map;
   }
 }

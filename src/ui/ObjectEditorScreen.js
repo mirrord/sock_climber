@@ -298,14 +298,57 @@ export class ObjectEditorScreen {
     }
     for (const beh of obj.behaviors) {
       const item = this._el('div', 'item');
-      item.appendChild(this._el('span', '', `${beh.name}${beh.animation ? ' ▸ ' + beh.animation : ''}`));
+      item.style.flexDirection = 'column';
+      item.style.alignItems = 'flex-start';
+      item.style.gap = '4px';
+
+      // Top row: behavior name + remove button
+      const topRow = this._el('div', '');
+      topRow.style.cssText = 'display:flex;justify-content:space-between;width:100%;align-items:center;';
+      topRow.appendChild(this._el('span', '', beh.name));
       const del = this._el('span', 'remove', '✕');
       del.addEventListener('click', () => {
         this._editor.removeBehavior(beh.id);
         this._markUnsaved();
         this._refreshLeft();
       });
-      item.appendChild(del);
+      topRow.appendChild(del);
+      item.appendChild(topRow);
+
+      // Animation selector row
+      const animRow = this._el('div', '');
+      animRow.style.cssText = 'display:flex;align-items:center;gap:4px;width:100%;';
+      animRow.appendChild(this._el('span', '', 'Anim:'));
+
+      const animSel = this._el('select');
+      animSel.className = 'beh-anim-select';
+      animSel.dataset.behaviorId = beh.id;
+      animSel.style.flex = '1';
+
+      // — none — option
+      const noneOpt = this._el('option');
+      noneOpt.value = '';
+      noneOpt.textContent = '— none —';
+      animSel.appendChild(noneOpt);
+
+      // One option per animation defined on the object
+      for (const anim of obj.animations) {
+        const opt = this._el('option');
+        opt.value = anim.name;
+        opt.textContent = anim.name;
+        animSel.appendChild(opt);
+      }
+
+      // Pre-select current animation value
+      animSel.value = beh.animation ?? '';
+
+      animSel.addEventListener('change', () => {
+        this._editor.setBehaviorAnimation(beh.id, animSel.value || null);
+        this._markUnsaved();
+      });
+      animRow.appendChild(animSel);
+      item.appendChild(animRow);
+
       section.appendChild(item);
     }
 

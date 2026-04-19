@@ -1,6 +1,27 @@
 import * as THREE from 'three';
 import { TILE } from '../level/Level.js';
 import { TILE_SIZE } from '../editor/editorConstants.js';
+import { PlayerController } from '../player/PlayerController.js';
+import { InputSystem } from '../input/InputSystem.js';
+import { ActionMap } from '../input/ActionMap.js';
+import { SettingsStore } from '../settings/SettingsStore.js';
+import { PLAYER_W, PLAYER_H, FIXED_DT } from '../utils/constants.js';
+import { resolveBehaviorAnimDef } from './animUtils.js';
+import { STATE } from '../player/PlayerState.js';
+
+/**
+ * Maps a PlayerController state string to the behavior id used to look up
+ * the associated animation on the player's GameObject definition.
+ * @type {Record<string, string>}
+ */
+const STATE_BEHAVIOR = {
+  [STATE.IDLE]:       'idle',
+  [STATE.RUNNING]:    'move_right',  // move_left shares the same animation
+  [STATE.JUMPING]:    'jump',
+  [STATE.FALLING]:    'jump',        // no dedicated fall behavior; reuse jump
+  [STATE.CROUCHING]:  'crouch',
+  [STATE.WALL_SLIDE]: 'idle',        // no dedicated wall-slide behavior
+};
 
 /** Dead-zone threshold for analogue sticks. */
 const STICK_DEAD = 0.5;
@@ -34,12 +55,23 @@ export function pollGamepadInput(gamepads) {
   return result;
 }
 
-const GRAVITY = -30;        // m/s²
-const MOVE_SPEED = 7;       // m/s
-const JUMP_VELOCITY = 12;   // m/s
-const PLAYER_W = 0.8;       // width in tiles
-const PLAYER_H = 0.8;       // height in tiles
-const FIXED_DT = 1 / 120;   // physics step
+/**
+ * Convert an InputSystem snapshot to the boolean input format expected by
+ * PlayerController.step().
+ *
+ * @param {{ actions: ReadonlySet<string> }} snapshot
+ * @returns {{ left: boolean, right: boolean, jump: boolean, dash: boolean, crouch: boolean }}
+ */
+export function snapshotToControllerInput(snapshot) {
+  const a = snapshot.actions;
+  return {
+    left:   a.has('moveLeft'),
+    right:  a.has('moveRight'),
+    jump:   a.has('jump'),
+    dash:   a.has('dash'),
+    crouch: a.has('crouch'),
+  };
+}
 
 /**
  * Minimal player controller for play-testing a level.
@@ -51,208 +83,121 @@ export class PlayMode {
    * @param {THREE.Scene} scene
    * @param {THREE.Camera} camera
    * @param {object} [options]
-   * @param {() => Iterable<Gamepad|null>} [options.getGamepads] — injectable for testing
+   * @param {InputSystem} [options.inputSystem] — injectable for testing; a default is created if omitted
+   * @param {THREE.Mesh|null} [options.playerMesh] — mesh from the renderer representing the
+   *   level's player object. When provided PlayMode drives it directly and does not
+   *   create or destroy the placeholder. When omitted a cyan placeholder is created.
+   * @param {EventTarget} [options.eventTarget] — target for input listener attachment;
+   *   defaults to globalThis (=== window in browsers). Injectable for testing.
+   * @param {object|null} [options.playerDef] — the player’s GameObject definition.
+   *   When provided, PlayMode calls onAnimationChange whenever the controller
+   *   state changes, passing the resolved animation definition.
+   * @param {((animDef: object|null) => void)|null} [options.onAnimationChange] —
+   *   called with the new animation definition each time the player state changes.
    */
-  constructor(level, scene, camera, { getGamepads } = {}) {
+  constructor(level, scene, camera, { inputSystem, playerMesh, eventTarget, playerDef, onAnimationChange } = {}) {
     this.level = level;
     this.scene = scene;
     this.camera = camera;
 
-    // Player state
+    // Input system — use injected instance or create a default one
+    if (inputSystem) {
+      this._inputSystem = inputSystem;
+    } else {
+      const settings = new SettingsStore();
+      const actionMap = new ActionMap(settings);
+      this._inputSystem = new InputSystem(actionMap);
+    }
+    // Event target stored so dispose() can detach from the same target.
+    this._eventTarget = eventTarget ?? globalThis;
+    this._inputSystem.attach(this._eventTarget);
+
+    // Player spawn from the level's configured player object
     const spawn = level.findPlayerSpawn() ?? level.findSpawn();
     this._offsetX = level.width / 2;
     this._offsetY = level.height / 2;
 
-    this.px = spawn.x + 0.5; // center of tile
-    this.py = spawn.y + 0.5;
-    this.vx = 0;
-    this.vy = 0;
-    this.grounded = false;
+    // Player controller — physics owned here, positioned at spawn
+    this._ctrl = new PlayerController(
+      {},
+      (gx, gy) => level.getTile(gx, gy) === TILE.SOLID
+    );
+    this._ctrl.x = spawn.x + 0.5;
+    this._ctrl.y = spawn.y + 0.5;
+
     this._accumulator = 0;
 
-    // Keyboard input state (set by keydown/keyup)
-    this._keys = { left: false, right: false, jump: false };
-    this._jumpConsumed = false;
+    // Animation-state tracking
+    this._playerDef = playerDef ?? null;
+    this._onAnimationChange = onAnimationChange ?? null;
+    this._lastPlayerState = null;
 
-    // Gamepad input state (polled each frame)
-    this._gpKeys     = { left: false, right: false, jump: false };
-    this._gpJumpPrev = false;
-    this._getGamepads = getGamepads ?? (() => {
-      if (typeof navigator !== 'undefined' && typeof navigator.getGamepads === 'function') {
-        return navigator.getGamepads();
-      }
-      return [];
-    });
-
-    // Player mesh
-    const geo = new THREE.PlaneGeometry(PLAYER_W * TILE_SIZE, PLAYER_H * TILE_SIZE);
-    const mat = new THREE.MeshBasicMaterial({ color: 0x48bfe3 });
-    this.mesh = new THREE.Mesh(geo, mat);
-    this.mesh.position.z = 0.2;
-    scene.add(this.mesh);
-
-    // Input handlers (bound for removal)
-    this._onKeyDown = (e) => this._handleKey(e, true);
-    this._onKeyUp = (e) => this._handleKey(e, false);
-    window.addEventListener('keydown', this._onKeyDown);
-    window.addEventListener('keyup', this._onKeyUp);
+    // Player mesh: use the level's player object mesh when provided; otherwise
+    // create a cyan placeholder so play-testing still works without a full renderer.
+    if (playerMesh) {
+      this.mesh = playerMesh;
+      this._ownsPlayerMesh = false;
+    } else {
+      const geo = new THREE.PlaneGeometry(PLAYER_W * TILE_SIZE, PLAYER_H * TILE_SIZE);
+      const mat = new THREE.MeshBasicMaterial({ color: 0x48bfe3 });
+      this.mesh = new THREE.Mesh(geo, mat);
+      this.mesh.position.z = 0.2;
+      scene.add(this.mesh);
+      this._ownsPlayerMesh = true;
+    }
   }
 
   /** Advance simulation and sync visuals. */
   update(dt) {
-    this._sampleGamepad();
+    this._inputSystem.update();
+    const input = snapshotToControllerInput(this._inputSystem.snapshot);
     this._accumulator += dt;
     while (this._accumulator >= FIXED_DT) {
-      this._fixedUpdate(FIXED_DT);
+      this._ctrl.step(input, FIXED_DT);
       this._accumulator -= FIXED_DT;
     }
+    this._updatePlayerAnimation();
     this._syncMesh();
     this._syncCamera();
   }
 
-  /** Remove mesh and listeners. */
+  /** Remove mesh and detach input listeners. */
   dispose() {
-    window.removeEventListener('keydown', this._onKeyDown);
-    window.removeEventListener('keyup', this._onKeyUp);
-    this.scene.remove(this.mesh);
-    this.mesh.geometry.dispose();
-    this.mesh.material.dispose();
+    this._inputSystem.detach(this._eventTarget);
+    if (this._ownsPlayerMesh) {
+      this.scene.remove(this.mesh);
+      this.mesh.geometry.dispose();
+      this.mesh.material.dispose();
+    }
   }
 
   // ---- Private ----
 
   /**
-   * Poll all connected gamepads and merge their state into _gpKeys.
-   * Detects jump-button release to reset _jumpConsumed (mirrors keyboard behaviour).
+   * Emit onAnimationChange when the player's logical state changes.
+   * Resolves the animation definition by looking up the behavior associated
+   * with the new state on the player's GameObject definition.
+   * Falls back to the idle behavior's animation if the state-specific one is absent.
    */
-  _sampleGamepad() {
-    this._gpKeys = pollGamepadInput(this._getGamepads());
-
-    // Falling edge on gamepad jump → reset consumed flag so the next
-    // button press can trigger a new jump (same as key-up for keyboard).
-    if (this._gpJumpPrev && !this._gpKeys.jump) {
-      this._jumpConsumed = false;
-    }
-    this._gpJumpPrev = this._gpKeys.jump;
-  }
-
-  _handleKey(e, down) {
-    switch (e.code) {
-      case 'ArrowLeft':
-      case 'KeyA':
-        this._keys.left = down;
-        break;
-      case 'ArrowRight':
-      case 'KeyD':
-        this._keys.right = down;
-        break;
-      case 'ArrowUp':
-      case 'KeyW':
-      case 'Space':
-        this._keys.jump = down;
-        if (!down) this._jumpConsumed = false;
-        break;
-    }
-  }
-
-  _fixedUpdate(dt) {
-    // Merge keyboard and gamepad inputs
-    const moveLeft  = this._keys.left  || this._gpKeys.left;
-    const moveRight = this._keys.right || this._gpKeys.right;
-    const wantsJump = this._keys.jump  || this._gpKeys.jump;
-
-    // Horizontal movement
-    this.vx = 0;
-    if (moveLeft)  this.vx = -MOVE_SPEED;
-    if (moveRight) this.vx =  MOVE_SPEED;
-
-    // Jump
-    if (wantsJump && this.grounded && !this._jumpConsumed) {
-      this.vy = JUMP_VELOCITY;
-      this.grounded = false;
-      this._jumpConsumed = true;
-    }
-
-    // Gravity
-    this.vy += GRAVITY * dt;
-
-    // Move X, then resolve collisions
-    this.px += this.vx * dt;
-    this._resolveX();
-
-    // Move Y, then resolve collisions
-    this.py += this.vy * dt;
-    this._resolveY();
-  }
-
-  /** Check if a tile at grid (gx, gy) is solid. */
-  _isSolid(gx, gy) {
-    const t = this.level.getTile(gx, gy);
-    return t === TILE.SOLID;
-  }
-
-  _resolveX() {
-    const hw = PLAYER_W / 2;
-    const hh = PLAYER_H / 2;
-    const left = this.px - hw;
-    const right = this.px + hw;
-    const top = this.py + hh - 0.01;
-    const bottom = this.py - hh + 0.01;
-
-    const minGX = Math.floor(left);
-    const maxGX = Math.floor(right);
-    const minGY = Math.floor(bottom);
-    const maxGY = Math.floor(top);
-
-    for (let gy = minGY; gy <= maxGY; gy++) {
-      for (let gx = minGX; gx <= maxGX; gx++) {
-        if (!this._isSolid(gx, gy)) continue;
-        if (this.vx > 0) {
-          this.px = gx - hw;
-        } else if (this.vx < 0) {
-          this.px = gx + 1 + hw;
-        }
-        this.vx = 0;
-      }
-    }
-  }
-
-  _resolveY() {
-    const hw = PLAYER_W / 2;
-    const hh = PLAYER_H / 2;
-    const left = this.px - hw + 0.01;
-    const right = this.px + hw - 0.01;
-    const top = this.py + hh;
-    const bottom = this.py - hh;
-
-    const minGX = Math.floor(left);
-    const maxGX = Math.floor(right);
-    const minGY = Math.floor(bottom);
-    const maxGY = Math.floor(top);
-
-    this.grounded = false;
-    for (let gy = minGY; gy <= maxGY; gy++) {
-      for (let gx = minGX; gx <= maxGX; gx++) {
-        if (!this._isSolid(gx, gy)) continue;
-        if (this.vy < 0) {
-          this.py = gy + 1 + hh;
-          this.grounded = true;
-        } else if (this.vy > 0) {
-          this.py = gy - hh;
-        }
-        this.vy = 0;
-      }
-    }
+  _updatePlayerAnimation() {
+    if (!this._playerDef || !this._onAnimationChange) return;
+    const state = this._ctrl.state;
+    if (state === this._lastPlayerState) return;
+    this._lastPlayerState = state;
+    const behaviorId = STATE_BEHAVIOR[state] ?? 'idle';
+    const animDef = resolveBehaviorAnimDef(this._playerDef, behaviorId)
+      ?? resolveBehaviorAnimDef(this._playerDef, 'idle');
+    this._onAnimationChange(animDef);
   }
 
   _syncMesh() {
-    this.mesh.position.x = (this.px - this._offsetX) * TILE_SIZE;
-    this.mesh.position.y = (this.py - this._offsetY) * TILE_SIZE;
+    this.mesh.position.x = (this._ctrl.x - this._offsetX) * TILE_SIZE;
+    this.mesh.position.y = (this._ctrl.y - this._offsetY) * TILE_SIZE;
   }
 
   _syncCamera() {
-    const cx = (this.px - this._offsetX) * TILE_SIZE;
-    const cy = (this.py - this._offsetY) * TILE_SIZE;
+    const cx = (this._ctrl.x - this._offsetX) * TILE_SIZE;
+    const cy = (this._ctrl.y - this._offsetY) * TILE_SIZE;
     const hw = (this.camera.right - this.camera.left) / 2;
     const hh = (this.camera.top - this.camera.bottom) / 2;
     this.camera.left = cx - hw;
