@@ -12,6 +12,10 @@ describe('TRIGGER_TYPES', () => {
     expect(TRIGGER_TYPES).toContain('on_collide');
     expect(TRIGGER_TYPES).toContain('on_interact');
   });
+
+  it('contains control trigger type', () => {
+    expect(TRIGGER_TYPES).toContain('control');
+  });
 });
 
 describe('BehaviorTrigger', () => {

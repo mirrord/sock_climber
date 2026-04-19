@@ -85,6 +85,27 @@ export const TEMPLATES = {
     et.addTrigger(new BehaviorTrigger({ type: 'proximity', behaviorId: 'fire_event', params: { radius: 2 } }));
     return et;
   })(),
+
+  player: (() => {
+    const p = new GameObject({
+      type: 'player',
+      name: 'Player',
+      collisionGroup: COLLISION_GROUP.PLAYER,
+      collisionMask: COLLISION_GROUP.ENVIRONMENT | COLLISION_GROUP.ENEMY | COLLISION_GROUP.COLLECTIBLE | COLLISION_GROUP.TRIGGER,
+      properties: {},
+    });
+    p.addBehavior(new Behavior({ id: 'jump',       name: 'Jump',       animation: 'jump',   params: {} }));
+    p.addBehavior(new Behavior({ id: 'move_left',  name: 'Move Left',  animation: 'run',    params: {} }));
+    p.addBehavior(new Behavior({ id: 'move_right', name: 'Move Right', animation: 'run',    params: {} }));
+    p.addBehavior(new Behavior({ id: 'crouch',     name: 'Crouch',     animation: 'crouch', params: {} }));
+    p.addBehavior(new Behavior({ id: 'dash',       name: 'Dash',       animation: 'dash',   params: {} }));
+    p.addTrigger(new BehaviorTrigger({ type: 'control', behaviorId: 'jump',       params: { action: 'jump'      } }));
+    p.addTrigger(new BehaviorTrigger({ type: 'control', behaviorId: 'move_left',  params: { action: 'moveLeft'  } }));
+    p.addTrigger(new BehaviorTrigger({ type: 'control', behaviorId: 'move_right', params: { action: 'moveRight' } }));
+    p.addTrigger(new BehaviorTrigger({ type: 'control', behaviorId: 'crouch',     params: { action: 'crouch'    } }));
+    p.addTrigger(new BehaviorTrigger({ type: 'control', behaviorId: 'dash',       params: { action: 'dash'      } }));
+    return p;
+  })(),
 };
 
 /**

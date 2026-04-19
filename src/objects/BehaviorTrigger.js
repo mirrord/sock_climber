@@ -5,6 +5,7 @@ export const TRIGGER_TYPES = [
   'stat_change',
   'on_collide',
   'on_interact',
+  'control',
 ];
 
 /**

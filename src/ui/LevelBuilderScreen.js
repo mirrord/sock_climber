@@ -8,11 +8,13 @@ export class LevelBuilderScreen {
    * @param {HTMLElement} container
    * @param {import('../level/LevelStore.js').LevelStore} levelStore
    * @param {object} callbacks — { onBack }
+   * @param {import('../objects/ObjectStore.js').ObjectStore} [objectStore]
    */
-  constructor(container, levelStore, callbacks) {
+  constructor(container, levelStore, callbacks, objectStore = null) {
     this._container = container;
     this._store = levelStore;
     this._callbacks = callbacks;
+    this._objectStore = objectStore;
     this._editorApp = null;
     this._topBar = null;
     this._onKeyDown = null;
@@ -64,7 +66,7 @@ export class LevelBuilderScreen {
     window.addEventListener('keydown', this._onKeyDown);
 
     // Create the editor
-    this._editorApp = new EditorApp(this._container);
+    this._editorApp = new EditorApp(this._container, this._objectStore);
   }
 
   exit() {

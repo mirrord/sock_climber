@@ -7,6 +7,7 @@ import { LevelStore } from './level/LevelStore.js';
 import { AssetManifest } from './assets/AssetManifest.js';
 import { AssetStore } from './assets/AssetStore.js';
 import { AssetLoader } from './assets/AssetLoader.js';
+import { ObjectStore } from './objects/ObjectStore.js';
 import { SettingsStore } from './settings/SettingsStore.js';
 import { ActionMap } from './input/ActionMap.js';
 
@@ -19,6 +20,7 @@ const assetStore = new AssetStore(manifest);
 const assetLoader = new AssetLoader(assetStore, manifest);
 
 const levelStore = new LevelStore(assetStore);
+const objectStore = new ObjectStore(assetStore);
 const settingsStore = new SettingsStore();
 const actionMap = new ActionMap(settingsStore);
 const sm = new ScreenManager();
@@ -54,10 +56,10 @@ if (devMode) {
 
   const levelBuilder = new LevelBuilderScreen(document.body, levelStore, {
     onBack: () => sm.back(),
-  });
+  }, objectStore);
   const objectEditor = new ObjectEditorScreen(document.body, {
     onBack: () => sm.back(),
-  });
+  }, objectStore);
 
   sm.register('levelBuilder', levelBuilder);
   sm.register('objectEditor', objectEditor);

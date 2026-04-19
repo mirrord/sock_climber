@@ -53,10 +53,11 @@ describe('Behavior', () => {
 });
 
 describe('STANDARD_BEHAVIORS', () => {
-  it('includes move and die', () => {
+  it('includes move, die, and idle', () => {
     const ids = STANDARD_BEHAVIORS.map((b) => b.id);
     expect(ids).toContain('move');
     expect(ids).toContain('die');
+    expect(ids).toContain('idle');
   });
 
   it('all entries are Behavior instances', () => {

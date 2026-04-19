@@ -83,3 +83,106 @@ describe('Level', () => {
     expect(spawn).toEqual({ x: 0, y: 0 });
   });
 });
+
+describe('Level object placement', () => {
+  it('starts with empty objects array', () => {
+    const level = new Level(5, 5);
+    expect(level.objects).toEqual([]);
+  });
+
+  it('placeObject adds an entry and returns an id', () => {
+    const level = new Level(5, 5);
+    const id = level.placeObject({ type: 'player', x: 2, y: 3 });
+    expect(typeof id).toBe('string');
+    expect(level.objects).toHaveLength(1);
+    expect(level.objects[0]).toMatchObject({ type: 'player', x: 2, y: 3, id });
+  });
+
+  it('placeObject uses provided id when given', () => {
+    const level = new Level(5, 5);
+    const id = level.placeObject({ type: 'platform', x: 0, y: 0, id: 'fixed_id' });
+    expect(id).toBe('fixed_id');
+    expect(level.objects[0].id).toBe('fixed_id');
+  });
+
+  it('placeObject copies properties without sharing references', () => {
+    const level = new Level(5, 5);
+    const props = { foo: 'bar' };
+    level.placeObject({ type: 'enemy', x: 1, y: 1, properties: props });
+    props.foo = 'changed';
+    expect(level.objects[0].properties.foo).toBe('bar');
+  });
+
+  it('removeObject removes by id', () => {
+    const level = new Level(5, 5);
+    const id = level.placeObject({ type: 'player', x: 0, y: 0 });
+    level.removeObject(id);
+    expect(level.objects).toHaveLength(0);
+  });
+
+  it('removeObject is a no-op for unknown id', () => {
+    const level = new Level(5, 5);
+    level.placeObject({ type: 'player', x: 0, y: 0 });
+    level.removeObject('nonexistent');
+    expect(level.objects).toHaveLength(1);
+  });
+
+  it('findObjectByType returns the first matching object', () => {
+    const level = new Level(5, 5);
+    level.placeObject({ type: 'enemy', x: 1, y: 1 });
+    level.placeObject({ type: 'player', x: 2, y: 3 });
+    const found = level.findObjectByType('player');
+    expect(found).toMatchObject({ type: 'player', x: 2, y: 3 });
+  });
+
+  it('findObjectByType returns null when no match', () => {
+    const level = new Level(5, 5);
+    expect(level.findObjectByType('player')).toBeNull();
+  });
+
+  it('findPlayerSpawn returns position of placed player object', () => {
+    const level = new Level(5, 5);
+    level.placeObject({ type: 'player', x: 3, y: 4 });
+    expect(level.findPlayerSpawn()).toEqual({ x: 3, y: 4 });
+  });
+
+  it('findPlayerSpawn returns null when no player object placed', () => {
+    const level = new Level(5, 5);
+    expect(level.findPlayerSpawn()).toBeNull();
+  });
+
+  it('toJSON and fromJSON round-trip preserves objects', () => {
+    const level = new Level(5, 5);
+    level.placeObject({ type: 'player', x: 1, y: 2, properties: { hp: 3 } });
+    const restored = Level.fromJSON(level.toJSON());
+    expect(restored.objects).toHaveLength(1);
+    expect(restored.objects[0]).toMatchObject({ type: 'player', x: 1, y: 2 });
+    expect(restored.objects[0].properties.hp).toBe(3);
+  });
+});
+
+describe('Level.validate', () => {
+  it('returns invalid with error when no player object placed', () => {
+    const level = new Level(5, 5);
+    const result = level.validate();
+    expect(result.valid).toBe(false);
+    expect(result.errors).toHaveLength(1);
+  });
+
+  it('returns valid when exactly 1 player object placed', () => {
+    const level = new Level(5, 5);
+    level.placeObject({ type: 'player', x: 0, y: 0 });
+    const result = level.validate();
+    expect(result.valid).toBe(true);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it('returns invalid with error when more than 1 player placed', () => {
+    const level = new Level(5, 5);
+    level.placeObject({ type: 'player', x: 0, y: 0 });
+    level.placeObject({ type: 'player', x: 2, y: 2 });
+    const result = level.validate();
+    expect(result.valid).toBe(false);
+    expect(result.errors).toHaveLength(1);
+  });
+});

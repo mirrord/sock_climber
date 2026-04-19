@@ -12,8 +12,11 @@ const DEFAULT_HEIGHT = 20;
  * Top-level controller that wires editor logic, rendering, UI, and play mode.
  */
 export class EditorApp {
-  /** @param {HTMLElement} container */
-  constructor(container) {
+  /**
+   * @param {HTMLElement} container
+   * @param {import('../objects/ObjectStore.js').ObjectStore} [objectStore]
+   */
+  constructor(container, objectStore = null) {
     this._container = container;
     this._editor = new LevelEditor(DEFAULT_WIDTH, DEFAULT_HEIGHT);
     this._renderer = new EditorRenderer(container);
@@ -21,9 +24,22 @@ export class EditorApp {
     this._rafId = null;
     this._lastTime = 0;
 
-    // Object editor
+    // Object editor — hydrate library from persisted store if provided
     this._objectEditor = new ObjectEditor();
-    this._objectEditorUI = new ObjectEditorUI(document.body, this._objectEditor);
+    if (objectStore) {
+      for (const obj of objectStore.loadAll()) {
+        this._objectEditor.library.push(obj);
+      }
+    }
+    /**
+     * When non-null, next canvas click places this object type.
+     * @type {import('../objects/GameObject.js').GameObject|null}
+     */
+    this._pendingPlacement = null;
+
+    this._objectEditorUI = new ObjectEditorUI(document.body, this._objectEditor, {
+      onSelectForPlacement: (obj) => this._startPlacement(obj),
+    });
 
     // Background layers panel
     this._bgPanel = this._buildBgPanel();
@@ -44,6 +60,7 @@ export class EditorApp {
 
     // Initial render
     this._renderer.rebuildFromLevel(this._editor.level);
+    this._renderer.rebuildObjects(this._editor.level);
 
     // Input bindings
     this._bindEditorInput();
@@ -57,6 +74,8 @@ export class EditorApp {
   // ---- Edit / Play toggle ----
 
   _togglePlay() {
+    // Cancel any active placement when switching mode
+    this._cancelPlacement();
     this._editor.toggleMode();
     this._ui.setMode(this._editor.mode);
 
@@ -73,6 +92,7 @@ export class EditorApp {
         this._playMode = null;
       }
       this._renderer.rebuildFromLevel(this._editor.level);
+      this._renderer.rebuildObjects(this._editor.level);
     }
   }
 
@@ -98,14 +118,44 @@ export class EditorApp {
     canvas.addEventListener('mousemove', (e) => {
       if (this._editor.mode !== 'edit') return;
       const grid = this._renderer.screenToGrid(e.clientX, e.clientY);
-      this._renderer.showHover(grid.x, grid.y);
+      if (this._pendingPlacement) {
+        this._renderer.showPendingHover(grid.x, grid.y);
+      } else {
+        this._renderer.hidePendingHover();
+        this._renderer.showHover(grid.x, grid.y);
+      }
     });
 
     canvas.addEventListener('mouseleave', () => {
       this._renderer.hideHover();
+      this._renderer.hidePendingHover();
     });
 
-    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    canvas.addEventListener('click', (e) => {
+      if (this._editor.mode !== 'edit') return;
+      if (!this._pendingPlacement) return;
+      const grid = this._renderer.screenToGrid(e.clientX, e.clientY);
+      this._editor.placeObject(this._pendingPlacement.type, grid.x, grid.y);
+      this._renderer.rebuildObjects(this._editor.level);
+      // Keep placement mode active (holding type) until user cancels
+    });
+
+    canvas.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      if (this._editor.mode !== 'edit') return;
+      if (this._pendingPlacement) {
+        // Right-click cancels placement mode
+        this._cancelPlacement();
+        return;
+      }
+      // Right-click on an existing object removes it
+      const grid = this._renderer.screenToGrid(e.clientX, e.clientY);
+      const obj = this._editor.getObjectAt(grid.x, grid.y);
+      if (obj) {
+        this._editor.removeObject(obj.id);
+        this._renderer.rebuildObjects(this._editor.level);
+      }
+    });
 
     // Scroll to zoom
     canvas.addEventListener('wheel', (e) => {
@@ -114,8 +164,32 @@ export class EditorApp {
     }, { passive: false });
   }
 
+  /**
+   * Enter placement mode for the given object template.
+   * Cursor changes and next left-click places the object.
+   * @param {import('../objects/GameObject.js').GameObject} obj
+   */
+  _startPlacement(obj) {
+    this._pendingPlacement = obj;
+    this._renderer.renderer.domElement.style.cursor = 'crosshair';
+  }
+
+  /** Cancel placement mode without placing anything. */
+  _cancelPlacement() {
+    if (!this._pendingPlacement) return;
+    this._pendingPlacement = null;
+    this._renderer.hidePendingHover();
+    this._renderer.renderer.domElement.style.cursor = '';
+  }
+
   _bindKeyboard() {
     window.addEventListener('keydown', (e) => {
+      // Escape cancels pending placement
+      if (e.code === 'Escape' && this._pendingPlacement) {
+        this._cancelPlacement();
+        return;
+      }
+
       // Tab toggles play/edit
       if (e.code === 'Tab') {
         e.preventDefault();

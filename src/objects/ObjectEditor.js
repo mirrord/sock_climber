@@ -97,6 +97,17 @@ export class ObjectEditor {
     this.current.removeBehavior(behaviorId);
   }
 
+  /**
+   * Set the animation linked to a specific behavior.
+   * @param {string} behaviorId
+   * @param {string|null} animationName
+   */
+  setBehaviorAnimation(behaviorId, animationName) {
+    this._requireCurrent();
+    const b = this.current.behaviors.find((bh) => bh.id === behaviorId);
+    if (b) b.animation = animationName;
+  }
+
   addTrigger(trigger) {
     this._requireCurrent();
     this.current.addTrigger(trigger);

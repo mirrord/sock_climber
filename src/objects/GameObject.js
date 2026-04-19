@@ -1,4 +1,4 @@
-import { Behavior } from './Behavior.js';
+import { Behavior, createBehavior } from './Behavior.js';
 import { BehaviorTrigger } from './BehaviorTrigger.js';
 
 let _nextId = 1;
@@ -46,6 +46,9 @@ export class GameObject {
     this.collisionGroup = collisionGroup;
     this.collisionMask = collisionMask;
     this.behaviors = behaviors;
+    if (!this.behaviors.some((b) => b.id === 'idle')) {
+      this.behaviors.unshift(createBehavior('idle'));
+    }
     this.triggers = triggers;
     this.properties = { ...properties };
     this.animations = animations.map((a) => ({ ...a }));

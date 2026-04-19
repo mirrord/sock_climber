@@ -2,6 +2,19 @@ import * as THREE from 'three';
 import { TILE } from '../level/Level.js';
 import { TILE_COLORS, GRID_COLOR, TILE_SIZE } from './editorConstants.js';
 
+/** Colors for placed object types, keyed by type string. */
+const OBJECT_COLORS = {
+  player:      0x48bfe3,
+  enemy:       0xe63946,
+  collectible: 0xf4a261,
+  level_end:   0x2dc653,
+  event_trigger: 0xb48eff,
+  platform:    0x6b705c,
+  wall:        0x888888,
+  spawn_point: 0xaaaaff,
+};
+const OBJECT_COLOR_DEFAULT = 0xe8a735;
+
 /**
  * Renders a Level using Three.js with a top-down orthographic view.
  * Manages tile meshes via an InstancedMesh per tile type for performance.
@@ -46,6 +59,15 @@ export class EditorRenderer {
     this._hoverMesh = this._createHoverIndicator();
     this.scene.add(this._hoverMesh);
     this._hoverMesh.visible = false;
+
+    // Pending-placement hover (distinct color, shown instead of normal hover)
+    this._pendingHoverMesh = this._createHoverIndicator(0x48bfe3, 0.45);
+    this.scene.add(this._pendingHoverMesh);
+    this._pendingHoverMesh.visible = false;
+
+    // Placed-objects group — rebuilt via rebuildObjects()
+    this._objectsGroup = new THREE.Group();
+    this.scene.add(this._objectsGroup);
 
     // Reusable geometry for tiles
     this._tileGeo = new THREE.PlaneGeometry(TILE_SIZE * 0.95, TILE_SIZE * 0.95);
@@ -148,14 +170,64 @@ export class EditorRenderer {
     this.container.removeChild(this.renderer.domElement);
   }
 
+  /**
+   * Rebuild the visual representations of all placed objects from a Level.
+   * Call after any place / remove operation.
+   * @param {import('../level/Level.js').Level} level
+   */
+  rebuildObjects(level) {
+    // Remove old meshes
+    while (this._objectsGroup.children.length) {
+      const child = this._objectsGroup.children[0];
+      child.geometry.dispose();
+      child.material.dispose();
+      this._objectsGroup.remove(child);
+    }
+
+    for (const obj of level.objects) {
+      const color = OBJECT_COLORS[obj.type] ?? OBJECT_COLOR_DEFAULT;
+      // Slightly smaller than a tile so it sits inside the grid cell visually
+      const geo = new THREE.PlaneGeometry(TILE_SIZE * 0.7, TILE_SIZE * 0.7);
+      const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85 });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(
+        (obj.x - this._offsetX + 0.5) * TILE_SIZE,
+        (obj.y - this._offsetY + 0.5) * TILE_SIZE,
+        0.15,   // just above tiles
+      );
+      this._objectsGroup.add(mesh);
+    }
+  }
+
+  /**
+   * Show the pending-placement hover (distinct from the normal tile hover).
+   * Call during mousemove when a placement type is selected.
+   * @param {number} gridX
+   * @param {number} gridY
+   */
+  showPendingHover(gridX, gridY) {
+    this._hoverMesh.visible = false;
+    this._pendingHoverMesh.visible = true;
+    this._pendingHoverMesh.position.set(
+      (gridX - this._offsetX + 0.5) * TILE_SIZE,
+      (gridY - this._offsetY + 0.5) * TILE_SIZE,
+      0.2
+    );
+  }
+
+  /** Hide the pending-placement hover. */
+  hidePendingHover() {
+    this._pendingHoverMesh.visible = false;
+  }
+
   // ---- Private ----
 
-  _createHoverIndicator() {
+  _createHoverIndicator(color = 0xffffff, opacity = 0.25) {
     const geo = new THREE.PlaneGeometry(TILE_SIZE, TILE_SIZE);
     const mat = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
+      color,
       transparent: true,
-      opacity: 0.25,
+      opacity,
     });
     return new THREE.Mesh(geo, mat);
   }

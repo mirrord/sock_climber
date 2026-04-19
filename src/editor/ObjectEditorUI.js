@@ -16,9 +16,13 @@ export class ObjectEditorUI {
   /**
    * @param {HTMLElement} container
    * @param {ObjectEditor} objectEditor
+   * @param {object} [options]
+   * @param {(obj: import('../objects/GameObject.js').GameObject) => void} [options.onSelectForPlacement]
+   *   Called when the user clicks "Place in Level" on a library object.
    */
-  constructor(container, objectEditor) {
+  constructor(container, objectEditor, { onSelectForPlacement } = {}) {
     this._editor = objectEditor;
+    this._onSelectForPlacement = onSelectForPlacement ?? null;
     this._root = document.createElement('div');
     this._root.id = 'object-editor-panel';
     this._visible = false;
@@ -164,6 +168,15 @@ export class ObjectEditorUI {
       });
       btns.appendChild(loadBtn);
       btns.appendChild(delBtn);
+      if (this._onSelectForPlacement) {
+        const placeBtn = this._el('button', '', '📌 Place');
+        placeBtn.title = 'Click to enter placement mode — then click the grid to place';
+        placeBtn.addEventListener('click', () => {
+          this._onSelectForPlacement(obj);
+          this.hide();
+        });
+        btns.appendChild(placeBtn);
+      }
       item.appendChild(btns);
       section.appendChild(item);
     });

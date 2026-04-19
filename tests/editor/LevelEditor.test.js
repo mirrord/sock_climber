@@ -81,3 +81,84 @@ describe('LevelEditor', () => {
     expect(editor2.level.backgroundLayers[0].parallax).toBe(0.4);
   });
 });
+
+describe('LevelEditor object placement', () => {
+  let editor;
+
+  beforeEach(() => {
+    editor = new LevelEditor(20, 15);
+  });
+
+  it('placeObject places an object in the level and returns an id', () => {
+    const id = editor.placeObject('player', 5, 3);
+    expect(typeof id).toBe('string');
+    expect(editor.level.objects).toHaveLength(1);
+    expect(editor.level.objects[0]).toMatchObject({ type: 'player', x: 5, y: 3 });
+  });
+
+  it('placeObject forwards properties', () => {
+    editor.placeObject('enemy', 1, 2, { hp: 5 });
+    expect(editor.level.objects[0].properties.hp).toBe(5);
+  });
+
+  it('removeObject removes the object from the level', () => {
+    const id = editor.placeObject('player', 0, 0);
+    editor.removeObject(id);
+    expect(editor.level.objects).toHaveLength(0);
+  });
+
+  it('getObjects returns a copy of the placed objects array', () => {
+    editor.placeObject('player', 2, 2);
+    const objs = editor.getObjects();
+    expect(objs).toHaveLength(1);
+    objs.push({ type: 'fake' });
+    expect(editor.level.objects).toHaveLength(1);
+  });
+
+  it('validateLevel returns invalid when no player placed', () => {
+    const result = editor.validateLevel();
+    expect(result.valid).toBe(false);
+  });
+
+  it('validateLevel returns valid when exactly 1 player placed', () => {
+    editor.placeObject('player', 5, 5);
+    const result = editor.validateLevel();
+    expect(result.valid).toBe(true);
+  });
+
+  it('placeObject and removeObject round-trip through exportJSON/importJSON', () => {
+    editor.placeObject('player', 3, 7);
+    const json = editor.exportJSON();
+    const editor2 = new LevelEditor(1, 1);
+    editor2.importJSON(json);
+    expect(editor2.level.objects).toHaveLength(1);
+    expect(editor2.level.objects[0]).toMatchObject({ type: 'player', x: 3, y: 7 });
+  });
+
+  it('placing a second player replaces the first (unique-type enforcement)', () => {
+    editor.placeObject('player', 0, 0);
+    editor.placeObject('player', 3, 7);
+    const players = editor.level.objects.filter(o => o.type === 'player');
+    expect(players).toHaveLength(1);
+    expect(players[0].x).toBe(3);
+    expect(players[0].y).toBe(7);
+  });
+
+  it('placing a non-unique type does not replace existing objects of that type', () => {
+    editor.placeObject('enemy', 0, 0);
+    editor.placeObject('enemy', 5, 5);
+    const enemies = editor.level.objects.filter(o => o.type === 'enemy');
+    expect(enemies).toHaveLength(2);
+  });
+
+  it('getObjectAt returns the topmost object at grid coordinates', () => {
+    editor.placeObject('enemy', 2, 3);
+    const found = editor.getObjectAt(2, 3);
+    expect(found).not.toBeNull();
+    expect(found.type).toBe('enemy');
+  });
+
+  it('getObjectAt returns null when no object at that position', () => {
+    expect(editor.getObjectAt(0, 0)).toBeNull();
+  });
+});

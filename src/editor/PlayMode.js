@@ -59,7 +59,7 @@ export class PlayMode {
     this.camera = camera;
 
     // Player state
-    const spawn = level.findSpawn();
+    const spawn = level.findPlayerSpawn() ?? level.findSpawn();
     this._offsetX = level.width / 2;
     this._offsetY = level.height / 2;
 

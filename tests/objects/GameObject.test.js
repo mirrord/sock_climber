@@ -25,9 +25,23 @@ describe('GameObject', () => {
     expect(obj.name).toBe('Stone Platform');
     expect(obj.collisionGroup).toBe(COLLISION_GROUP.NONE);
     expect(obj.collisionMask).toBe(COLLISION_GROUP.NONE);
-    expect(obj.behaviors).toEqual([]);
     expect(obj.triggers).toEqual([]);
     expect(obj.properties).toEqual({});
+  });
+
+  it('always includes an idle behavior by default', () => {
+    const obj = new GameObject({ type: 'platform', name: 'Stone Platform' });
+    const idleBeh = obj.behaviors.find((b) => b.id === 'idle');
+    expect(idleBeh).toBeDefined();
+    expect(idleBeh.animation).toBe('idle');
+  });
+
+  it('does not duplicate idle when behaviors already include it', () => {
+    const b = new Behavior({ id: 'idle', name: 'Idle', animation: 'custom_idle' });
+    const obj = new GameObject({ type: 'platform', name: 'P', behaviors: [b] });
+    const idleBehaviors = obj.behaviors.filter((bh) => bh.id === 'idle');
+    expect(idleBehaviors).toHaveLength(1);
+    expect(idleBehaviors[0].animation).toBe('custom_idle');
   });
 
   it('accepts collision group and mask', () => {
@@ -46,11 +60,13 @@ describe('GameObject', () => {
     const obj = new GameObject({ type: 'enemy', name: 'Slime' });
     const moveBeh = new Behavior({ id: 'move', name: 'Move', params: { speed: 2 } });
     obj.addBehavior(moveBeh);
-    expect(obj.behaviors).toHaveLength(1);
-    expect(obj.behaviors[0].id).toBe('move');
+    // idle is auto-included, plus the added move behavior
+    expect(obj.behaviors.some((b) => b.id === 'move')).toBe(true);
+    expect(obj.behaviors.some((b) => b.id === 'idle')).toBe(true);
 
     obj.removeBehavior('move');
-    expect(obj.behaviors).toHaveLength(0);
+    expect(obj.behaviors.every((b) => b.id !== 'move')).toBe(true);
+    expect(obj.behaviors.some((b) => b.id === 'idle')).toBe(true);
   });
 
   it('adds and removes triggers', () => {
@@ -80,8 +96,8 @@ describe('GameObject', () => {
     expect(restored.type).toBe('enemy');
     expect(restored.name).toBe('Slime');
     expect(restored.collisionGroup).toBe(COLLISION_GROUP.ENEMY);
-    expect(restored.behaviors).toHaveLength(1);
-    expect(restored.behaviors[0].id).toBe('move');
+    expect(restored.behaviors.some((b) => b.id === 'move')).toBe(true);
+    expect(restored.behaviors.some((b) => b.id === 'idle')).toBe(true);
     expect(restored.triggers).toHaveLength(1);
     expect(restored.triggers[0].type).toBe('proximity');
     expect(restored.properties.hp).toBe(3);

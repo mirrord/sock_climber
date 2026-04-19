@@ -124,10 +124,12 @@ export class ObjectEditorScreen {
   /**
    * @param {HTMLElement} container
    * @param {object} callbacks — { onBack }
+   * @param {import('../objects/ObjectStore.js').ObjectStore} [objectStore]
    */
-  constructor(container, callbacks) {
+  constructor(container, callbacks, objectStore = null) {
     this._container = container;
     this._callbacks = callbacks;
+    this._store = objectStore;
     this._root = null;
     this._editor = null;
     /** @type {Set<string>} IDs of objects not yet saved to library */
@@ -141,6 +143,13 @@ export class ObjectEditorScreen {
 
   enter() {
     this._editor = new ObjectEditor();
+
+    // Hydrate library from persisted objects
+    if (this._store) {
+      for (const obj of this._store.loadAll()) {
+        this._editor.library.push(obj);
+      }
+    }
     this._root = document.createElement('div');
     this._root.className = 'oe-screen';
 
@@ -437,10 +446,19 @@ export class ObjectEditorScreen {
 
     const saveLib = this._el('button', '', 'Save to Library');
     saveLib.addEventListener('click', () => {
-      this._editor.saveToLibrary();
-      const id = this._editor.current.id;
-      this._unsavedIds.delete(id);
-      this._selectedLibId = id;
+      const obj = this._editor.current;
+      // Update library entry in place if already present, otherwise push
+      const existing = this._editor.library.findIndex(o => o.id === obj.id);
+      if (existing !== -1) {
+        this._editor.library[existing] = obj.clone();
+      } else {
+        this._editor.saveToLibrary();
+      }
+      if (this._store) {
+        this._store.save(obj);
+      }
+      this._unsavedIds.delete(obj.id);
+      this._selectedLibId = obj.id;
       this._refresh();
     });
     row.appendChild(saveLib);
@@ -608,6 +626,9 @@ export class ObjectEditorScreen {
         if (this._selectedLibId === obj.id) {
           this._selectedLibId = null;
           this._editor.current = null;
+        }
+        if (this._store) {
+          this._store.delete(obj.id);
         }
         this._editor.removeFromLibrary(idx);
         this._refresh();

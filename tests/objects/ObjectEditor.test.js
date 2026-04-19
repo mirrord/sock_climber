@@ -62,14 +62,17 @@ describe('ObjectEditor', () => {
   it('addBehavior appends a behavior', () => {
     editor.createBlank('custom', 'Obj');
     editor.addBehavior(new Behavior({ id: 'move', name: 'Move' }));
-    expect(editor.current.behaviors).toHaveLength(1);
+    // idle is auto-included; move is added on top
+    expect(editor.current.behaviors.some((b) => b.id === 'move')).toBe(true);
   });
 
   it('removeBehavior removes by id', () => {
     editor.createBlank('custom', 'Obj');
     editor.addBehavior(new Behavior({ id: 'move', name: 'Move' }));
     editor.removeBehavior('move');
-    expect(editor.current.behaviors).toHaveLength(0);
+    expect(editor.current.behaviors.every((b) => b.id !== 'move')).toBe(true);
+    // idle remains after removing move
+    expect(editor.current.behaviors.some((b) => b.id === 'idle')).toBe(true);
   });
 
   it('addTrigger appends a trigger', () => {
@@ -147,5 +150,45 @@ describe('ObjectEditor', () => {
     editor.saveToLibrary();
     editor.removeFromLibrary(0);
     expect(editor.library).toHaveLength(0);
+  });
+
+  // ---- Idle behavior ----
+
+  it('createBlank automatically includes an idle behavior', () => {
+    editor.createBlank('custom', 'Obj');
+    const ids = editor.current.behaviors.map((b) => b.id);
+    expect(ids).toContain('idle');
+  });
+
+  it('createFromTemplate automatically includes an idle behavior', () => {
+    editor.createFromTemplate('enemy');
+    const ids = editor.current.behaviors.map((b) => b.id);
+    expect(ids).toContain('idle');
+  });
+
+  // ---- setBehaviorAnimation ----
+
+  it('setBehaviorAnimation sets animation on an existing behavior', () => {
+    editor.createBlank('custom', 'Obj');
+    editor.addBehavior(new Behavior({ id: 'move', name: 'Move' }));
+    editor.setBehaviorAnimation('move', 'walk_cycle');
+    const b = editor.current.behaviors.find((bh) => bh.id === 'move');
+    expect(b.animation).toBe('walk_cycle');
+  });
+
+  it('setBehaviorAnimation can configure the idle behavior animation', () => {
+    editor.createBlank('custom', 'Obj');
+    editor.setBehaviorAnimation('idle', 'my_idle_anim');
+    const b = editor.current.behaviors.find((bh) => bh.id === 'idle');
+    expect(b.animation).toBe('my_idle_anim');
+  });
+
+  it('setBehaviorAnimation does nothing for unknown behavior id', () => {
+    editor.createBlank('custom', 'Obj');
+    expect(() => editor.setBehaviorAnimation('nonexistent', 'anim')).not.toThrow();
+  });
+
+  it('setBehaviorAnimation throws when no object is loaded', () => {
+    expect(() => editor.setBehaviorAnimation('idle', 'anim')).toThrow();
   });
 });

@@ -16,6 +16,7 @@ describe('templates', () => {
     expect(types).toContain('collectible');
     expect(types).toContain('level_end');
     expect(types).toContain('event_trigger');
+    expect(types).toContain('player');
   });
 
   it('getTemplate returns a GameObject clone', () => {
@@ -51,5 +52,41 @@ describe('templates', () => {
 
   it('returns null for unknown template', () => {
     expect(getTemplate('nonexistent')).toBe(null);
+  });
+
+  it('player template has PLAYER collision group', () => {
+    const player = getTemplate('player');
+    expect(player).toBeInstanceOf(GameObject);
+    expect(player.collisionGroup).toBe(COLLISION_GROUP.PLAYER);
+  });
+
+  it('player template has control triggers for all actions', () => {
+    const player = getTemplate('player');
+    const controlTriggers = player.triggers.filter((t) => t.type === 'control');
+    const actions = controlTriggers.map((t) => t.params.action);
+    expect(actions).toContain('jump');
+    expect(actions).toContain('moveLeft');
+    expect(actions).toContain('moveRight');
+    expect(actions).toContain('crouch');
+    expect(actions).toContain('dash');
+  });
+
+  it('player template has movement and action behaviors', () => {
+    const player = getTemplate('player');
+    const behaviorIds = player.behaviors.map((b) => b.id);
+    expect(behaviorIds).toContain('jump');
+    expect(behaviorIds).toContain('move_left');
+    expect(behaviorIds).toContain('move_right');
+    expect(behaviorIds).toContain('crouch');
+    expect(behaviorIds).toContain('dash');
+  });
+
+  it('every template has an idle behavior', () => {
+    const list = getTemplateList();
+    for (const tmpl of list) {
+      const obj = getTemplate(tmpl.type);
+      const ids = obj.behaviors.map((b) => b.id);
+      expect(ids, `Template '${tmpl.type}' is missing idle behavior`).toContain('idle');
+    }
   });
 });
