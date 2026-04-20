@@ -79,6 +79,10 @@ export class PlayerController {
     /** True while a dash-jump is active (reset on landing). */
     this._dashJumping = false;
 
+    // ── Facing direction ───────────────────────────────────────────
+    /** Last horizontal direction the player moved: 'left' or 'right'. */
+    this.facing = 'right';
+
     // ── Input edge-detection ─────────────────────────────────────────────
     /** Jump state from the previous step — used to detect press edges. */
     this._prevJump      = false;
@@ -136,9 +140,9 @@ export class PlayerController {
       : cfg.moveSpeed;
     const speed = this.grounded ? cfg.moveSpeed : airSpeed;
 
-    if      (input.left)  this.vx = -speed;
-    else if (input.right) this.vx =  speed;
-    else                  this.vx =  0;
+    if      (input.left)  { this.vx = -speed; this.facing = 'left'; }
+    else if (input.right) { this.vx =  speed;  this.facing = 'right'; }
+    else                    this.vx =  0;
 
     // ── Jump / wall kick (may override vx/vy set above) ───────────────────
     if (jumpPressed && !this._jumpConsumed) {

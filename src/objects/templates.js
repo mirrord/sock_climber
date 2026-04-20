@@ -93,6 +93,13 @@ export const TEMPLATES = {
       collisionGroup: COLLISION_GROUP.PLAYER,
       collisionMask: COLLISION_GROUP.ENVIRONMENT | COLLISION_GROUP.ENEMY | COLLISION_GROUP.COLLECTIBLE | COLLISION_GROUP.TRIGGER,
       properties: {},
+      animations: [
+        { id: 'a_idle',   name: 'idle',   spriteSheetId: null, frameWidth: 32, frameHeight: 32, frameStart: 0, frameCount: 1, fps: 1, loop: true },
+        { id: 'a_run',    name: 'run',    spriteSheetId: null, frameWidth: 32, frameHeight: 32, frameStart: 1, frameCount: 1, fps: 1, loop: true },
+        { id: 'a_jump',   name: 'jump',   spriteSheetId: null, frameWidth: 32, frameHeight: 32, frameStart: 2, frameCount: 1, fps: 1, loop: false },
+        { id: 'a_crouch', name: 'crouch', spriteSheetId: null, frameWidth: 32, frameHeight: 32, frameStart: 3, frameCount: 1, fps: 1, loop: true },
+        { id: 'a_dash',   name: 'dash',   spriteSheetId: null, frameWidth: 32, frameHeight: 32, frameStart: 4, frameCount: 1, fps: 1, loop: false },
+      ],
     });
     p.addBehavior(new Behavior({ id: 'jump',       name: 'Jump',       animation: 'jump',   params: {} }));
     p.addBehavior(new Behavior({ id: 'move_left',  name: 'Move Left',  animation: 'run',    params: {} }));

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { pollGamepadInput, snapshotToControllerInput, PlayMode } from '../../src/editor/PlayMode.js';
-import { Level } from '../../src/level/Level.js';
+import { Level, TILE } from '../../src/level/Level.js';
 
 function makeGamepad({ buttons = [], axes = [] } = {}) {
   // Fill to 17 buttons and 4 axes with defaults
@@ -158,7 +158,7 @@ function makePlayModeStubs() {
       return Object.freeze({ actions: Object.freeze(new Set()), axes: Object.freeze({}) });
     },
   };
-  const playerMesh = { position: { x: 0, y: 0, z: 0.15 } };
+  const playerMesh = { position: { x: 0, y: 0, z: 0.15 }, scale: { x: 1 } };
 
   return { level, scene, camera, inputSystem, playerMesh };
 }
@@ -260,5 +260,154 @@ describe('PlayMode — onAnimationChange', () => {
     if (def !== null) {
       expect(playerDef.animations).toContain(def);
     }
+  });
+});
+
+// ── PlayMode — directional animation ─────────────────────────────────────────
+
+describe('PlayMode — directional animation', () => {
+  // Two distinct animations so we can detect which one fires
+  const animIdle2 = { id: 'dI', name: 'idle',  spriteSheetId: null, frameWidth: 32, frameHeight: 32, frameStart: 0, frameCount: 2, fps: 4, loop: true };
+  const animRunL  = { id: 'dL', name: 'run_l', spriteSheetId: null, frameWidth: 32, frameHeight: 32, frameStart: 0, frameCount: 4, fps: 8, loop: true };
+  const animRunR  = { id: 'dR', name: 'run_r', spriteSheetId: null, frameWidth: 32, frameHeight: 32, frameStart: 4, frameCount: 4, fps: 8, loop: true };
+
+  const dirPlayerDef = {
+    behaviors: [
+      { id: 'idle',       animation: 'idle' },
+      { id: 'move_left',  animation: 'run_l' },
+      { id: 'move_right', animation: 'run_r' },
+    ],
+    animations: [animIdle2, animRunL, animRunR],
+  };
+
+  /** Level with solid floor at row 4 so the player (spawning at y=4.5) grounds immediately. */
+  function makeGroundedStubs(getActions = () => []) {
+    const level = new Level(10, 10);
+    for (let x = 0; x < 10; x++) level.setTile(x, 4, TILE.SOLID);
+    level.objects = [{ id: 'p1', type: 'player', x: 4, y: 4, properties: {} }];
+    const scene = { add: vi.fn(), remove: vi.fn() };
+    const camera = { left: -10, right: 10, top: 10, bottom: -10, updateProjectionMatrix: vi.fn() };
+    const inputSystem = {
+      attach: vi.fn(), detach: vi.fn(), update: vi.fn(),
+      get snapshot() {
+        return Object.freeze({ actions: Object.freeze(new Set(getActions())), axes: Object.freeze({}) });
+      },
+    };
+    const playerMesh = { position: { x: 0, y: 0, z: 0.15 }, scale: { x: 1 } };
+    return { level, scene, camera, inputSystem, playerMesh };
+  }
+
+  it('uses move_left behavior animation when running left (vx < 0)', () => {
+    let actions = [];
+    const { level, scene, camera, inputSystem, playerMesh } = makeGroundedStubs(() => actions);
+    const calls = [];
+    const pm = new PlayMode(level, scene, camera, {
+      inputSystem, playerMesh, playerDef: dirPlayerDef,
+      onAnimationChange: (def) => calls.push(def),
+    });
+    // Settle player on ground in idle
+    pm.update(1 / 60);
+    // Run left
+    actions = ['moveLeft'];
+    pm.update(1 / 60);
+    const last = calls[calls.length - 1];
+    expect(last).toBe(animRunL);
+  });
+
+  it('uses move_right behavior animation when running right (vx > 0)', () => {
+    let actions = [];
+    const { level, scene, camera, inputSystem, playerMesh } = makeGroundedStubs(() => actions);
+    const calls = [];
+    const pm = new PlayMode(level, scene, camera, {
+      inputSystem, playerMesh, playerDef: dirPlayerDef,
+      onAnimationChange: (def) => calls.push(def),
+    });
+    pm.update(1 / 60);
+    actions = ['moveRight'];
+    pm.update(1 / 60);
+    const last = calls[calls.length - 1];
+    expect(last).toBe(animRunR);
+  });
+
+  it('does not re-trigger animation change when same animDef is resolved after direction flip', () => {
+    // Both move_left and move_right resolve to the same animation — flipping direction should not restart it
+    const sharedAnim = { id: 'sR', name: 'run', spriteSheetId: null, frameWidth: 32, frameHeight: 32, frameStart: 0, frameCount: 4, fps: 8, loop: true };
+    const sharedDef = {
+      behaviors: [
+        { id: 'idle',       animation: 'idle' },
+        { id: 'move_left',  animation: 'run' },
+        { id: 'move_right', animation: 'run' },
+      ],
+      animations: [{ id: 'sI', name: 'idle', spriteSheetId: null, frameWidth: 32, frameHeight: 32, frameStart: 0, frameCount: 1, fps: 4, loop: true }, sharedAnim],
+    };
+    let actions = ['moveRight'];
+    const { level, scene, camera, inputSystem, playerMesh } = makeGroundedStubs(() => actions);
+    const calls = [];
+    const pm = new PlayMode(level, scene, camera, {
+      inputSystem, playerMesh, playerDef: sharedDef,
+      onAnimationChange: (def) => calls.push(def),
+    });
+    pm.update(1 / 60); // settle + run right → sharedAnim
+    const countAfterRight = calls.length;
+    actions = ['moveLeft'];
+    pm.update(1 / 60); // flip direction — same animation, should NOT re-fire
+    expect(calls.length).toBe(countAfterRight);
+  });
+});
+
+// ── PlayMode — mesh facing flip ───────────────────────────────────────────────
+
+describe('PlayMode — mesh facing flip', () => {
+  function makeGroundedFacingStubs(getActions = () => []) {
+    const level = new Level(10, 10);
+    for (let x = 0; x < 10; x++) level.setTile(x, 4, TILE.SOLID);
+    level.objects = [{ id: 'p1', type: 'player', x: 4, y: 4, properties: {} }];
+    const scene = { add: vi.fn(), remove: vi.fn() };
+    const camera = { left: -10, right: 10, top: 10, bottom: -10, updateProjectionMatrix: vi.fn() };
+    const inputSystem = {
+      attach: vi.fn(), detach: vi.fn(), update: vi.fn(),
+      get snapshot() {
+        return Object.freeze({ actions: Object.freeze(new Set(getActions())), axes: Object.freeze({}) });
+      },
+    };
+    const playerMesh = { position: { x: 0, y: 0, z: 0.15 }, scale: { x: 1 } };
+    return { level, scene, camera, inputSystem, playerMesh };
+  }
+
+  it('mesh scale.x is 1 (facing right) by default', () => {
+    const { level, scene, camera, inputSystem, playerMesh } = makeGroundedFacingStubs();
+    const pm = new PlayMode(level, scene, camera, { inputSystem, playerMesh });
+    pm.update(1 / 60);
+    expect(playerMesh.scale.x).toBe(1);
+  });
+
+  it('mesh scale.x flips to -1 when moving left', () => {
+    let actions = [];
+    const { level, scene, camera, inputSystem, playerMesh } = makeGroundedFacingStubs(() => actions);
+    const pm = new PlayMode(level, scene, camera, { inputSystem, playerMesh });
+    pm.update(1 / 60); // settle idle
+    actions = ['moveLeft'];
+    pm.update(1 / 60);
+    expect(playerMesh.scale.x).toBe(-1);
+  });
+
+  it('mesh scale.x is 1 when moving right', () => {
+    let actions = [];
+    const { level, scene, camera, inputSystem, playerMesh } = makeGroundedFacingStubs(() => actions);
+    const pm = new PlayMode(level, scene, camera, { inputSystem, playerMesh });
+    pm.update(1 / 60);
+    actions = ['moveRight'];
+    pm.update(1 / 60);
+    expect(playerMesh.scale.x).toBe(1);
+  });
+
+  it('mesh scale.x retains last direction when idle after moving left', () => {
+    let actions = ['moveLeft'];
+    const { level, scene, camera, inputSystem, playerMesh } = makeGroundedFacingStubs(() => actions);
+    const pm = new PlayMode(level, scene, camera, { inputSystem, playerMesh });
+    pm.update(1 / 60); // run left
+    actions = [];
+    pm.update(1 / 60); // idle — should keep -1
+    expect(playerMesh.scale.x).toBe(-1);
   });
 });

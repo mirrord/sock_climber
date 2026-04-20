@@ -1,3 +1,5 @@
+import { advanceAnimFrame, calcFrameSourceRect } from '../editor/animUtils.js';
+
 const SAM_STYLE_ID = 'sock_climber-sam-styles';
 let _animIdCounter = 1;
 
@@ -127,6 +129,28 @@ function injectSAMStyles() {
       border-radius: 3px;
     }
     .sam-config-cancel:hover { color: #eee; border-color: #aaa; }
+
+    /* Enlarged animation preview */
+    .sam-enlarged-preview {
+      position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+      background: #12122a; border: 1px solid #48bfe3; border-radius: 8px;
+      padding: 14px 16px; display: flex; flex-direction: column;
+      align-items: center; gap: 10px; z-index: 200;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.75);
+    }
+    .sam-enlarged-title {
+      color: #48bfe3; font-size: 13px; font-weight: bold; align-self: flex-start;
+    }
+    .sam-enlarged-canvas {
+      display: block; width: 320px; height: 200px;
+      background: #0a0a1a; image-rendering: pixelated;
+    }
+    .sam-enlarged-close {
+      background: none; border: 1px solid #555; color: #888;
+      padding: 4px 14px; cursor: pointer; font-family: inherit; font-size: 12px;
+      border-radius: 3px; align-self: flex-end;
+    }
+    .sam-enlarged-close:hover { color: #eee; border-color: #aaa; }
   `;
   document.head.appendChild(s);
 }
@@ -156,9 +180,14 @@ export class SpriteAnimationManager {
     this._configMode = null;
     this._editTargetId = null;
     this._configDraft = this._defaultDraft();
+    /** @type {string|null} */
+    this._selectedAnimId = null;
+    /** @type {number|null} */
+    this._previewRafId = null;
   }
 
   render() {
+    this._cancelPreviewLoop();
     this._container.innerHTML = '';
     injectSAMStyles();
 
@@ -172,6 +201,12 @@ export class SpriteAnimationManager {
 
     if (this._configMode) {
       this._buildConfigOverlay();
+    }
+
+    if (this._selectedAnimId) {
+      const anims = this._callbacks.getAnimations();
+      const anim = anims.find((a) => a.id === this._selectedAnimId);
+      if (anim) this._buildEnlargedPreview(anim);
     }
 
     this._container.appendChild(this._root);
@@ -304,7 +339,82 @@ export class SpriteAnimationManager {
     actions.appendChild(removeBtn);
 
     card.appendChild(actions);
+
+    card.addEventListener('click', (e) => {
+      if (e.target.closest && e.target.closest('.sam-anim-actions')) return;
+      this._selectedAnimId = anim.id;
+      this.render();
+    });
+
     return card;
+  }
+
+  _buildEnlargedPreview(anim) {
+    const overlay = document.createElement('div');
+    overlay.className = 'sam-enlarged-preview';
+
+    const title = document.createElement('div');
+    title.className = 'sam-enlarged-title';
+    title.textContent = anim.name || '(unnamed)';
+    overlay.appendChild(title);
+
+    const canvas = document.createElement('canvas');
+    canvas.className = 'sam-enlarged-canvas';
+    canvas.width = 320;
+    canvas.height = 200;
+    overlay.appendChild(canvas);
+    this._startPreviewLoop(canvas, anim);
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'sam-enlarged-close';
+    closeBtn.textContent = '✕ Close';
+    closeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this._selectedAnimId = null;
+      this.render();
+    });
+    overlay.appendChild(closeBtn);
+
+    this._root.appendChild(overlay);
+  }
+
+  _startPreviewLoop(canvas, anim) {
+    const sheets = this._callbacks.getSpriteSheets();
+    const sheet = sheets.find((s) => s.id === anim.spriteSheetId);
+    if (!sheet) {
+      this._drawPreview(canvas, anim);
+      return;
+    }
+    const img = new Image();
+    img.onload = () => {
+      const ctx = canvas.getContext('2d');
+      let animState = { frame: 0, timeAcc: 0, animDef: anim };
+      let lastTimestamp = null;
+      const tick = (timestamp) => {
+        const dt = lastTimestamp === null ? 0 : (timestamp - lastTimestamp) / 1000;
+        lastTimestamp = timestamp;
+        if (dt > 0) {
+          const next = advanceAnimFrame(animState, dt);
+          animState = { ...animState, frame: next.frame, timeAcc: next.timeAcc };
+        }
+        const { sx: fx, sy: fy } = calcFrameSourceRect(anim, sheet, animState.frame);
+        if (ctx) {
+          ctx.imageSmoothingEnabled = false;
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, fx, fy, anim.frameWidth, anim.frameHeight, 0, 0, canvas.width, canvas.height);
+        }
+        this._previewRafId = requestAnimationFrame(tick);
+      };
+      this._previewRafId = requestAnimationFrame(tick);
+    };
+    img.src = sheet.dataUrl;
+  }
+
+  _cancelPreviewLoop() {
+    if (this._previewRafId != null) {
+      cancelAnimationFrame(this._previewRafId);
+      this._previewRafId = null;
+    }
   }
 
   _buildConfigOverlay() {
@@ -514,10 +624,7 @@ export class SpriteAnimationManager {
 
     const img = new Image();
     img.onload = () => {
-      const framesPerRow = Math.max(1, Math.floor(sheet.width / anim.frameWidth));
-      const frameIdx = anim.frameStart;
-      const fx = (frameIdx % framesPerRow) * anim.frameWidth;
-      const fy = Math.floor(frameIdx / framesPerRow) * anim.frameHeight;
+      const { sx: fx, sy: fy } = calcFrameSourceRect(anim, sheet, 0);
       ctx.imageSmoothingEnabled = false;
       ctx.drawImage(
         img,

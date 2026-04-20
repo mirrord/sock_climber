@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { TILE } from '../level/Level.js';
 import { TILE_COLORS, GRID_COLOR, TILE_SIZE } from './editorConstants.js';
-import { resolveIdleAnimDef, advanceAnimFrame } from './animUtils.js';
+import { resolveIdleAnimDef, advanceAnimFrame, calcFrameSourceRect } from './animUtils.js';
 
 /** Colors for placed object types, keyed by type string. */
 const OBJECT_COLORS = {
@@ -78,6 +78,9 @@ export class EditorRenderer {
 
     /** @type {Array<{id: string, dataUrl: string, width: number, height: number}>} Cached from last rebuildObjects call. */
     this._spriteSheetCatalogue = [];
+
+    /** @type {Map<string, THREE.Texture>} Cached textures keyed by sprite-sheet id. */
+    this._textureCache = new Map();
 
     /** @type {Map<string, THREE.Mesh>} Keyed by placed-object id. */
     this._objectMeshById = new Map();
@@ -180,6 +183,8 @@ export class EditorRenderer {
     this.renderer.dispose();
     this._tileGeo.dispose();
     for (const mat of Object.values(this._tileMaterials)) mat.dispose();
+    for (const tex of this._textureCache.values()) tex.dispose();
+    this._textureCache.clear();
     this.container.removeChild(this.renderer.domElement);
   }
 
@@ -226,6 +231,19 @@ export class EditorRenderer {
         mesh = this._createColorObjectMesh(obj);
       }
 
+      // Pre-warm texture cache for ALL sprite sheets referenced by this object's
+      // animations. Without this, the first animation switch during play mode
+      // (e.g. idle → run) may hit an uncached sheet, creating a new Image
+      // just before render() — potentially causing one blank-texture frame.
+      if (def?.animations) {
+        for (const anim of def.animations) {
+          if (anim.spriteSheetId) {
+            const animSheet = sheets.find((s) => s.id === anim.spriteSheetId);
+            if (animSheet) this._getOrCreateTexture(animSheet);
+          }
+        }
+      }
+
       mesh.position.set(
         (obj.x - this._offsetX + 0.5) * TILE_SIZE,
         (obj.y - this._offsetY + 0.5) * TILE_SIZE,
@@ -261,8 +279,12 @@ export class EditorRenderer {
     if (!state) return;
     const sheet = animDef.spriteSheetId
       ? this._spriteSheetCatalogue.find((s) => s.id === animDef.spriteSheetId) ?? null
-      : null;
+      : state.sheet;   // fall back to current sheet when spriteSheetId is null
     if (!sheet) return;
+    // When the sprite sheet changes, swap the texture (cached, synchronous).
+    if (sheet !== state.sheet) {
+      state.mesh.material.map = this._getOrCreateTexture(sheet);
+    }
     state.animDef = animDef;
     state.sheet = sheet;
     state.frame = 0;
@@ -336,18 +358,13 @@ export class EditorRenderer {
   _createAnimatedObjectMesh(animDef, sheet) {
     const fw = animDef.frameWidth;
     const fh = animDef.frameHeight;
-    const framesPerRow = Math.max(1, Math.floor(sheet.width / fw));
     const rx = fw / sheet.width;
     const ry = fh / sheet.height;
 
-    const texture = new THREE.TextureLoader().load(sheet.dataUrl);
-    texture.wrapS = THREE.RepeatWrapping;
-    texture.wrapT = THREE.RepeatWrapping;
+    const texture = this._getOrCreateTexture(sheet);
     texture.repeat.set(rx, ry);
 
-    const frameIndex = animDef.frameStart;
-    const col = frameIndex % framesPerRow;
-    const row = Math.floor(frameIndex / framesPerRow);
+    const { col, row } = calcFrameSourceRect(animDef, sheet, 0);
     texture.offset.set(col * rx, 1 - (row + 1) * ry);
 
     const aspect = fh > 0 ? fw / fh : 1;
@@ -367,14 +384,32 @@ export class EditorRenderer {
   _applyAnimFrame(mesh, animDef, sheet, frame) {
     const fw = animDef.frameWidth;
     const fh = animDef.frameHeight;
-    const framesPerRow = Math.max(1, Math.floor(sheet.width / fw));
     const rx = fw / sheet.width;
     const ry = fh / sheet.height;
-    const frameIndex = animDef.frameStart + frame;
-    const col = frameIndex % framesPerRow;
-    const row = Math.floor(frameIndex / framesPerRow);
+    const { col, row } = calcFrameSourceRect(animDef, sheet, frame);
+    mesh.material.map.repeat.set(rx, ry);
     mesh.material.map.offset.set(col * rx, 1 - (row + 1) * ry);
     mesh.material.map.needsUpdate = true;
+  }
+
+  /**
+   * Get or create a cached Three.js texture for a sprite sheet.
+   * Uses a synchronously-created Image so the texture is immediately
+   * available for rendering — no flicker frame while an async load completes.
+   * @param {{id: string, dataUrl: string}} sheet
+   * @returns {THREE.Texture}
+   */
+  _getOrCreateTexture(sheet) {
+    let texture = this._textureCache.get(sheet.id);
+    if (texture) return texture;
+    const img = new Image();
+    img.src = sheet.dataUrl;
+    texture = new THREE.Texture(img);
+    texture.needsUpdate = true;
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    this._textureCache.set(sheet.id, texture);
+    return texture;
   }
 
   _createHoverIndicator(color = 0xffffff, opacity = 0.25) {

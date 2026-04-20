@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { SpriteAnimationManager } from '../../src/ui/SpriteAnimationManager.js';
 
 describe('SpriteAnimationManager', () => {
@@ -363,5 +363,181 @@ describe('SpriteAnimationManager', () => {
     ev.preventDefault = vi.fn();
     zone.dispatchEvent(ev);
     expect(ev.preventDefault).toHaveBeenCalled();
+  });
+
+  // ---- Enlarged preview ----
+
+  const animWithSheet = {
+    id: 'a1',
+    name: 'idle',
+    spriteSheetId: 'sheet1',
+    frameWidth: 32,
+    frameHeight: 32,
+    frameStart: 0,
+    frameCount: 4,
+    fps: 8,
+    loop: true,
+  };
+  const sheetEntry = { id: 'sheet1', name: 'spritesheet.png', dataUrl: 'data:image/png;base64,AA==', width: 128, height: 32 };
+
+  it('enlarged preview is not shown on first render', () => {
+    const sam = new SpriteAnimationManager(container, makeCallbacks());
+    sam.render();
+    expect(container.querySelector('.sam-enlarged-preview')).toBe(null);
+  });
+
+  it('clicking an animation card opens the enlarged preview overlay', () => {
+    const sam = new SpriteAnimationManager(
+      container,
+      makeCallbacks({ animations: [animWithSheet], sheets: [sheetEntry] }),
+    );
+    sam.render();
+    container.querySelector('.sam-anim-card').click();
+    expect(container.querySelector('.sam-enlarged-preview')).not.toBe(null);
+  });
+
+  it('enlarged preview shows the animation name', () => {
+    const sam = new SpriteAnimationManager(
+      container,
+      makeCallbacks({ animations: [animWithSheet], sheets: [sheetEntry] }),
+    );
+    sam.render();
+    container.querySelector('.sam-anim-card').click();
+    expect(container.querySelector('.sam-enlarged-preview').textContent).toContain('idle');
+  });
+
+  it('enlarged preview contains a canvas element', () => {
+    const sam = new SpriteAnimationManager(
+      container,
+      makeCallbacks({ animations: [animWithSheet], sheets: [sheetEntry] }),
+    );
+    sam.render();
+    container.querySelector('.sam-anim-card').click();
+    expect(container.querySelector('.sam-enlarged-preview canvas')).not.toBe(null);
+  });
+
+  it('enlarged preview has a close button', () => {
+    const sam = new SpriteAnimationManager(
+      container,
+      makeCallbacks({ animations: [animWithSheet], sheets: [sheetEntry] }),
+    );
+    sam.render();
+    container.querySelector('.sam-anim-card').click();
+    expect(container.querySelector('.sam-enlarged-close')).not.toBe(null);
+  });
+
+  it('clicking the close button dismisses the enlarged preview', () => {
+    const sam = new SpriteAnimationManager(
+      container,
+      makeCallbacks({ animations: [animWithSheet], sheets: [sheetEntry] }),
+    );
+    sam.render();
+    container.querySelector('.sam-anim-card').click();
+    container.querySelector('.sam-enlarged-close').click();
+    expect(container.querySelector('.sam-enlarged-preview')).toBe(null);
+  });
+
+  it('clicking a different card switches the enlarged preview to that animation', () => {
+    const anim2 = { ...animWithSheet, id: 'a2', name: 'run' };
+    const sam = new SpriteAnimationManager(
+      container,
+      makeCallbacks({ animations: [animWithSheet, anim2], sheets: [sheetEntry] }),
+    );
+    sam.render();
+    const cards = container.querySelectorAll('.sam-anim-card');
+    cards[0].click();  // opens 'idle'
+    cards[1].click();  // switches to 'run'
+    expect(container.querySelector('.sam-enlarged-preview').textContent).toContain('run');
+  });
+
+  it('clicking Edit on a card does NOT open the enlarged preview', () => {
+    const sam = new SpriteAnimationManager(
+      container,
+      makeCallbacks({ animations: [animWithSheet], sheets: [sheetEntry] }),
+    );
+    sam.render();
+    container.querySelector('.sam-anim-edit').click();
+    // config panel appears but not the enlarged preview
+    expect(container.querySelector('.sam-enlarged-preview')).toBe(null);
+  });
+
+  // ---- Animation loop ----
+  describe('animation loop', () => {
+    let OrigImage;
+
+    beforeEach(() => {
+      OrigImage = globalThis.Image;
+      // Synchronous Image stub: fires onload immediately when src is set
+      globalThis.Image = class {
+        set onload(fn) { this._onload = fn; }
+        set src(_) { if (this._onload) this._onload(); }
+      };
+    });
+
+    afterEach(() => {
+      globalThis.Image = OrigImage;
+      vi.restoreAllMocks();
+    });
+
+    it('rAF tick loop does not throw when animDef is preserved across frames', () => {
+      const callbacks = [];
+      vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation((cb) => {
+        callbacks.push(cb);
+        return callbacks.length;
+      });
+      vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(() => {});
+
+      const sam = new SpriteAnimationManager(
+        container,
+        makeCallbacks({ animations: [animWithSheet], sheets: [sheetEntry] }),
+      );
+      sam.render();
+      container.querySelector('.sam-anim-card').click();
+      // tick 0: dt=0, no advance (lastTimestamp is null)
+      callbacks[0]?.(0);
+      // tick 1: dt=200ms → elapsed=1, advanceAnimFrame returns state WITHOUT animDef
+      callbacks[1]?.(200);
+      // tick 2: if animDef was lost, this call throws TypeError inside advanceAnimFrame
+      expect(() => callbacks[2]?.(400)).not.toThrow();
+    });
+
+    it('starts a requestAnimationFrame loop when enlarged preview opens with a sheet', () => {
+      const rafSpy = vi.spyOn(globalThis, 'requestAnimationFrame').mockReturnValue(42);
+      const sam = new SpriteAnimationManager(
+        container,
+        makeCallbacks({ animations: [animWithSheet], sheets: [sheetEntry] }),
+      );
+      sam.render();
+      container.querySelector('.sam-anim-card').click();
+      expect(rafSpy).toHaveBeenCalled();
+    });
+
+    it('cancels the animation loop when the close button is clicked', () => {
+      vi.spyOn(globalThis, 'requestAnimationFrame').mockReturnValue(77);
+      const cafSpy = vi.spyOn(globalThis, 'cancelAnimationFrame');
+      const sam = new SpriteAnimationManager(
+        container,
+        makeCallbacks({ animations: [animWithSheet], sheets: [sheetEntry] }),
+      );
+      sam.render();
+      container.querySelector('.sam-anim-card').click();
+      container.querySelector('.sam-enlarged-close').click();
+      expect(cafSpy).toHaveBeenCalledWith(77);
+    });
+
+    it('cancels the previous loop when switching to a different animation card', () => {
+      let count = 0;
+      vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(() => ++count);
+      const cafSpy = vi.spyOn(globalThis, 'cancelAnimationFrame');
+      const anim2 = { ...animWithSheet, id: 'a2', name: 'run' };
+      const sam = new SpriteAnimationManager(
+        container,
+        makeCallbacks({ animations: [animWithSheet, anim2], sheets: [sheetEntry] }),
+      );
+      sam.render();
+      container.querySelectorAll('.sam-anim-card')[0].click(); // rAF id = 1
+      container.querySelectorAll('.sam-anim-card')[1].click(); // should cancel 1
+      expect(cafSpy).toHaveBeenCalledWith(1);
+    });
   });
 });

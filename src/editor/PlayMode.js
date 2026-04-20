@@ -130,7 +130,8 @@ export class PlayMode {
     // Animation-state tracking
     this._playerDef = playerDef ?? null;
     this._onAnimationChange = onAnimationChange ?? null;
-    this._lastPlayerState = null;
+    /** @type {string|undefined} Tracks the last resolved animDef.id to avoid redundant callbacks. */
+    this._lastAnimId = undefined;
 
     // Player mesh: use the level's player object mesh when provided; otherwise
     // create a cyan placeholder so play-testing still works without a full renderer.
@@ -174,25 +175,32 @@ export class PlayMode {
   // ---- Private ----
 
   /**
-   * Emit onAnimationChange when the player's logical state changes.
-   * Resolves the animation definition by looking up the behavior associated
-   * with the new state on the player's GameObject definition.
-   * Falls back to the idle behavior's animation if the state-specific one is absent.
+   * Emit onAnimationChange when the resolved animation changes.
+   * Direction of horizontal movement is used to disambiguate move_left vs move_right
+   * so that each can carry its own animation.
+   * Tracks by resolved animDef.id so switching between behaviors that share the
+   * same animation does not restart it unnecessarily.
    */
   _updatePlayerAnimation() {
     if (!this._playerDef || !this._onAnimationChange) return;
     const state = this._ctrl.state;
-    if (state === this._lastPlayerState) return;
-    this._lastPlayerState = state;
-    const behaviorId = STATE_BEHAVIOR[state] ?? 'idle';
+    let behaviorId = STATE_BEHAVIOR[state] ?? 'idle';
+    // Distinguish left/right running so move_left animations are honoured
+    if (state === STATE.RUNNING && this._ctrl.vx < 0) {
+      behaviorId = 'move_left';
+    }
     const animDef = resolveBehaviorAnimDef(this._playerDef, behaviorId)
       ?? resolveBehaviorAnimDef(this._playerDef, 'idle');
+    const animId = animDef?.id ?? null;
+    if (animId === this._lastAnimId) return;
+    this._lastAnimId = animId;
     this._onAnimationChange(animDef);
   }
 
   _syncMesh() {
     this.mesh.position.x = (this._ctrl.x - this._offsetX) * TILE_SIZE;
     this.mesh.position.y = (this._ctrl.y - this._offsetY) * TILE_SIZE;
+    this.mesh.scale.x = this._ctrl.facing === 'left' ? -1 : 1;
   }
 
   _syncCamera() {

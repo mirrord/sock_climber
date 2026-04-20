@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveIdleAnimDef, resolveBehaviorAnimDef, advanceAnimFrame } from '../../src/editor/animUtils.js';
+import { resolveIdleAnimDef, resolveBehaviorAnimDef, advanceAnimFrame, calcFrameSourceRect } from '../../src/editor/animUtils.js';
 import { GameObject } from '../../src/objects/GameObject.js';
 import { Behavior } from '../../src/objects/Behavior.js';
 
@@ -179,5 +179,59 @@ describe('resolveBehaviorAnimDef', () => {
     };
     expect(resolveBehaviorAnimDef(obj, 'idle').name).toBe('idle');
     expect(resolveBehaviorAnimDef(obj, 'move_right').name).toBe('run');
+  });
+});
+
+// ---- calcFrameSourceRect -----------------------------------------------
+
+describe('calcFrameSourceRect', () => {
+  it('returns pixel coords for frame 0 of a single-row sheet', () => {
+    const animDef = { frameStart: 0, frameWidth: 32, frameHeight: 32 };
+    const sheet = { width: 128, height: 32 };
+    const result = calcFrameSourceRect(animDef, sheet, 0);
+    expect(result.sx).toBe(0);
+    expect(result.sy).toBe(0);
+    expect(result.col).toBe(0);
+    expect(result.row).toBe(0);
+  });
+
+  it('offsets by frameStart', () => {
+    const animDef = { frameStart: 2, frameWidth: 32, frameHeight: 32 };
+    const sheet = { width: 128, height: 64 };
+    const result = calcFrameSourceRect(animDef, sheet, 0);
+    // frameIndex = 2 + 0 = 2, framesPerRow = 4
+    expect(result.col).toBe(2);
+    expect(result.row).toBe(0);
+    expect(result.sx).toBe(64);
+    expect(result.sy).toBe(0);
+  });
+
+  it('wraps to the next row when frameIndex exceeds framesPerRow', () => {
+    const animDef = { frameStart: 3, frameWidth: 32, frameHeight: 32 };
+    const sheet = { width: 128, height: 64 };
+    const result = calcFrameSourceRect(animDef, sheet, 2);
+    // frameIndex = 3 + 2 = 5, framesPerRow = 4 → col 1, row 1
+    expect(result.col).toBe(1);
+    expect(result.row).toBe(1);
+    expect(result.sx).toBe(32);
+    expect(result.sy).toBe(32);
+  });
+
+  it('handles non-square frames', () => {
+    const animDef = { frameStart: 0, frameWidth: 48, frameHeight: 72 };
+    const sheet = { width: 192, height: 144 };
+    const result = calcFrameSourceRect(animDef, sheet, 5);
+    // framesPerRow = 4, frameIndex = 5 → col 1, row 1
+    expect(result.col).toBe(1);
+    expect(result.row).toBe(1);
+    expect(result.sx).toBe(48);
+    expect(result.sy).toBe(72);
+  });
+
+  it('returns framesPerRow for callers that need it', () => {
+    const animDef = { frameStart: 0, frameWidth: 16, frameHeight: 16 };
+    const sheet = { width: 64, height: 32 };
+    const result = calcFrameSourceRect(animDef, sheet, 0);
+    expect(result.framesPerRow).toBe(4);
   });
 });

@@ -40,6 +40,26 @@ describe('templates', () => {
     expect(behaviorIds).toContain('die');
   });
 
+  it('player template has an idle behavior', () => {
+    const player = getTemplate('player');
+    const ids = player.behaviors.map((b) => b.id);
+    expect(ids).toContain('idle');
+  });
+
+  it('player template idle behavior has animation configured', () => {
+    const player = getTemplate('player');
+    const idle = player.behaviors.find((b) => b.id === 'idle');
+    expect(idle).toBeDefined();
+    expect(idle.animation).toBeTruthy();
+  });
+
+  it('player template has move_left and move_right behaviors', () => {
+    const player = getTemplate('player');
+    const ids = player.behaviors.map((b) => b.id);
+    expect(ids).toContain('move_left');
+    expect(ids).toContain('move_right');
+  });
+
   it('platform template has ENVIRONMENT collision group', () => {
     const p = getTemplate('platform');
     expect(p.collisionGroup).toBe(COLLISION_GROUP.ENVIRONMENT);
@@ -88,5 +108,24 @@ describe('templates', () => {
       const ids = obj.behaviors.map((b) => b.id);
       expect(ids, `Template '${tmpl.type}' is missing idle behavior`).toContain('idle');
     }
+  });
+
+  it('player template has animation definitions for every behavior animation', () => {
+    const player = getTemplate('player');
+    const animNames = player.behaviors
+      .map((b) => b.animation)
+      .filter(Boolean);
+    expect(animNames.length).toBeGreaterThan(0);
+    for (const name of animNames) {
+      const match = player.animations.find((a) => a.name === name);
+      expect(match, `Missing animation definition for '${name}'`).toBeDefined();
+    }
+  });
+
+  it('player template animations have distinct frameStart values', () => {
+    const player = getTemplate('player');
+    const starts = player.animations.map((a) => a.frameStart);
+    const unique = new Set(starts);
+    expect(unique.size, 'animations must not all share the same frameStart').toBe(starts.length);
   });
 });

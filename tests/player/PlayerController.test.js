@@ -291,4 +291,39 @@ describe('PlayerController', () => {
       expect(ctrl.vx).toBeCloseTo(7); // no boost
     });
   });
+
+  // ── Facing ─────────────────────────────────────────────────────────────────
+
+  describe('facing', () => {
+    it('defaults to facing right', () => {
+      const ctrl = makeGrounded();
+      expect(ctrl.facing).toBe('right');
+    });
+
+    it('remains right when moving right', () => {
+      const ctrl = makeGrounded();
+      ctrl.step({ ...NO_INPUT, right: true }, DT);
+      expect(ctrl.facing).toBe('right');
+    });
+
+    it('becomes left when moving left', () => {
+      const ctrl = makeGrounded();
+      ctrl.step({ ...NO_INPUT, left: true }, DT);
+      expect(ctrl.facing).toBe('left');
+    });
+
+    it('retains last facing direction when idle (vx = 0)', () => {
+      const ctrl = makeGrounded();
+      ctrl.step({ ...NO_INPUT, left: true }, DT);
+      ctrl.step(NO_INPUT, DT);
+      expect(ctrl.facing).toBe('left');
+    });
+
+    it('switches from left back to right', () => {
+      const ctrl = makeGrounded();
+      ctrl.step({ ...NO_INPUT, left: true }, DT);
+      ctrl.step({ ...NO_INPUT, right: true }, DT);
+      expect(ctrl.facing).toBe('right');
+    });
+  });
 });
