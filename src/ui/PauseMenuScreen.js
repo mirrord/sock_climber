@@ -1,5 +1,6 @@
 import { injectMenuStyles } from './menuStyles.js';
 import { ACTIONS, ACTION_LABELS, keyCodeLabel, gamepadBindingLabel } from '../input/ActionMap.js';
+import { MenuNavigator } from './MenuNavigator.js';
 
 /**
  * Pause menu — an overlay shown on top of the frozen game.
@@ -12,6 +13,7 @@ export class PauseMenuScreen {
    * @param {object} [options]
    * @param {import('../settings/SettingsStore.js').SettingsStore} [options.settings]
    * @param {import('../input/ActionMap.js').ActionMap} [options.actionMap]
+   * @param {import('../input/InputSystem.js').InputSystem} [options.inputSystem]
    * @param {string} [options.exitLabel] — label for the exit button (default: 'Exit to Main Menu')
    */
   constructor(container, callbacks, options = {}) {
@@ -19,10 +21,12 @@ export class PauseMenuScreen {
     this._callbacks  = callbacks;
     this._settings   = options.settings  ?? null;
     this._actionMap  = options.actionMap ?? null;
+    this._inputSystem = options.inputSystem ?? null;
     this._exitLabel  = options.exitLabel  ?? 'Exit to Main Menu';
 
     this._root       = null;
     this._activeTab  = 'audio';
+    this._navigator  = null;
 
     /** @type {{ action: string, type: 'key'|'gamepad' }|null} */
     this._rebinding  = null;
@@ -46,10 +50,21 @@ export class PauseMenuScreen {
     `;
     this._render();
     this._container.appendChild(this._root);
+
+    // Set up gamepad navigation
+    if (this._inputSystem) {
+      this._navigator = new MenuNavigator(this._inputSystem, { mode: 'vertical', wrap: true });
+      this._updateFocusables();
+      this._navigator.start();
+    }
   }
 
   exit() {
     this._stopRebind();
+    if (this._navigator) {
+      this._navigator.dispose();
+      this._navigator = null;
+    }
     if (this._root) {
       this._root.remove();
       this._root = null;
@@ -182,6 +197,10 @@ export class PauseMenuScreen {
         this._stopRebind();
         this._activeTab = tabBtn.dataset.tab;
         this._render();
+        // Update focusables after tab change
+        if (this._navigator) {
+          this._updateFocusables();
+        }
         return;
       }
 
@@ -215,6 +234,23 @@ export class PauseMenuScreen {
       const display = slider.closest('.slider-wrap')?.querySelector('.vol-value');
       if (display) display.textContent = `${pct}%`;
     });
+  }
+
+  // ── Gamepad navigation helpers ──────────────────────────────────────────
+
+  _updateFocusables() {
+    if (!this._navigator) return;
+
+    const actionBtns = Array.from(this._root.querySelectorAll('[data-action]'));
+    const tabs = Array.from(this._root.querySelectorAll('.tab-btn'));
+
+    if (this._activeTab === 'audio') {
+      const sliders = Array.from(this._root.querySelectorAll('.vol-slider'));
+      this._navigator.setFocusables([...actionBtns, ...tabs, ...sliders]);
+    } else {
+      const bindBtns = Array.from(this._root.querySelectorAll('.bind-btn'));
+      this._navigator.setFocusables([...actionBtns, ...tabs, ...bindBtns]);
+    }
   }
 
   // ── Rebind flow ─────────────────────────────────────────────────────────

@@ -1,5 +1,6 @@
 import { injectMenuStyles } from './menuStyles.js';
 import { ACTIONS, ACTION_LABELS, keyCodeLabel, gamepadBindingLabel } from '../input/ActionMap.js';
+import { MenuNavigator } from './MenuNavigator.js';
 
 /**
  * Settings screen — audio volume controls and keyboard/gamepad remapping.
@@ -11,15 +12,18 @@ export class SettingsScreen {
    * @param {object} [options]
    * @param {import('../settings/SettingsStore.js').SettingsStore} [options.settings]
    * @param {import('../input/ActionMap.js').ActionMap} [options.actionMap]
+   * @param {import('../input/InputSystem.js').InputSystem} [options.inputSystem]
    */
   constructor(container, callbacks, options = {}) {
     this._container  = container;
     this._callbacks  = callbacks;
     this._settings   = options.settings  ?? null;
     this._actionMap  = options.actionMap ?? null;
+    this._inputSystem = options.inputSystem ?? null;
 
     this._root       = null;
     this._activeTab  = 'audio';
+    this._navigator  = null;
 
     /** @type {{ action: string, type: 'key'|'gamepad' }|null} */
     this._rebinding  = null;
@@ -36,10 +40,22 @@ export class SettingsScreen {
     this._root.className = 'sock_climber-overlay';
     this._render();
     this._container.appendChild(this._root);
+
+    // Set up gamepad navigation
+    if (this._inputSystem) {
+      this._navigator = new MenuNavigator(this._inputSystem, { mode: 'vertical', wrap: true });
+      this._updateFocusables();
+      this._navigator.start();
+      this._setupSliderNavigation();
+    }
   }
 
   exit() {
     this._stopRebind();
+    if (this._navigator) {
+      this._navigator.dispose();
+      this._navigator = null;
+    }
     if (this._root) {
       this._root.remove();
       this._root = null;
@@ -145,6 +161,11 @@ export class SettingsScreen {
         this._stopRebind();
         this._activeTab = tabBtn.dataset.tab;
         this._render();
+        // Update focusables after tab change
+        if (this._navigator) {
+          this._updateFocusables();
+          this._setupSliderNavigation();
+        }
         return;
       }
 
@@ -185,6 +206,28 @@ export class SettingsScreen {
       const display = slider.closest('.slider-wrap')?.querySelector('.vol-value');
       if (display) display.textContent = `${pct}%`;
     });
+  }
+
+  // ── Gamepad navigation helpers ──────────────────────────────────────────
+
+  _updateFocusables() {
+    if (!this._navigator) return;
+
+    const tabs = Array.from(this._root.querySelectorAll('.tab-btn'));
+    const backBtn = this._root.querySelector('[data-back]');
+
+    if (this._activeTab === 'audio') {
+      const sliders = Array.from(this._root.querySelectorAll('.vol-slider'));
+      this._navigator.setFocusables([...tabs, ...sliders, backBtn]);
+    } else {
+      const bindBtns = Array.from(this._root.querySelectorAll('.bind-btn'));
+      this._navigator.setFocusables([...tabs, ...bindBtns, backBtn]);
+    }
+  }
+
+  _setupSliderNavigation() {
+    // Slider adjustment is now handled by MenuNavigator
+    // No additional setup needed
   }
 
   // ── Rebind flow ─────────────────────────────────────────────────────────

@@ -139,9 +139,10 @@ export class EditorApp {
       onResume:   () => this._resumeFromEditorPause(),
       onMainMenu: () => this._returnToEditor(),
     }, {
-      settings:  this._settings,
-      actionMap: this._actionMap,
-      exitLabel: 'Return to Level Editor',
+      settings:    this._settings,
+      actionMap:   this._actionMap,
+      inputSystem: this._playMode?.inputSystem,
+      exitLabel:   'Return to Level Editor',
     });
     this._pauseMenu.enter();
   }

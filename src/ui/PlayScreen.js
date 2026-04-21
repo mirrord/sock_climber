@@ -112,8 +112,9 @@ export class PlayScreen {
       onResume:   () => this._resume(),
       onMainMenu: () => this._exitToMainMenu(),
     }, {
-      settings:  this._settings,
-      actionMap: this._actionMap,
+      settings:    this._settings,
+      actionMap:   this._actionMap,
+      inputSystem: this._playMode?.inputSystem,
     });
     this._pauseMenu.enter();
   }

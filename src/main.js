@@ -10,6 +10,7 @@ import { AssetLoader } from './assets/AssetLoader.js';
 import { ObjectStore } from './objects/ObjectStore.js';
 import { SettingsStore } from './settings/SettingsStore.js';
 import { ActionMap } from './input/ActionMap.js';
+import { InputSystem } from './input/InputSystem.js';
 
 const devMode = import.meta.env.MODE !== 'production';
 
@@ -23,23 +24,32 @@ const levelStore = new LevelStore(assetStore);
 const objectStore = new ObjectStore(assetStore);
 const settingsStore = new SettingsStore();
 const actionMap = new ActionMap(settingsStore);
+const inputSystem = new InputSystem(actionMap);
 const sm = new ScreenManager();
+
+// Attach input system and start update loop
+inputSystem.attach(window);
+function inputLoop() {
+  inputSystem.update();
+  requestAnimationFrame(inputLoop);
+}
+requestAnimationFrame(inputLoop);
 
 const menu = new MainMenuScreen(document.body, {
   onLevelSelect: () => sm.switchTo('levelSelect'),
   onLevelBuilder: () => sm.switchTo('levelBuilder'),
   onObjectEditor: () => sm.switchTo('objectEditor'),
   onSettings: () => sm.switchTo('settings'),
-}, { devMode });
+}, { devMode, inputSystem });
 
 const levelSelect = new LevelSelectScreen(document.body, levelStore, {
   onPlay: (name) => sm.switchTo('play', { levelName: name }),
   onBack: () => sm.back(),
-});
+}, { inputSystem });
 
 const settings = new SettingsScreen(document.body, {
   onBack: () => sm.back(),
-}, { settings: settingsStore, actionMap });
+}, { settings: settingsStore, actionMap, inputSystem });
 
 const play = new PlayScreen(document.body, levelStore, {
   onBack: () => sm.back(),
@@ -56,10 +66,10 @@ if (devMode) {
 
   const levelBuilder = new LevelBuilderScreen(document.body, levelStore, {
     onBack: () => sm.back(),
-  }, objectStore, { settings: settingsStore, actionMap });
+  }, objectStore, { settings: settingsStore, actionMap, inputSystem });
   const objectEditor = new ObjectEditorScreen(document.body, {
     onBack: () => sm.back(),
-  }, objectStore);
+  }, objectStore, { inputSystem });
 
   sm.register('levelBuilder', levelBuilder);
   sm.register('objectEditor', objectEditor);

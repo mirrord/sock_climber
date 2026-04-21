@@ -36,6 +36,9 @@ export function injectMenuStyles() {
     .sock_climber-overlay .menu-btn:hover, .sock_climber-overlay .menu-btn:focus {
       background: #2a2a5a; color: #fff; border-color: #48bfe3; outline: none;
     }
+    .sock_climber-overlay .menu-btn.menu-nav-selected {
+      background: #2a2a5a; color: #fff; border-color: #48bfe3;
+    }
     .sock_climber-overlay .back-btn {
       margin-top: 24px; padding: 10px 30px;
       background: none; border: 1px solid #555; color: #888;
@@ -43,6 +46,9 @@ export function injectMenuStyles() {
       border-radius: 4px;
     }
     .sock_climber-overlay .back-btn:hover { color: #eee; border-color: #aaa; }
+    .sock_climber-overlay .back-btn.menu-nav-selected {
+      color: #eee; border-color: #48bfe3;
+    }
     .sock_climber-overlay .panel {
       background: #1a1a3a; border: 1px solid #333;
       padding: 20px; border-radius: 6px; width: 340px; max-height: 60vh;
@@ -57,6 +63,7 @@ export function injectMenuStyles() {
       border: 1px solid #333; border-radius: 3px;
     }
     .sock_climber-overlay .level-item:hover { border-color: #48bfe3; }
+    .sock_climber-overlay .level-item.menu-nav-selected { border-color: #48bfe3; background: #1a1a3a; }
     .sock_climber-overlay .level-item .name { flex: 1; }
     .sock_climber-overlay .level-item button {
       background: #2a2a5a; color: #eee; border: 1px solid #555;
@@ -101,6 +108,9 @@ export function injectMenuStyles() {
     .sock_climber-overlay .tab-btn.active {
       background: #1e1e45; color: #48bfe3; border-color: #48bfe3;
     }
+    .sock_climber-overlay .tab-btn.menu-nav-selected {
+      color: #ccc; border-color: #48bfe3;
+    }
     .sock_climber-overlay .settings-content { overflow-y: auto; max-height: 46vh; }
 
     /* ── Key-binding table ────────────────────────────────────────────── */
@@ -123,6 +133,9 @@ export function injectMenuStyles() {
       transition: background 0.12s, border-color 0.12s, color 0.12s;
     }
     .sock_climber-overlay .bind-btn:hover {
+      background: #1e1e3a; border-color: #48bfe3; color: #fff;
+    }
+    .sock_climber-overlay .bind-btn.menu-nav-selected {
       background: #1e1e3a; border-color: #48bfe3; color: #fff;
     }
     .sock_climber-overlay .bind-btn.listening {

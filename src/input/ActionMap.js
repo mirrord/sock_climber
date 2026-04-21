@@ -1,14 +1,23 @@
 /** All recognised game actions. */
-export const ACTIONS = Object.freeze(['moveLeft', 'moveRight', 'jump', 'dash', 'crouch', 'pause']);
+export const ACTIONS = Object.freeze([
+  'moveLeft', 'moveRight', 'jump', 'dash', 'crouch', 'pause',
+  'menuUp', 'menuDown', 'menuLeft', 'menuRight', 'menuConfirm', 'menuBack'
+]);
 
 /** Human-readable labels displayed in the settings UI. */
 export const ACTION_LABELS = Object.freeze({
-  moveLeft:  'Move Left',
-  moveRight: 'Move Right',
-  jump:      'Jump',
-  dash:      'Dash',
-  crouch:    'Crouch',
-  pause:     'Pause',
+  moveLeft:    'Move Left',
+  moveRight:   'Move Right',
+  jump:        'Jump',
+  dash:        'Dash',
+  crouch:      'Crouch',
+  pause:       'Pause',
+  menuUp:      'Menu Up',
+  menuDown:    'Menu Down',
+  menuLeft:    'Menu Left',
+  menuRight:   'Menu Right',
+  menuConfirm: 'Menu Confirm',
+  menuBack:    'Menu Back',
 });
 
 /**

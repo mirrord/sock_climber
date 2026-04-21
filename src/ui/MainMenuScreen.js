@@ -1,4 +1,5 @@
 import { injectMenuStyles } from './menuStyles.js';
+import { MenuNavigator } from './MenuNavigator.js';
 
 /**
  * Main menu screen — the start screen of the game.
@@ -9,12 +10,15 @@ export class MainMenuScreen {
    * @param {object} callbacks — { onLevelSelect, onLevelBuilder, onObjectEditor, onSettings }
    * @param {object} [options]
    * @param {boolean} [options.devMode]
+   * @param {import('../input/InputSystem.js').InputSystem} [options.inputSystem]
    */
   constructor(container, callbacks, options = {}) {
     this._container = container;
     this._callbacks = callbacks;
     this._devMode = !!options.devMode;
+    this._inputSystem = options.inputSystem ?? null;
     this._root = null;
+    this._navigator = null;
     injectMenuStyles();
   }
 
@@ -45,9 +49,21 @@ export class MainMenuScreen {
     });
 
     this._container.appendChild(this._root);
+
+    // Set up gamepad navigation
+    if (this._inputSystem) {
+      this._navigator = new MenuNavigator(this._inputSystem, { mode: 'vertical', wrap: true });
+      const buttons = this._root.querySelectorAll('.menu-btn');
+      this._navigator.setFocusables(buttons);
+      this._navigator.start();
+    }
   }
 
   exit() {
+    if (this._navigator) {
+      this._navigator.dispose();
+      this._navigator = null;
+    }
     if (this._root) {
       this._root.remove();
       this._root = null;

@@ -201,6 +201,11 @@ export class PlayMode {
     }
   }
 
+  /** Access the input system for external use (e.g., pause menu navigation). */
+  get inputSystem() {
+    return this._inputSystem;
+  }
+
   // ---- Private ----
 
   /**

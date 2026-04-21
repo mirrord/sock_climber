@@ -5,20 +5,32 @@ export const SETTINGS_DEFAULTS = Object.freeze({
   sfxVolume: 1.0,
   musicVolume: 0.5,
   keyBindings: Object.freeze({
-    moveLeft:  'ArrowLeft',
-    moveRight: 'ArrowRight',
-    jump:      'Space',
-    dash:      'ShiftLeft',
-    crouch:    'ArrowDown',
-    pause:     'Escape',
+    moveLeft:    'ArrowLeft',
+    moveRight:   'ArrowRight',
+    jump:        'Space',
+    dash:        'ShiftLeft',
+    crouch:      'ArrowDown',
+    pause:       'Escape',
+    menuUp:      'ArrowUp',
+    menuDown:    'ArrowDown',
+    menuLeft:    'ArrowLeft',
+    menuRight:   'ArrowRight',
+    menuConfirm: 'Enter',
+    menuBack:    'Escape',
   }),
   gamepadBindings: Object.freeze({
-    moveLeft:  Object.freeze({ type: 'button', index: 14 }), // D-Pad Left
-    moveRight: Object.freeze({ type: 'button', index: 15 }), // D-Pad Right
-    jump:      Object.freeze({ type: 'button', index: 0 }),  // A / Cross
-    dash:      Object.freeze({ type: 'button', index: 2 }),  // X / Square
-    crouch:    Object.freeze({ type: 'button', index: 13 }), // D-Pad Down
-    pause:     Object.freeze({ type: 'button', index: 9 }),  // Start
+    moveLeft:    Object.freeze({ type: 'button', index: 14 }), // D-Pad Left
+    moveRight:   Object.freeze({ type: 'button', index: 15 }), // D-Pad Right
+    jump:        Object.freeze({ type: 'button', index: 0 }),  // A / Cross
+    dash:        Object.freeze({ type: 'button', index: 2 }),  // X / Square
+    crouch:      Object.freeze({ type: 'button', index: 13 }), // D-Pad Down
+    pause:       Object.freeze({ type: 'button', index: 9 }),  // Start
+    menuUp:      Object.freeze({ type: 'button', index: 12 }), // D-Pad Up
+    menuDown:    Object.freeze({ type: 'button', index: 13 }), // D-Pad Down
+    menuLeft:    Object.freeze({ type: 'button', index: 14 }), // D-Pad Left
+    menuRight:   Object.freeze({ type: 'button', index: 15 }), // D-Pad Right
+    menuConfirm: Object.freeze({ type: 'button', index: 0 }),  // A / Cross
+    menuBack:    Object.freeze({ type: 'button', index: 1 }),  // B / Circle
   }),
 });
 
