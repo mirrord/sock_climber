@@ -18,9 +18,11 @@ const STATE_BEHAVIOR = {
   [STATE.IDLE]:       'idle',
   [STATE.RUNNING]:    'move_right',  // move_left shares the same animation
   [STATE.JUMPING]:    'jump',
-  [STATE.FALLING]:    'jump',        // no dedicated fall behavior; reuse jump
+  [STATE.FALLING]:    'fall',
   [STATE.CROUCHING]:  'crouch',
   [STATE.WALL_SLIDE]: 'idle',        // no dedicated wall-slide behavior
+  [STATE.MOVE_UP]:    'move_up',     // free vertical movement (no gravity)
+  [STATE.MOVE_DOWN]:  'move_down',   // free vertical movement (no gravity)
 };
 
 /** Dead-zone threshold for analogue sticks. */
@@ -118,8 +120,9 @@ export class PlayMode {
     this._offsetY = level.height / 2;
 
     // Player controller — physics owned here, positioned at spawn
+    const enableGravity = playerDef?.properties?.enableGravity !== false;
     this._ctrl = new PlayerController(
-      {},
+      { enableGravity },
       (gx, gy) => level.getTile(gx, gy) === TILE.SOLID
     );
     this._ctrl.x = spawn.x + 0.5;
@@ -189,8 +192,18 @@ export class PlayMode {
     if (state === STATE.RUNNING && this._ctrl.vx < 0) {
       behaviorId = 'move_left';
     }
-    const animDef = resolveBehaviorAnimDef(this._playerDef, behaviorId)
-      ?? resolveBehaviorAnimDef(this._playerDef, 'idle');
+    // For FALLING, try 'jump' as an intermediate fallback before 'idle' so the
+    // jump animation continues playing when no dedicated fall animation is set.
+    // This preserves visual continuity and prevents a blank frame on fall entry.
+    let animDef = resolveBehaviorAnimDef(this._playerDef, behaviorId);
+    if (!animDef && state === STATE.FALLING) {
+      animDef = resolveBehaviorAnimDef(this._playerDef, 'jump');
+    }
+    // For MOVE_DOWN, fall back to move_up animation when no dedicated animation is set.
+    if (!animDef && state === STATE.MOVE_DOWN) {
+      animDef = resolveBehaviorAnimDef(this._playerDef, 'move_up');
+    }
+    animDef ??= resolveBehaviorAnimDef(this._playerDef, 'idle');
     const animId = animDef?.id ?? null;
     if (animId === this._lastAnimId) return;
     this._lastAnimId = animId;
@@ -214,4 +227,33 @@ export class PlayMode {
     this.camera.bottom = cy - hh;
     this.camera.updateProjectionMatrix();
   }
+}
+
+/**
+ * Factory that wires a PlayMode to an existing renderer for a given level.
+ * Finds the player object mesh, resolves its definition from objectDefs, and
+ * sets up the onAnimationChange callback automatically.
+ *
+ * This is the single point of play-session construction shared by both the
+ * level-select PlayScreen and the editor's in-place test mode.
+ *
+ * @param {import('../level/Level.js').Level} level
+ * @param {{ scene: THREE.Scene, camera: THREE.Camera, getObjectMesh: (id: string) => THREE.Mesh|null, setObjectAnimation: (id: string, animDef: object|null) => void }} renderer
+ * @param {Map<string, object>|null} objectDefs — Map<type, GameObject> built from the object store
+ * @param {object} [options] — forwarded to the PlayMode constructor (e.g. { inputSystem, eventTarget } for testing)
+ * @returns {PlayMode}
+ */
+export function createPlayMode(level, renderer, objectDefs, options = {}) {
+  const playerObj = level.findObjectByType('player');
+  const playerMesh = playerObj ? renderer.getObjectMesh(playerObj.id) : null;
+  const playerDef = objectDefs?.get('player') ?? null;
+  const onAnimationChange = (playerObj && playerDef)
+    ? (animDef) => renderer.setObjectAnimation(playerObj.id, animDef)
+    : null;
+  return new PlayMode(
+    level,
+    renderer.scene,
+    renderer.camera,
+    { playerMesh, playerDef, onAnimationChange, ...options },
+  );
 }

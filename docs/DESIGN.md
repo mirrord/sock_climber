@@ -95,11 +95,13 @@ In-memory key/value store mapping level names to serialized JSON strings. Used b
 | **Wall slide** | `enableWallSlide` | `wallSlideGravityScale` (default 0.5) |
 | **Wall kick** | `enableWallKick` | `wallKickVX`, `wallKickVY` (default 6, 12) |
 | **Dash jump** | `enableDashJump` | `dashJumpSpeedScale` (default 2.0) |
+| **Falling** | `enableFalling` | `maxFallSpeed` (default −20 m/s) |
 
 - **Crouch**: grounded-only; hitbox height shrinks to `playerH × crouchHeightScale`, width stays constant.
 - **Wall slide**: while airborne and adjacent to a solid wall, effective gravity is `gravity × wallSlideGravityScale`. Activates from the frame *after* first wall contact.
 - **Wall kick**: while airborne and adjacent to a wall, a fresh jump press launches the player away from the wall at `wallKickVX` horizontally and `wallKickVY` vertically. Jump-held guard prevents multiple kicks per press.
 - **Dash jump**: holding dash at the moment of a ground jump sets `_dashJumping = true`; horizontal speed is `moveSpeed × dashJumpSpeedScale` for the entire airborne phase. Resets on landing.
+- **Falling**: when `enableFalling` is `true` (default), `vy` is clamped to `maxFallSpeed` (terminal velocity) each step and the controller reports `STATE.FALLING` when airborne with `vy ≤ 0`. When `false`, no cap is applied and the state stays `STATE.JUMPING` throughout the airborne arc. `PlayMode` maps `STATE.FALLING` to the `'fall'` behavior id for animation lookup.
 
 Wall adjacency is detected via `_updateWallContact()` at the end of each step (proximity-based, not velocity-based), so the player does not need to hold a direction to maintain wall contact.
 

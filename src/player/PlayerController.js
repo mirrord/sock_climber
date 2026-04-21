@@ -1,8 +1,8 @@
-import { deriveState } from './PlayerState.js';
+import { deriveState, STATE } from './PlayerState.js';
 import {
   GRAVITY, MOVE_SPEED, JUMP_VELOCITY, PLAYER_W, PLAYER_H,
   CROUCH_HEIGHT_SCALE, WALL_SLIDE_GRAVITY_SCALE,
-  WALL_KICK_VX, WALL_KICK_VY, DASH_JUMP_SPEED_SCALE,
+  WALL_KICK_VX, WALL_KICK_VY, DASH_JUMP_SPEED_SCALE, MAX_FALL_SPEED,
 } from '../utils/constants.js';
 
 /**
@@ -16,6 +16,9 @@ const DEFAULTS = Object.freeze({
   jumpVelocity:        JUMP_VELOCITY,
   playerW:             PLAYER_W,
   playerH:             PLAYER_H,
+
+  // Gravity toggle — when false the object floats freely
+  enableGravity:       true,
 
   // Crouch
   enableCrouch:        true,
@@ -33,6 +36,10 @@ const DEFAULTS = Object.freeze({
   // Dash jump
   enableDashJump:      true,
   dashJumpSpeedScale:  DASH_JUMP_SPEED_SCALE,
+
+  // Falling
+  enableFalling:       true,
+  maxFallSpeed:        MAX_FALL_SPEED,
 });
 
 /**
@@ -98,10 +105,21 @@ export class PlayerController {
 
   /**
    * Logical player state derived from current physical flags.
+   * When enableGravity is false, returns MOVE_UP/MOVE_DOWN based on vy, or
+   * RUNNING/IDLE based on horizontal movement.
+   * Returns STATE.JUMPING instead of STATE.FALLING when enableFalling is false.
    * @returns {string}
    */
   get state() {
-    return deriveState(this);
+    if (!this._cfg.enableGravity) {
+      if (this.vy > 0) return STATE.MOVE_UP;
+      if (this.vy < 0) return STATE.MOVE_DOWN;
+      if (this.vx !== 0) return STATE.RUNNING;
+      return STATE.IDLE;
+    }
+    const s = deriveState(this);
+    if (!this._cfg.enableFalling && s === STATE.FALLING) return STATE.JUMPING;
+    return s;
   }
 
   /**
@@ -125,8 +143,8 @@ export class PlayerController {
     const onWall   = !this.grounded && (this.touchingWallLeft || this.touchingWallRight);
     const wallSide = this.touchingWallLeft ? -1 : 1; // −1 = left wall, +1 = right wall
 
-    // ── Crouch (grounded only) ────────────────────────────────────────────
-    if (cfg.enableCrouch && this.grounded && input.crouch) {
+    // ── Crouch (grounded only; skipped when gravity is disabled) ─────────
+    if (cfg.enableGravity && cfg.enableCrouch && this.grounded && input.crouch) {
       this.crouching = true;
       this.hitboxH   = cfg.playerH * cfg.crouchHeightScale;
     } else {
@@ -138,38 +156,55 @@ export class PlayerController {
     const airSpeed = this._dashJumping
       ? cfg.moveSpeed * cfg.dashJumpSpeedScale
       : cfg.moveSpeed;
-    const speed = this.grounded ? cfg.moveSpeed : airSpeed;
+    const speed = (cfg.enableGravity && !this.grounded) ? airSpeed : cfg.moveSpeed;
 
     if      (input.left)  { this.vx = -speed; this.facing = 'left'; }
     else if (input.right) { this.vx =  speed;  this.facing = 'right'; }
     else                    this.vx =  0;
 
-    // ── Jump / wall kick (may override vx/vy set above) ───────────────────
-    if (jumpPressed && !this._jumpConsumed) {
-      if (cfg.enableWallKick && onWall) {
-        // Wall kick: launch away from wall with full jump height
-        this.vx = -wallSide * cfg.wallKickVX;
-        this.vy = cfg.wallKickVY;
-        this._jumpConsumed = true;
-      } else if (this.grounded) {
-        this.vy       = cfg.jumpVelocity;
-        this.grounded = false;
-        this._jumpConsumed = true;
-        if (cfg.enableDashJump && input.dash) {
-          this._dashJumping = true;
+    if (cfg.enableGravity) {
+      // ── Jump / wall kick (may override vx/vy set above) ─────────────────
+      if (jumpPressed && !this._jumpConsumed) {
+        if (cfg.enableWallKick && onWall) {
+          // Wall kick: launch away from wall with full jump height
+          this.vx = -wallSide * cfg.wallKickVX;
+          this.vy = cfg.wallKickVY;
+          this._jumpConsumed = true;
+        } else if (this.grounded) {
+          this.vy       = cfg.jumpVelocity;
+          this.grounded = false;
+          this._jumpConsumed = true;
+          if (cfg.enableDashJump && input.dash) {
+            this._dashJumping = true;
+          }
         }
       }
-    }
 
-    // Release jump to allow another one
-    if (!input.jump) this._jumpConsumed = false;
+      // Release jump to allow another one
+      if (!input.jump) this._jumpConsumed = false;
 
-    // ── Gravity (reduced while wall-sliding) ─────────────────────────────
-    let g = cfg.gravity;
-    if (cfg.enableWallSlide && onWall && this.vy < 0) {
-      g = cfg.gravity * cfg.wallSlideGravityScale;
+      // ── Gravity (reduced while wall-sliding) ───────────────────────────
+      let g = cfg.gravity;
+      if (cfg.enableWallSlide && onWall && this.vy < 0) {
+        g = cfg.gravity * cfg.wallSlideGravityScale;
+      }
+      this.vy += g * dt;
+
+      // ── Terminal velocity cap ──────────────────────────────────────────
+      if (cfg.enableFalling && this.vy < cfg.maxFallSpeed) {
+        this.vy = cfg.maxFallSpeed;
+      }
+    } else {
+      // ── Free vertical movement (gravity disabled) ─────────────────────
+      // jump input → move up, crouch input → move down, neither → stop
+      if (input.jump) {
+        this.vy = cfg.moveSpeed;
+      } else if (input.crouch) {
+        this.vy = -cfg.moveSpeed;
+      } else {
+        this.vy = 0;
+      }
     }
-    this.vy += g * dt;
 
     // ── Integrate & resolve ───────────────────────────────────────────────
     this.x += this.vx * dt;

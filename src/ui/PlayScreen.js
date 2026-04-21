@@ -1,6 +1,5 @@
-import * as THREE from 'three';
 import { Level } from '../level/Level.js';
-import { PlayMode } from '../editor/PlayMode.js';
+import { createPlayMode } from '../editor/PlayMode.js';
 import { EditorRenderer } from '../editor/EditorRenderer.js';
 import { injectMenuStyles } from './menuStyles.js';
 
@@ -45,23 +44,7 @@ export class PlayScreen {
     const objectDefs = this._objectStore ? this._buildObjectDefsMap() : null;
     this._renderer.rebuildObjects(level, objectDefs);
 
-    // Find the mesh the renderer built for the level's player object
-    const playerObj = level.findObjectByType('player');
-    const playerMesh = playerObj ? this._renderer.getObjectMesh(playerObj.id) : null;
-
-    // Resolve the player's GameObject definition for animation switching
-    const playerDef = objectDefs?.get('player') ?? null;
-    const onAnimationChange = (playerObj && playerDef)
-      ? (animDef) => this._renderer.setObjectAnimation(playerObj.id, animDef)
-      : null;
-
-    // Player
-    this._playMode = new PlayMode(
-      level,
-      this._renderer.scene,
-      this._renderer.camera,
-      { playerMesh, playerDef, onAnimationChange }
-    );
+    this._playMode = createPlayMode(level, this._renderer, objectDefs);
 
     // HUD with level name + back
     this._hud = document.createElement('div');
@@ -133,3 +116,4 @@ export class PlayScreen {
     return map;
   }
 }
+

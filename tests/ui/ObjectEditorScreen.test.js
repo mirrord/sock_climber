@@ -87,3 +87,106 @@ describe('ObjectEditorScreen — behavior animation selector', () => {
     expect(spy).toHaveBeenCalledWith('jump', null);
   });
 });
+
+// ── ObjectEditorScreen — enableGravity toggle ─────────────────────────────────
+
+describe('ObjectEditorScreen — enableGravity toggle', () => {
+  let screen, container;
+
+  function makeGravityObj(enableGravity = true) {
+    return new GameObject({
+      type: 'player',
+      name: 'Player',
+      behaviors: [
+        new Behavior({ id: 'idle',      name: 'Idle',      animation: 'idle' }),
+        new Behavior({ id: 'jump',      name: 'Jump',      animation: 'jump' }),
+        new Behavior({ id: 'fall',      name: 'Fall',      animation: 'fall' }),
+        new Behavior({ id: 'move_up',   name: 'Move Up',   animation: null }),
+        new Behavior({ id: 'move_down', name: 'Move Down', animation: null }),
+      ],
+      properties: { enableGravity },
+      animations: [],
+    });
+  }
+
+  beforeEach(() => {
+    ({ screen, container } = makeScreen());
+    screen.enter();
+  });
+
+  afterEach(() => {
+    screen.exit();
+    container.remove();
+  });
+
+  it('renders an Enable Gravity checkbox', () => {
+    screen._editor.current = makeGravityObj(true);
+    screen._refreshLeft();
+    const cb = container.querySelector('#oe-gravity-toggle');
+    expect(cb).not.toBeNull();
+    expect(cb.checked).toBe(true);
+  });
+
+  it('Enable Gravity checkbox is unchecked when enableGravity is false', () => {
+    screen._editor.current = makeGravityObj(false);
+    screen._refreshLeft();
+    const cb = container.querySelector('#oe-gravity-toggle');
+    expect(cb.checked).toBe(false);
+  });
+
+  it('shows jump and fall behavior rows when enableGravity is true', () => {
+    screen._editor.current = makeGravityObj(true);
+    screen._refreshLeft();
+    const selects = container.querySelectorAll('.beh-anim-select');
+    const ids = Array.from(selects).map(s => s.dataset.behaviorId);
+    expect(ids).toContain('jump');
+    expect(ids).toContain('fall');
+  });
+
+  it('hides jump and fall behavior rows when enableGravity is false', () => {
+    screen._editor.current = makeGravityObj(false);
+    screen._refreshLeft();
+    const selects = container.querySelectorAll('.beh-anim-select');
+    const ids = Array.from(selects).map(s => s.dataset.behaviorId);
+    expect(ids).not.toContain('jump');
+    expect(ids).not.toContain('fall');
+  });
+
+  it('shows move_up and move_down behavior rows when enableGravity is false', () => {
+    screen._editor.current = makeGravityObj(false);
+    screen._refreshLeft();
+    const selects = container.querySelectorAll('.beh-anim-select');
+    const ids = Array.from(selects).map(s => s.dataset.behaviorId);
+    expect(ids).toContain('move_up');
+    expect(ids).toContain('move_down');
+  });
+
+  it('hides move_up and move_down behavior rows when enableGravity is true', () => {
+    screen._editor.current = makeGravityObj(true);
+    screen._refreshLeft();
+    const selects = container.querySelectorAll('.beh-anim-select');
+    const ids = Array.from(selects).map(s => s.dataset.behaviorId);
+    expect(ids).not.toContain('move_up');
+    expect(ids).not.toContain('move_down');
+  });
+
+  it('calls setProperty with enableGravity false when unchecked', () => {
+    screen._editor.current = makeGravityObj(true);
+    screen._refreshLeft();
+    const spy = vi.spyOn(screen._editor, 'setProperty');
+    const cb = container.querySelector('#oe-gravity-toggle');
+    cb.checked = false;
+    cb.dispatchEvent(new Event('change'));
+    expect(spy).toHaveBeenCalledWith('enableGravity', false);
+  });
+
+  it('calls setProperty with enableGravity true when checked', () => {
+    screen._editor.current = makeGravityObj(false);
+    screen._refreshLeft();
+    const spy = vi.spyOn(screen._editor, 'setProperty');
+    const cb = container.querySelector('#oe-gravity-toggle');
+    cb.checked = true;
+    cb.dispatchEvent(new Event('change'));
+    expect(spy).toHaveBeenCalledWith('enableGravity', true);
+  });
+});

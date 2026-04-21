@@ -326,4 +326,125 @@ describe('PlayerController', () => {
       expect(ctrl.facing).toBe('right');
     });
   });
+
+  // ── Enable Gravity: false — free vertical movement ────────────────────────
+
+  describe('enableGravity: false — free vertical movement', () => {
+    function makeFloating(cfg = {}) {
+      const ctrl = new PlayerController({ enableGravity: false, ...cfg }, EMPTY);
+      ctrl.x = 2.5;
+      ctrl.y = 5.0;
+      ctrl.vx = 0;
+      ctrl.vy = 0;
+      return ctrl;
+    }
+
+    it('does not apply gravity when enableGravity is false', () => {
+      const ctrl = makeFloating();
+      ctrl.step(NO_INPUT, DT);
+      expect(ctrl.vy).toBe(0);
+    });
+
+    it('sets vy to +moveSpeed when jump is held', () => {
+      const ctrl = makeFloating();
+      ctrl.step({ ...NO_INPUT, jump: true }, DT);
+      expect(ctrl.vy).toBe(ctrl._cfg.moveSpeed);
+    });
+
+    it('sets vy to -moveSpeed when crouch is held', () => {
+      const ctrl = makeFloating();
+      ctrl.step({ ...NO_INPUT, crouch: true }, DT);
+      expect(ctrl.vy).toBe(-ctrl._cfg.moveSpeed);
+    });
+
+    it('sets vy to 0 when neither jump nor crouch is held', () => {
+      const ctrl = makeFloating();
+      ctrl.vy = 5; // was moving up
+      ctrl.step(NO_INPUT, DT);
+      expect(ctrl.vy).toBe(0);
+    });
+
+    it('returns MOVE_UP state when vy > 0', () => {
+      const ctrl = makeFloating();
+      ctrl.step({ ...NO_INPUT, jump: true }, DT);
+      expect(ctrl.state).toBe(STATE.MOVE_UP);
+    });
+
+    it('returns MOVE_DOWN state when vy < 0', () => {
+      const ctrl = makeFloating();
+      ctrl.step({ ...NO_INPUT, crouch: true }, DT);
+      expect(ctrl.state).toBe(STATE.MOVE_DOWN);
+    });
+
+    it('returns IDLE state when vy is 0 and vx is 0', () => {
+      const ctrl = makeFloating();
+      ctrl.step(NO_INPUT, DT);
+      expect(ctrl.state).toBe(STATE.IDLE);
+    });
+
+    it('returns RUNNING state when vy is 0 and moving horizontally', () => {
+      const ctrl = makeFloating();
+      ctrl.step({ ...NO_INPUT, right: true }, DT);
+      expect(ctrl.state).toBe(STATE.RUNNING);
+    });
+
+    it('does not set crouching when enableGravity is false', () => {
+      const ctrl = makeFloating();
+      ctrl.step({ ...NO_INPUT, crouch: true }, DT);
+      expect(ctrl.crouching).toBe(false);
+    });
+
+    it('allows continuous upward movement while jump is held (not just on press edge)', () => {
+      const ctrl = makeFloating();
+      ctrl.step({ ...NO_INPUT, jump: true }, DT);
+      const y1 = ctrl.y;
+      ctrl.step({ ...NO_INPUT, jump: true }, DT); // second step — still held
+      expect(ctrl.y).toBeGreaterThan(y1);
+    });
+  });
+
+  // ── Falling ─────────────────────────────────────────────────────────────────
+
+  describe('falling', () => {
+    it('state is FALLING when airborne with vy < 0 (default)', () => {
+      const ctrl = makeAirborne();
+      ctrl.vy = -5;
+      expect(ctrl.state).toBe(STATE.FALLING);
+    });
+
+    it('state is JUMPING when enableFalling is false and vy < 0', () => {
+      const ctrl = makeAirborne({ enableFalling: false });
+      ctrl.vy = -5;
+      expect(ctrl.state).toBe(STATE.JUMPING);
+    });
+
+    it('clamps vy to maxFallSpeed when enableFalling is true', () => {
+      const ctrl = makeAirborne({ maxFallSpeed: -10 });
+      ctrl.vy = -50; // already well past terminal velocity
+      ctrl.step(NO_INPUT, DT);
+      expect(ctrl.vy).toBeGreaterThanOrEqual(-10);
+    });
+
+    it('does not clamp vy when enableFalling is false', () => {
+      const ctrl = makeAirborne({ enableFalling: false, maxFallSpeed: -10 });
+      ctrl.vy = -50;
+      ctrl.step(NO_INPUT, DT);
+      expect(ctrl.vy).toBeLessThan(-10); // still past the limit — no cap applied
+    });
+
+    it('respects a custom maxFallSpeed', () => {
+      const ctrl = makeAirborne({ maxFallSpeed: -25 });
+      ctrl.vy = -100;
+      ctrl.step(NO_INPUT, DT);
+      expect(ctrl.vy).toBeCloseTo(-25);
+    });
+
+    it('does not clamp vy when it has not yet reached maxFallSpeed', () => {
+      const ctrl = makeAirborne({ maxFallSpeed: -20 });
+      ctrl.vy = -5; // well above terminal velocity
+      ctrl.step(NO_INPUT, DT);
+      // After one gravity step vy = -5 + (-30 * DT) ≈ -5.25 which is > -20
+      expect(ctrl.vy).toBeGreaterThan(-20);
+    });
+  });
 });

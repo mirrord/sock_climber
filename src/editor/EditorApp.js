@@ -1,7 +1,7 @@
 import { LevelEditor } from './LevelEditor.js';
 import { EditorRenderer } from './EditorRenderer.js';
 import { EditorUI } from './EditorUI.js';
-import { PlayMode } from './PlayMode.js';
+import { createPlayMode } from './PlayMode.js';
 import { ObjectEditor } from '../objects/ObjectEditor.js';
 import { ObjectEditorUI } from './ObjectEditorUI.js';
 
@@ -84,20 +84,7 @@ export class EditorApp {
       const objectDefs = this._buildObjectDefsMap();
       this._renderer.rebuildObjects(this._editor.level, objectDefs);
       this._renderer.hideHover();
-
-      const playerObj = this._editor.level.findObjectByType('player');
-      const playerMesh = playerObj ? this._renderer.getObjectMesh(playerObj.id) : null;
-      const playerDef = objectDefs.get('player') ?? null;
-      const onAnimationChange = (playerObj && playerDef)
-        ? (animDef) => this._renderer.setObjectAnimation(playerObj.id, animDef)
-        : null;
-
-      this._playMode = new PlayMode(
-        this._editor.level,
-        this._renderer.scene,
-        this._renderer.camera,
-        { playerMesh, playerDef, onAnimationChange }
-      );
+      this._playMode = createPlayMode(this._editor.level, this._renderer, objectDefs);
     } else {
       if (this._playMode) {
         this._playMode.dispose();
@@ -200,6 +187,13 @@ export class EditorApp {
       // Escape cancels pending placement
       if (e.code === 'Escape' && this._pendingPlacement) {
         this._cancelPlacement();
+        return;
+      }
+
+      // Escape during play mode → return to edit
+      if (e.code === 'Escape' && this._editor.mode === 'play') {
+        e.preventDefault();
+        this._togglePlay();
         return;
       }
 

@@ -6,6 +6,8 @@ export const STATE = Object.freeze({
   FALLING:    'falling',
   CROUCHING:  'crouching',
   WALL_SLIDE: 'wallSlide',
+  MOVE_UP:    'moveUp',    // free upward movement when gravity is disabled
+  MOVE_DOWN:  'moveDown',  // free downward movement when gravity is disabled
 });
 
 /**

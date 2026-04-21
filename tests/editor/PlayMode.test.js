@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { pollGamepadInput, snapshotToControllerInput, PlayMode } from '../../src/editor/PlayMode.js';
+import { pollGamepadInput, snapshotToControllerInput, PlayMode, createPlayMode } from '../../src/editor/PlayMode.js';
 import { Level, TILE } from '../../src/level/Level.js';
 
 function makeGamepad({ buttons = [], axes = [] } = {}) {
@@ -409,5 +409,285 @@ describe('PlayMode — mesh facing flip', () => {
     actions = [];
     pm.update(1 / 60); // idle — should keep -1
     expect(playerMesh.scale.x).toBe(-1);
+  });
+});
+
+// ── PlayMode — fall animation fallback ────────────────────────────────────────
+
+describe('PlayMode — fall animation', () => {
+  const animIdle = { id: 'aI', name: 'idle', spriteSheetId: null, frameWidth: 32, frameHeight: 32, frameStart: 0, frameCount: 1, fps: 1, loop: true };
+  const animJump = { id: 'aJ', name: 'jump', spriteSheetId: null, frameWidth: 32, frameHeight: 32, frameStart: 1, frameCount: 1, fps: 1, loop: false };
+  const animFall = { id: 'aF', name: 'fall', spriteSheetId: null, frameWidth: 32, frameHeight: 32, frameStart: 2, frameCount: 1, fps: 1, loop: true };
+
+  /** Level with NO floor so player is in free-fall immediately. */
+  function makeFallingStubs() {
+    const level = new Level(10, 10);
+    level.objects = [{ id: 'p1', type: 'player', x: 4, y: 4, properties: {} }];
+    const scene = { add: vi.fn(), remove: vi.fn() };
+    const camera = { left: -10, right: 10, top: 10, bottom: -10, updateProjectionMatrix: vi.fn() };
+    const inputSystem = {
+      attach: vi.fn(), detach: vi.fn(), update: vi.fn(),
+      get snapshot() {
+        return Object.freeze({ actions: Object.freeze(new Set()), axes: Object.freeze({}) });
+      },
+    };
+    const playerMesh = { position: { x: 0, y: 0, z: 0.15 }, scale: { x: 1 } };
+    return { level, scene, camera, inputSystem, playerMesh };
+  }
+
+  it('uses fall animation when playerDef has a fall behavior configured', () => {
+    const playerDefWithFall = {
+      behaviors: [
+        { id: 'idle', animation: 'idle' },
+        { id: 'jump', animation: 'jump' },
+        { id: 'fall', animation: 'fall' },
+      ],
+      animations: [animIdle, animJump, animFall],
+    };
+    const calls = [];
+    const { level, scene, camera, inputSystem, playerMesh } = makeFallingStubs();
+    const pm = new PlayMode(level, scene, camera, {
+      inputSystem, playerMesh, playerDef: playerDefWithFall,
+      onAnimationChange: (def) => calls.push(def),
+    });
+    // Player has no floor → in FALLING state after physics step
+    pm.update(1 / 60);
+    expect(calls[calls.length - 1]).toBe(animFall);
+  });
+
+  it('falls back to jump animation when no fall behavior is configured', () => {
+    const playerDefNoFall = {
+      behaviors: [
+        { id: 'idle', animation: 'idle' },
+        { id: 'jump', animation: 'jump' },
+      ],
+      animations: [animIdle, animJump],
+    };
+    const calls = [];
+    const { level, scene, camera, inputSystem, playerMesh } = makeFallingStubs();
+    const pm = new PlayMode(level, scene, camera, {
+      inputSystem, playerMesh, playerDef: playerDefNoFall,
+      onAnimationChange: (def) => calls.push(def),
+    });
+    pm.update(1 / 60);
+    // Must use jump as fallback — NOT idle, NOT null
+    expect(calls[calls.length - 1]).toBe(animJump);
+  });
+
+  it('does not emit null when falling with only a jump animation configured', () => {
+    const playerDefNoFall = {
+      behaviors: [
+        { id: 'idle', animation: 'idle' },
+        { id: 'jump', animation: 'jump' },
+      ],
+      animations: [animIdle, animJump],
+    };
+    const calls = [];
+    const { level, scene, camera, inputSystem, playerMesh } = makeFallingStubs();
+    const pm = new PlayMode(level, scene, camera, {
+      inputSystem, playerMesh, playerDef: playerDefNoFall,
+      onAnimationChange: (def) => calls.push(def),
+    });
+    pm.update(1 / 60);
+    const nonnullCalls = calls.filter((c) => c !== null);
+    expect(nonnullCalls.length).toBe(calls.length); // all calls must have valid animDefs
+  });
+});
+
+// ── createPlayMode ─────────────────────────────────────────────────────────────
+
+describe('createPlayMode', () => {
+  const animIdle = { id: 'cI', name: 'idle', spriteSheetId: null, frameWidth: 32, frameHeight: 32, frameStart: 0, frameCount: 1, fps: 4, loop: true };
+  const playerDef = {
+    behaviors: [{ id: 'idle', animation: 'idle' }],
+    animations: [animIdle],
+  };
+
+  function makeRendererStub(playerMesh = null) {
+    const scene = { add: vi.fn(), remove: vi.fn() };
+    const camera = { left: -10, right: 10, top: 10, bottom: -10, updateProjectionMatrix: vi.fn() };
+    return {
+      scene,
+      camera,
+      getObjectMesh: vi.fn(() => playerMesh),
+      setObjectAnimation: vi.fn(),
+    };
+  }
+
+  function makeInputSystemStub() {
+    return {
+      attach: vi.fn(), detach: vi.fn(), update: vi.fn(),
+      get snapshot() {
+        return Object.freeze({ actions: Object.freeze(new Set()), axes: Object.freeze({}) });
+      },
+    };
+  }
+
+  function makeLevelWithPlayer() {
+    const level = new Level(10, 10);
+    level.objects = [{ id: 'p1', type: 'player', x: 4, y: 4, properties: {} }];
+    return level;
+  }
+
+  it('returns a PlayMode instance', () => {
+    const level = makeLevelWithPlayer();
+    const renderer = makeRendererStub();
+    const pm = createPlayMode(level, renderer, null, { inputSystem: makeInputSystemStub() });
+    expect(pm).toBeInstanceOf(PlayMode);
+    pm.dispose();
+  });
+
+  it('passes renderer.scene and renderer.camera to PlayMode', () => {
+    const level = makeLevelWithPlayer();
+    const playerMesh = { position: { x: 0, y: 0 }, scale: { x: 1 } };
+    const renderer = makeRendererStub(playerMesh);
+    const pm = createPlayMode(level, renderer, null, { inputSystem: makeInputSystemStub() });
+    // The mesh is synced on update; if scene/camera are wrong PlayMode would
+    // throw when computing _syncCamera. Verify it runs without error.
+    expect(() => pm.update(1 / 60)).not.toThrow();
+    pm.dispose();
+  });
+
+  it('looks up the player mesh via renderer.getObjectMesh using the player object id', () => {
+    const level = makeLevelWithPlayer();
+    const playerMesh = { position: { x: 0, y: 0 }, scale: { x: 1 } };
+    const renderer = makeRendererStub(playerMesh);
+    const objectDefs = new Map([['player', playerDef]]);
+    const pm = createPlayMode(level, renderer, objectDefs, { inputSystem: makeInputSystemStub() });
+    expect(renderer.getObjectMesh).toHaveBeenCalledWith('p1');
+    pm.dispose();
+  });
+
+  it('uses the returned mesh so PlayMode does not add a placeholder to the scene', () => {
+    const level = makeLevelWithPlayer();
+    const playerMesh = { position: { x: 0, y: 0 }, scale: { x: 1 } };
+    const renderer = makeRendererStub(playerMesh);
+    const pm = createPlayMode(level, renderer, null, { inputSystem: makeInputSystemStub() });
+    expect(renderer.scene.add).not.toHaveBeenCalledWith(playerMesh);
+    pm.dispose();
+  });
+
+  it('wires onAnimationChange to renderer.setObjectAnimation when playerDef is in objectDefs', () => {
+    const level = makeLevelWithPlayer();
+    const playerMesh = { position: { x: 0, y: 0 }, scale: { x: 1 } };
+    const renderer = makeRendererStub(playerMesh);
+    const objectDefs = new Map([['player', playerDef]]);
+    const pm = createPlayMode(level, renderer, objectDefs, { inputSystem: makeInputSystemStub() });
+    pm.update(1 / 60);
+    expect(renderer.setObjectAnimation).toHaveBeenCalledWith('p1', expect.anything());
+    pm.dispose();
+  });
+
+  it('does not wire onAnimationChange when objectDefs is null', () => {
+    const level = makeLevelWithPlayer();
+    const playerMesh = { position: { x: 0, y: 0 }, scale: { x: 1 } };
+    const renderer = makeRendererStub(playerMesh);
+    const pm = createPlayMode(level, renderer, null, { inputSystem: makeInputSystemStub() });
+    pm.update(1 / 60);
+    expect(renderer.setObjectAnimation).not.toHaveBeenCalled();
+    pm.dispose();
+  });
+
+  it('does not wire onAnimationChange when no player type in objectDefs', () => {
+    const level = makeLevelWithPlayer();
+    const playerMesh = { position: { x: 0, y: 0 }, scale: { x: 1 } };
+    const renderer = makeRendererStub(playerMesh);
+    const objectDefs = new Map([['enemy', {}]]); // no 'player' entry
+    const pm = createPlayMode(level, renderer, objectDefs, { inputSystem: makeInputSystemStub() });
+    pm.update(1 / 60);
+    expect(renderer.setObjectAnimation).not.toHaveBeenCalled();
+    pm.dispose();
+  });
+
+  it('works when level has no player object', () => {
+    const level = new Level(10, 10); // no objects
+    const renderer = makeRendererStub();
+    const objectDefs = new Map([['player', playerDef]]);
+    const pm = createPlayMode(level, renderer, objectDefs, { inputSystem: makeInputSystemStub() });
+    expect(pm).toBeInstanceOf(PlayMode);
+    pm.dispose();
+  });
+});
+
+// ── PlayMode — enableGravity:false animation ───────────────────────────────────
+
+describe('PlayMode — enableGravity:false animation', () => {
+  const animIdle     = { id: 'gI', name: 'idle',      spriteSheetId: null, frameWidth: 32, frameHeight: 32, frameStart: 0, frameCount: 1, fps: 1, loop: true };
+  const animMoveUp   = { id: 'gU', name: 'move_up',   spriteSheetId: null, frameWidth: 32, frameHeight: 32, frameStart: 1, frameCount: 1, fps: 1, loop: false };
+  const animMoveDown = { id: 'gD', name: 'move_down', spriteSheetId: null, frameWidth: 32, frameHeight: 32, frameStart: 2, frameCount: 1, fps: 1, loop: false };
+
+  const noGravityDef = {
+    properties: { enableGravity: false },
+    behaviors: [
+      { id: 'idle',      animation: 'idle' },
+      { id: 'move_up',   animation: 'move_up' },
+      { id: 'move_down', animation: 'move_down' },
+    ],
+    animations: [animIdle, animMoveUp, animMoveDown],
+  };
+
+  function makeNoGravityStubs(getActions = () => []) {
+    const level = new Level(10, 10);
+    level.objects = [{ id: 'p1', type: 'player', x: 4, y: 4, properties: { enableGravity: false } }];
+    const scene = { add: vi.fn(), remove: vi.fn() };
+    const camera = { left: -10, right: 10, top: 10, bottom: -10, updateProjectionMatrix: vi.fn() };
+    const inputSystem = {
+      attach: vi.fn(), detach: vi.fn(), update: vi.fn(),
+      get snapshot() {
+        return Object.freeze({ actions: Object.freeze(new Set(getActions())), axes: Object.freeze({}) });
+      },
+    };
+    const playerMesh = { position: { x: 0, y: 0, z: 0.15 }, scale: { x: 1 } };
+    return { level, scene, camera, inputSystem, playerMesh };
+  }
+
+  it('uses move_up behavior animation when jump is held (enableGravity:false)', () => {
+    let actions = [];
+    const { level, scene, camera, inputSystem, playerMesh } = makeNoGravityStubs(() => actions);
+    const calls = [];
+    const pm = new PlayMode(level, scene, camera, {
+      inputSystem, playerMesh, playerDef: noGravityDef,
+      onAnimationChange: (def) => calls.push(def),
+    });
+    pm.update(1 / 60); // idle
+    actions = ['jump'];
+    pm.update(1 / 60);
+    expect(calls[calls.length - 1]).toBe(animMoveUp);
+  });
+
+  it('uses move_down behavior animation when crouch is held (enableGravity:false)', () => {
+    let actions = [];
+    const { level, scene, camera, inputSystem, playerMesh } = makeNoGravityStubs(() => actions);
+    const calls = [];
+    const pm = new PlayMode(level, scene, camera, {
+      inputSystem, playerMesh, playerDef: noGravityDef,
+      onAnimationChange: (def) => calls.push(def),
+    });
+    pm.update(1 / 60); // idle
+    actions = ['crouch'];
+    pm.update(1 / 60);
+    expect(calls[calls.length - 1]).toBe(animMoveDown);
+  });
+
+  it('does not fall back to jump animation in MOVE_UP state (no-gravity mode)', () => {
+    let actions = ['jump'];
+    const defWithJump = {
+      properties: { enableGravity: false },
+      behaviors: [
+        { id: 'idle',    animation: 'idle' },
+        { id: 'jump',    animation: 'idle' }, // jump behavior exists but should not be used for move_up state
+        { id: 'move_up', animation: 'move_up' },
+      ],
+      animations: [animIdle, animMoveUp],
+    };
+    const { level, scene, camera, inputSystem, playerMesh } = makeNoGravityStubs(() => actions);
+    const calls = [];
+    const pm = new PlayMode(level, scene, camera, {
+      inputSystem, playerMesh, playerDef: defWithJump,
+      onAnimationChange: (def) => calls.push(def),
+    });
+    pm.update(1 / 60);
+    // Must be animMoveUp, not animIdle (which is what 'jump' behavior resolves to)
+    expect(calls[calls.length - 1]).toBe(animMoveUp);
   });
 });

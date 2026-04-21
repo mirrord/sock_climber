@@ -32,3 +32,6 @@ export const WALL_KICK_VY = 12;
 
 /** Dash jump: horizontal speed multiplier while airborne after a dash-jump. */
 export const DASH_JUMP_SPEED_SCALE = 2.0;
+
+/** Falling: terminal velocity cap (m/s). Negative = downward. */
+export const MAX_FALL_SPEED = -20;

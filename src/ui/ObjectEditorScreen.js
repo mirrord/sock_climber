@@ -210,6 +210,7 @@ export class ObjectEditorScreen {
       return;
     }
     this._renderObjectFields();
+    this._renderPhysics();
     this._renderCollisionGroups();
     this._renderBehaviors();
     this._renderTriggers();
@@ -242,6 +243,32 @@ export class ObjectEditorScreen {
     idSpan.style.color = '#667';
     section.appendChild(idSpan);
 
+    this._leftPanel.appendChild(section);
+  }
+
+  _renderPhysics() {
+    const obj = this._editor.current;
+    const section = this._el('div', 'section');
+    section.appendChild(this._el('h3', '', 'Physics'));
+
+    const row = this._el('div', '');
+    row.style.cssText = 'display:flex;align-items:center;gap:6px;margin:4px 0;';
+    const cb = this._el('input');
+    cb.type = 'checkbox';
+    cb.id = 'oe-gravity-toggle';
+    cb.checked = obj.properties.enableGravity !== false;
+    cb.addEventListener('change', () => {
+      this._editor.setProperty('enableGravity', cb.checked);
+      this._markUnsaved();
+      this._refreshLeft();
+    });
+    const lbl = this._el('label', '', 'Enable Gravity');
+    lbl.htmlFor = 'oe-gravity-toggle';
+    lbl.style.color = '#ccc';
+    lbl.style.margin = '0';
+    row.appendChild(cb);
+    row.appendChild(lbl);
+    section.appendChild(row);
     this._leftPanel.appendChild(section);
   }
 
@@ -290,6 +317,7 @@ export class ObjectEditorScreen {
 
   _renderBehaviors() {
     const obj = this._editor.current;
+    const enableGravity = obj.properties.enableGravity !== false;
     const section = this._el('div', 'section');
     section.appendChild(this._el('h3', '', 'Behaviors'));
 
@@ -297,6 +325,12 @@ export class ObjectEditorScreen {
       section.appendChild(this._el('span', 'empty-msg', 'No behaviors'));
     }
     for (const beh of obj.behaviors) {
+      // Jump/fall behaviors are only relevant when gravity is enabled;
+      // move_up/move_down behaviors are only relevant when gravity is disabled.
+      const isGravityBeh = beh.id === 'jump' || beh.id === 'fall';
+      const isFreeBeh    = beh.id === 'move_up' || beh.id === 'move_down';
+      if (isGravityBeh && !enableGravity) continue;
+      if (isFreeBeh    &&  enableGravity) continue;
       const item = this._el('div', 'item');
       item.style.flexDirection = 'column';
       item.style.alignItems = 'flex-start';

@@ -42,11 +42,15 @@ export class Behavior {
 
 /** Standard behaviors always available to any object. */
 export const STANDARD_BEHAVIORS = [
-  new Behavior({ id: 'move', name: 'Move', animation: 'move', params: { speed: 5, direction: 'right' } }),
-  new Behavior({ id: 'die', name: 'Die', animation: 'death', params: {} }),
-  new Behavior({ id: 'idle', name: 'Idle', animation: 'idle', params: {} }),
-  new Behavior({ id: 'patrol', name: 'Patrol', animation: 'move', params: { speed: 2, distance: 4 } }),
-  new Behavior({ id: 'chase', name: 'Chase', animation: 'move', params: { speed: 4, range: 6 } }),
+  new Behavior({ id: 'move',      name: 'Move',      animation: 'move',      params: { speed: 5, direction: 'right' } }),
+  new Behavior({ id: 'die',       name: 'Die',       animation: 'death',     params: {} }),
+  new Behavior({ id: 'idle',      name: 'Idle',      animation: 'idle',      params: {} }),
+  new Behavior({ id: 'patrol',    name: 'Patrol',    animation: 'move',      params: { speed: 2, distance: 4 } }),
+  new Behavior({ id: 'chase',     name: 'Chase',     animation: 'move',      params: { speed: 4, range: 6 } }),
+  new Behavior({ id: 'jump',      name: 'Jump',      animation: 'jump',      params: {} }),
+  new Behavior({ id: 'fall',      name: 'Fall',      animation: 'fall',      params: {} }),
+  new Behavior({ id: 'move_up',   name: 'Move Up',   animation: 'move_up',   params: {} }),
+  new Behavior({ id: 'move_down', name: 'Move Down', animation: 'move_down', params: {} }),
 ];
 
 /**

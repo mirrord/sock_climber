@@ -122,10 +122,44 @@ describe('templates', () => {
     }
   });
 
-  it('player template animations have distinct frameStart values', () => {
+  it('player template animations have distinct ids', () => {
     const player = getTemplate('player');
-    const starts = player.animations.map((a) => a.frameStart);
-    const unique = new Set(starts);
-    expect(unique.size, 'animations must not all share the same frameStart').toBe(starts.length);
+    const ids = player.animations.map((a) => a.id);
+    const unique = new Set(ids);
+    expect(unique.size, 'animation ids must be unique').toBe(ids.length);
+  });
+
+  // ── Fall behavior ───────────────────────────────────────────────────────────
+
+  it('player template has a fall behavior', () => {
+    const player = getTemplate('player');
+    const ids = player.behaviors.map((b) => b.id);
+    expect(ids).toContain('fall');
+  });
+
+  it('player template fall behavior references a named animation', () => {
+    const player = getTemplate('player');
+    const fall = player.behaviors.find((b) => b.id === 'fall');
+    expect(fall).toBeDefined();
+    expect(fall.animation).toBeTruthy();
+  });
+
+  it('player template has a fall animation definition', () => {
+    const player = getTemplate('player');
+    const fall = player.behaviors.find((b) => b.id === 'fall');
+    const animName = fall?.animation;
+    const animDef = player.animations.find((a) => a.name === animName);
+    expect(animDef, `Missing animation definition for '${animName}'`).toBeDefined();
+  });
+
+  it('player template fall animation defaults to the same frameStart as jump (safe no-spritesheet default)', () => {
+    const player = getTemplate('player');
+    const jumpAnim = player.animations.find((a) => a.name === 'jump');
+    const fallBeh  = player.behaviors.find((b) => b.id === 'fall');
+    const fallAnim = player.animations.find((a) => a.name === fallBeh?.animation);
+    expect(fallAnim).toBeDefined();
+    // Default fall must point at the same frame as jump so unconfigured spritesheets
+    // never show a transparent/out-of-bounds UV region.
+    expect(fallAnim.frameStart).toBe(jumpAnim.frameStart);
   });
 });
