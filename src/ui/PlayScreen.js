@@ -29,7 +29,6 @@ export class PlayScreen {
     this._rafId = null;
     this._lastTime = 0;
     this._hud = null;
-    this._onKeyDown = null;
     this._pauseMenu = null;
     this._paused = false;
     injectMenuStyles();
@@ -52,9 +51,11 @@ export class PlayScreen {
     const objectDefs = this._objectStore ? this._buildObjectDefsMap() : null;
     this._renderer.rebuildObjects(level, objectDefs);
 
-    this._playMode = createPlayMode(level, this._renderer, objectDefs);
+    this._playMode = createPlayMode(level, this._renderer, objectDefs, {
+      onPausePressed: () => this._togglePause(),
+    });
 
-    // HUD with level name + back
+    // HUD with level name
     this._hud = document.createElement('div');
     this._hud.style.cssText = `
       position: fixed; top: 10px; left: 10px; z-index: 15;
@@ -64,25 +65,12 @@ export class PlayScreen {
     this._hud.textContent = `Playing: ${data.levelName}  [Esc = pause]`;
     document.body.appendChild(this._hud);
 
-    // Escape toggles pause
-    this._onKeyDown = (e) => {
-      if (e.code === 'Escape') {
-        e.preventDefault();
-        this._togglePause();
-      }
-    };
-    window.addEventListener('keydown', this._onKeyDown);
-
     // Start loop
     this._lastTime = performance.now();
     this._loop(this._lastTime);
   }
 
   exit() {
-    if (this._onKeyDown) {
-      window.removeEventListener('keydown', this._onKeyDown);
-      this._onKeyDown = null;
-    }
     if (this._pauseMenu) {
       this._pauseMenu.exit();
       this._pauseMenu = null;
@@ -119,13 +107,7 @@ export class PlayScreen {
   _pause() {
     if (this._paused) return;
     this._paused = true;
-
-    // Stop the RAF loop — game state is preserved in memory.
-    if (this._rafId) {
-      cancelAnimationFrame(this._rafId);
-      this._rafId = null;
-    }
-
+    // RAF loop keeps running (for pollPause) — just skip physics in _loop.
     this._pauseMenu = new PauseMenuScreen(this._container, {
       onResume:   () => this._resume(),
       onMainMenu: () => this._exitToMainMenu(),
@@ -140,15 +122,11 @@ export class PlayScreen {
   _resume() {
     if (!this._paused) return;
     this._paused = false;
-
     if (this._pauseMenu) {
       this._pauseMenu.exit();
       this._pauseMenu = null;
     }
-
-    // Reset time so a long pause doesn't cause a huge dt spike.
-    this._lastTime = performance.now();
-    this._loop(this._lastTime);
+    // _lastTime is kept current by the loop even while paused, so no dt spike.
   }
 
   /** Clean up pause UI then delegate to the normal back callback. */
@@ -164,6 +142,12 @@ export class PlayScreen {
     this._rafId = requestAnimationFrame((t) => this._loop(t));
     const dt = Math.min((now - this._lastTime) / 1000, 0.1);
     this._lastTime = now;
+
+    if (this._paused) {
+      // Game is frozen — only poll input so gamepad/keyboard can trigger resume.
+      this._playMode?.pollPause();
+      return;
+    }
 
     if (this._playMode) {
       this._playMode.update(dt);

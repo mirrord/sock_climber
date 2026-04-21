@@ -99,7 +99,9 @@ export class EditorApp {
       const objectDefs = this._buildObjectDefsMap();
       this._renderer.rebuildObjects(this._editor.level, objectDefs);
       this._renderer.hideHover();
-      this._playMode = createPlayMode(this._editor.level, this._renderer, objectDefs);
+      this._playMode = createPlayMode(this._editor.level, this._renderer, objectDefs, {
+        onPausePressed: () => this._toggleEditorPause(),
+      });
     } else {
       // Returning to edit — discard pause state
       this._dismissPauseMenu();
@@ -173,9 +175,14 @@ export class EditorApp {
     const dt = Math.min((now - this._lastTime) / 1000, 0.1);
     this._lastTime = now;
 
-    if (this._playMode && this._editor.mode === 'play' && !this._paused) {
-      this._playMode.update(dt);
-      this._renderer.updateObjectAnimations(dt);
+    if (this._playMode && this._editor.mode === 'play') {
+      if (!this._paused) {
+        this._playMode.update(dt);
+        this._renderer.updateObjectAnimations(dt);
+      } else {
+        // Game is frozen — only poll input so gamepad/keyboard can trigger resume.
+        this._playMode.pollPause();
+      }
     }
 
     this._renderer.render();
@@ -261,12 +268,7 @@ export class EditorApp {
         return;
       }
 
-      // Escape during play mode → toggle pause menu
-      if (e.code === 'Escape' && this._editor.mode === 'play') {
-        e.preventDefault();
-        this._toggleEditorPause();
-        return;
-      }
+      // Escape during play mode is now handled via PlayMode.onPausePressed (keyboard + gamepad).
 
       // Tab toggles play/edit
       if (e.code === 'Tab') {

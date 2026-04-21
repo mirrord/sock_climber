@@ -97,7 +97,7 @@ export class PlayMode {
    * @param {((animDef: object|null) => void)|null} [options.onAnimationChange] —
    *   called with the new animation definition each time the player state changes.
    */
-  constructor(level, scene, camera, { inputSystem, playerMesh, eventTarget, playerDef, onAnimationChange } = {}) {
+  constructor(level, scene, camera, { inputSystem, playerMesh, eventTarget, playerDef, onAnimationChange, onPausePressed } = {}) {
     this.level = level;
     this.scene = scene;
     this.camera = camera;
@@ -136,6 +136,10 @@ export class PlayMode {
     /** @type {string|undefined} Tracks the last resolved animDef.id to avoid redundant callbacks. */
     this._lastAnimId = undefined;
 
+    // Pause action — rising-edge detection
+    this._onPausePressed = onPausePressed ?? null;
+    this._pauseWasActive = false;
+
     // Player mesh: use the level's player object mesh when provided; otherwise
     // create a cyan placeholder so play-testing still works without a full renderer.
     if (playerMesh) {
@@ -151,9 +155,31 @@ export class PlayMode {
     }
   }
 
+  /**
+   * Sample input and fire onPausePressed on the rising edge of the pause action.
+   * Called every frame (by update() or pollPause()).
+   * @private
+   */
+  _sampleInput() {
+    this._inputSystem.update();
+    const isPauseActive = this._inputSystem.snapshot.actions.has('pause');
+    if (isPauseActive && !this._pauseWasActive && this._onPausePressed) {
+      this._onPausePressed();
+    }
+    this._pauseWasActive = isPauseActive;
+  }
+
+  /**
+   * Sample input only (no physics). Use this when the game is paused so that
+   * the gamepad/keyboard pause button can trigger a resume.
+   */
+  pollPause() {
+    this._sampleInput();
+  }
+
   /** Advance simulation and sync visuals. */
   update(dt) {
-    this._inputSystem.update();
+    this._sampleInput();
     const input = snapshotToControllerInput(this._inputSystem.snapshot);
     this._accumulator += dt;
     while (this._accumulator >= FIXED_DT) {
