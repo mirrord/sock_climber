@@ -609,6 +609,162 @@ describe('createPlayMode', () => {
   });
 });
 
+// ── PlayMode — onPausePressed (rising-edge detection) ─────────────────────────
+
+describe('PlayMode — onPausePressed', () => {
+  /**
+   * InputSystem stub where the active action set can be changed between frames.
+   * update() is a spy that does nothing; snapshot reflects `activeActions`.
+   */
+  function makeDynamicInput(initialActions = []) {
+    let activeActions = new Set(initialActions);
+    return {
+      attach: vi.fn(),
+      detach: vi.fn(),
+      update: vi.fn(),
+      get snapshot() {
+        return Object.freeze({ actions: Object.freeze(new Set(activeActions)), axes: Object.freeze({}) });
+      },
+      setActions(a) { activeActions = new Set(a); },
+    };
+  }
+
+  function makeMinimalStubs() {
+    const level = new Level(10, 10);
+    level.objects = [{ id: 'p1', type: 'player', x: 4, y: 4, properties: {} }];
+    const scene = { add: vi.fn(), remove: vi.fn() };
+    const camera = { left: -10, right: 10, top: 10, bottom: -10, updateProjectionMatrix: vi.fn() };
+    const playerMesh = { position: { x: 0, y: 0, z: 0.15 }, scale: { x: 1 } };
+    return { level, scene, camera, playerMesh };
+  }
+
+  it('fires onPausePressed on the first frame the pause action is active', () => {
+    const { level, scene, camera, playerMesh } = makeMinimalStubs();
+    const inputSystem = makeDynamicInput(['pause']);
+    const onPausePressed = vi.fn();
+    const pm = new PlayMode(level, scene, camera, { inputSystem, playerMesh, onPausePressed });
+    pm.update(1 / 60);
+    expect(onPausePressed).toHaveBeenCalledOnce();
+    pm.dispose();
+  });
+
+  it('does NOT fire again on the second consecutive frame with pause held', () => {
+    const { level, scene, camera, playerMesh } = makeMinimalStubs();
+    const inputSystem = makeDynamicInput(['pause']);
+    const onPausePressed = vi.fn();
+    const pm = new PlayMode(level, scene, camera, { inputSystem, playerMesh, onPausePressed });
+    pm.update(1 / 60);
+    pm.update(1 / 60);
+    expect(onPausePressed).toHaveBeenCalledOnce();
+    pm.dispose();
+  });
+
+  it('does NOT fire when pause action is not active', () => {
+    const { level, scene, camera, playerMesh } = makeMinimalStubs();
+    const inputSystem = makeDynamicInput([]);
+    const onPausePressed = vi.fn();
+    const pm = new PlayMode(level, scene, camera, { inputSystem, playerMesh, onPausePressed });
+    pm.update(1 / 60);
+    pm.update(1 / 60);
+    expect(onPausePressed).not.toHaveBeenCalled();
+    pm.dispose();
+  });
+
+  it('fires again after the pause action is released and re-pressed', () => {
+    const { level, scene, camera, playerMesh } = makeMinimalStubs();
+    const inputSystem = makeDynamicInput([]);
+    const onPausePressed = vi.fn();
+    const pm = new PlayMode(level, scene, camera, { inputSystem, playerMesh, onPausePressed });
+    pm.update(1 / 60);                    // no pause
+    inputSystem.setActions(['pause']);
+    pm.update(1 / 60);                    // rising edge → fires
+    inputSystem.setActions([]);
+    pm.update(1 / 60);                    // released
+    inputSystem.setActions(['pause']);
+    pm.update(1 / 60);                    // rising edge again → fires
+    expect(onPausePressed).toHaveBeenCalledTimes(2);
+    pm.dispose();
+  });
+
+  it('does not interfere with normal movement actions', () => {
+    const { level, scene, camera, playerMesh } = makeMinimalStubs();
+    const inputSystem = makeDynamicInput(['moveRight']);
+    const onPausePressed = vi.fn();
+    const pm = new PlayMode(level, scene, camera, { inputSystem, playerMesh, onPausePressed });
+    pm.update(1 / 60);
+    pm.update(1 / 60);
+    expect(onPausePressed).not.toHaveBeenCalled();
+    pm.dispose();
+  });
+});
+
+// ── PlayMode — pollPause() ────────────────────────────────────────────────────
+
+describe('PlayMode — pollPause()', () => {
+  function makeDynamicInput(initialActions = []) {
+    let activeActions = new Set(initialActions);
+    return {
+      attach: vi.fn(),
+      detach: vi.fn(),
+      update: vi.fn(),
+      get snapshot() {
+        return Object.freeze({ actions: Object.freeze(new Set(activeActions)), axes: Object.freeze({}) });
+      },
+      setActions(a) { activeActions = new Set(a); },
+    };
+  }
+
+  function makeMinimalStubs() {
+    const level = new Level(10, 10);
+    level.objects = [{ id: 'p1', type: 'player', x: 4, y: 4, properties: {} }];
+    const scene = { add: vi.fn(), remove: vi.fn() };
+    const camera = { left: -10, right: 10, top: 10, bottom: -10, updateProjectionMatrix: vi.fn() };
+    const playerMesh = { position: { x: 0, y: 0, z: 0.15 }, scale: { x: 1 } };
+    return { level, scene, camera, playerMesh };
+  }
+
+  it('fires onPausePressed on rising edge', () => {
+    const { level, scene, camera, playerMesh } = makeMinimalStubs();
+    const inputSystem = makeDynamicInput(['pause']);
+    const onPausePressed = vi.fn();
+    const pm = new PlayMode(level, scene, camera, { inputSystem, playerMesh, onPausePressed });
+    pm.pollPause();
+    expect(onPausePressed).toHaveBeenCalledOnce();
+    pm.dispose();
+  });
+
+  it('does NOT fire again on second consecutive pollPause() with pause held', () => {
+    const { level, scene, camera, playerMesh } = makeMinimalStubs();
+    const inputSystem = makeDynamicInput(['pause']);
+    const onPausePressed = vi.fn();
+    const pm = new PlayMode(level, scene, camera, { inputSystem, playerMesh, onPausePressed });
+    pm.pollPause();
+    pm.pollPause();
+    expect(onPausePressed).toHaveBeenCalledOnce();
+    pm.dispose();
+  });
+
+  it('calls inputSystem.update()', () => {
+    const { level, scene, camera, playerMesh } = makeMinimalStubs();
+    const inputSystem = makeDynamicInput([]);
+    const pm = new PlayMode(level, scene, camera, { inputSystem, playerMesh });
+    pm.pollPause();
+    expect(inputSystem.update).toHaveBeenCalled();
+    pm.dispose();
+  });
+
+  it('shares rising-edge state with update() — holding pause across pollPause then update does not re-fire', () => {
+    const { level, scene, camera, playerMesh } = makeMinimalStubs();
+    const inputSystem = makeDynamicInput(['pause']);
+    const onPausePressed = vi.fn();
+    const pm = new PlayMode(level, scene, camera, { inputSystem, playerMesh, onPausePressed });
+    pm.pollPause();          // rising edge → fires
+    pm.update(1 / 60);      // still held — no second fire
+    expect(onPausePressed).toHaveBeenCalledOnce();
+    pm.dispose();
+  });
+});
+
 // ── PlayMode — enableGravity:false animation ───────────────────────────────────
 
 describe('PlayMode — enableGravity:false animation', () => {

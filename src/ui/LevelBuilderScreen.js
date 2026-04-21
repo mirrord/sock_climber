@@ -9,15 +9,21 @@ export class LevelBuilderScreen {
    * @param {import('../level/LevelStore.js').LevelStore} levelStore
    * @param {object} callbacks — { onBack }
    * @param {import('../objects/ObjectStore.js').ObjectStore} [objectStore]
+   * @param {object} [options]
+   * @param {import('../settings/SettingsStore.js').SettingsStore} [options.settings]
+   * @param {import('../input/ActionMap.js').ActionMap} [options.actionMap]
    */
-  constructor(container, levelStore, callbacks, objectStore = null) {
+  constructor(container, levelStore, callbacks, objectStore = null, options = {}) {
     this._container = container;
     this._store = levelStore;
     this._callbacks = callbacks;
     this._objectStore = objectStore;
+    this._settings = options.settings ?? null;
+    this._actionMap = options.actionMap ?? null;
     this._editorApp = null;
     this._topBar = null;
     this._onKeyDown = null;
+    this._editorMode = 'edit';
   }
 
   enter() {
@@ -56,9 +62,9 @@ export class LevelBuilderScreen {
       this._callbacks.onBack();
     });
 
-    // Escape key to return to menu
+    // Escape key to return to menu — only when in edit mode (play mode uses its own Escape handler)
     this._onKeyDown = (e) => {
-      if (e.code === 'Escape') {
+      if (e.code === 'Escape' && this._editorMode === 'edit') {
         e.preventDefault();
         this._callbacks.onBack();
       }
@@ -66,7 +72,11 @@ export class LevelBuilderScreen {
     window.addEventListener('keydown', this._onKeyDown);
 
     // Create the editor
-    this._editorApp = new EditorApp(this._container, this._objectStore);
+    this._editorApp = new EditorApp(this._container, this._objectStore, {
+      settings:     this._settings,
+      actionMap:    this._actionMap,
+      onModeChange: (mode) => this._onEditorModeChange(mode),
+    });
   }
 
   exit() {
@@ -89,5 +99,16 @@ export class LevelBuilderScreen {
     const name = nameInput.value.trim() || 'untitled';
     const editor = this._editorApp._editor; // access internal LevelEditor
     this._store.save(name, editor.level);
+  }
+
+  /**
+   * Called by EditorApp when it switches between edit and play mode.
+   * Hides the level-builder top bar during play-test and restores it on return.
+   * @param {'edit'|'play'} mode
+   */
+  _onEditorModeChange(mode) {
+    this._editorMode = mode;
+    if (!this._topBar) return;
+    this._topBar.style.display = mode === 'play' ? 'none' : '';
   }
 }

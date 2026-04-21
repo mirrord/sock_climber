@@ -43,7 +43,7 @@ const settings = new SettingsScreen(document.body, {
 
 const play = new PlayScreen(document.body, levelStore, {
   onBack: () => sm.back(),
-}, objectStore);
+}, objectStore, { settings: settingsStore, actionMap });
 
 sm.register('menu', menu);
 sm.register('levelSelect', levelSelect);
@@ -56,7 +56,7 @@ if (devMode) {
 
   const levelBuilder = new LevelBuilderScreen(document.body, levelStore, {
     onBack: () => sm.back(),
-  }, objectStore);
+  }, objectStore, { settings: settingsStore, actionMap });
   const objectEditor = new ObjectEditorScreen(document.body, {
     onBack: () => sm.back(),
   }, objectStore);

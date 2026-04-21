@@ -4,6 +4,7 @@ import { EditorUI } from './EditorUI.js';
 import { createPlayMode } from './PlayMode.js';
 import { ObjectEditor } from '../objects/ObjectEditor.js';
 import { ObjectEditorUI } from './ObjectEditorUI.js';
+import { PauseMenuScreen } from '../ui/PauseMenuScreen.js';
 
 const DEFAULT_WIDTH = 30;
 const DEFAULT_HEIGHT = 20;
@@ -15,14 +16,23 @@ export class EditorApp {
   /**
    * @param {HTMLElement} container
    * @param {import('../objects/ObjectStore.js').ObjectStore} [objectStore]
+   * @param {object} [options]
+   * @param {import('../settings/SettingsStore.js').SettingsStore} [options.settings]
+   * @param {import('../input/ActionMap.js').ActionMap} [options.actionMap]
+   * @param {((mode: 'edit'|'play') => void)} [options.onModeChange]
    */
-  constructor(container, objectStore = null) {
+  constructor(container, objectStore = null, options = {}) {
     this._container = container;
     this._editor = new LevelEditor(DEFAULT_WIDTH, DEFAULT_HEIGHT);
     this._renderer = new EditorRenderer(container);
     this._playMode = null;
     this._rafId = null;
     this._lastTime = 0;
+    this._paused = false;
+    this._pauseMenu = null;
+    this._settings   = options.settings     ?? null;
+    this._actionMap  = options.actionMap    ?? null;
+    this._onModeChange = options.onModeChange ?? null;
 
     // Object editor — hydrate library from persisted store if provided
     this._objectEditor = new ObjectEditor();
@@ -80,18 +90,79 @@ export class EditorApp {
     this._ui.setMode(this._editor.mode);
 
     if (this._editor.mode === 'play') {
+      // Hide all editor HUDs during play-test
+      this._ui.hide();
+      if (this._bgPanelVisible) this._toggleBgPanel();
+      this._onModeChange?.('play');
+
       // Rebuild objects first so their meshes exist before PlayMode references them
       const objectDefs = this._buildObjectDefsMap();
       this._renderer.rebuildObjects(this._editor.level, objectDefs);
       this._renderer.hideHover();
       this._playMode = createPlayMode(this._editor.level, this._renderer, objectDefs);
     } else {
+      // Returning to edit — discard pause state
+      this._dismissPauseMenu();
+      this._paused = false;
+
       if (this._playMode) {
         this._playMode.dispose();
         this._playMode = null;
       }
       this._renderer.rebuildFromLevel(this._editor.level);
       this._renderer.rebuildObjects(this._editor.level);
+
+      // Restore editor HUDs
+      this._ui.show();
+      this._onModeChange?.('edit');
+    }
+  }
+
+  // ---- Main loop ----
+
+  // ---- Pause (during play-test) ----
+
+  _toggleEditorPause() {
+    if (this._paused) {
+      this._resumeFromEditorPause();
+    } else {
+      this._pauseInEditor();
+    }
+  }
+
+  _pauseInEditor() {
+    if (this._paused) return;
+    this._paused = true;
+    this._pauseMenu = new PauseMenuScreen(this._container, {
+      onResume:   () => this._resumeFromEditorPause(),
+      onMainMenu: () => this._returnToEditor(),
+    }, {
+      settings:  this._settings,
+      actionMap: this._actionMap,
+      exitLabel: 'Return to Level Editor',
+    });
+    this._pauseMenu.enter();
+  }
+
+  _resumeFromEditorPause() {
+    if (!this._paused) return;
+    this._paused = false;
+    this._dismissPauseMenu();
+  }
+
+  /** Exit play mode altogether (the pause menu's 'Return to Level Editor' action). */
+  _returnToEditor() {
+    this._dismissPauseMenu();
+    // If still in play mode, switch back to edit
+    if (this._editor.mode === 'play') {
+      this._togglePlay();
+    }
+  }
+
+  _dismissPauseMenu() {
+    if (this._pauseMenu) {
+      this._pauseMenu.exit();
+      this._pauseMenu = null;
     }
   }
 
@@ -102,7 +173,7 @@ export class EditorApp {
     const dt = Math.min((now - this._lastTime) / 1000, 0.1);
     this._lastTime = now;
 
-    if (this._playMode && this._editor.mode === 'play') {
+    if (this._playMode && this._editor.mode === 'play' && !this._paused) {
       this._playMode.update(dt);
       this._renderer.updateObjectAnimations(dt);
     }
@@ -190,10 +261,10 @@ export class EditorApp {
         return;
       }
 
-      // Escape during play mode → return to edit
+      // Escape during play mode → toggle pause menu
       if (e.code === 'Escape' && this._editor.mode === 'play') {
         e.preventDefault();
-        this._togglePlay();
+        this._toggleEditorPause();
         return;
       }
 

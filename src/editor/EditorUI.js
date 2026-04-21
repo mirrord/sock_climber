@@ -95,6 +95,16 @@ export class EditorUI {
     }
   }
 
+  /** Hide the toolbar (e.g. during play-test). */
+  hide() {
+    this._root.style.display = 'none';
+  }
+
+  /** Restore the toolbar after hide(). */
+  show() {
+    this._root.style.display = '';
+  }
+
   dispose() {
     this._root.remove();
   }

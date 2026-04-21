@@ -2,6 +2,7 @@ import { Level } from '../level/Level.js';
 import { createPlayMode } from '../editor/PlayMode.js';
 import { EditorRenderer } from '../editor/EditorRenderer.js';
 import { injectMenuStyles } from './menuStyles.js';
+import { PauseMenuScreen } from './PauseMenuScreen.js';
 
 /**
  * Play screen — loads a level from the store and runs it.
@@ -12,18 +13,25 @@ export class PlayScreen {
    * @param {import('../level/LevelStore.js').LevelStore} levelStore
    * @param {object} callbacks — { onBack }
    * @param {import('../objects/ObjectStore.js').ObjectStore} [objectStore]
+   * @param {object} [options]
+   * @param {import('../settings/SettingsStore.js').SettingsStore} [options.settings]
+   * @param {import('../input/ActionMap.js').ActionMap} [options.actionMap]
    */
-  constructor(container, levelStore, callbacks, objectStore = null) {
+  constructor(container, levelStore, callbacks, objectStore = null, options = {}) {
     this._container = container;
     this._store = levelStore;
     this._callbacks = callbacks;
     this._objectStore = objectStore;
+    this._settings = options.settings ?? null;
+    this._actionMap = options.actionMap ?? null;
     this._renderer = null;
     this._playMode = null;
     this._rafId = null;
     this._lastTime = 0;
     this._hud = null;
     this._onKeyDown = null;
+    this._pauseMenu = null;
+    this._paused = false;
     injectMenuStyles();
   }
 
@@ -53,14 +61,14 @@ export class PlayScreen {
       font-family: monospace; font-size: 14px; color: #48bfe3;
       background: rgba(15,15,35,0.7); padding: 6px 12px; border-radius: 4px;
     `;
-    this._hud.textContent = `Playing: ${data.levelName}  [Esc = menu]`;
+    this._hud.textContent = `Playing: ${data.levelName}  [Esc = pause]`;
     document.body.appendChild(this._hud);
 
-    // Escape to go back
+    // Escape toggles pause
     this._onKeyDown = (e) => {
       if (e.code === 'Escape') {
         e.preventDefault();
-        this._callbacks.onBack();
+        this._togglePause();
       }
     };
     window.addEventListener('keydown', this._onKeyDown);
@@ -75,6 +83,11 @@ export class PlayScreen {
       window.removeEventListener('keydown', this._onKeyDown);
       this._onKeyDown = null;
     }
+    if (this._pauseMenu) {
+      this._pauseMenu.exit();
+      this._pauseMenu = null;
+    }
+    this._paused = false;
     if (this._rafId) {
       cancelAnimationFrame(this._rafId);
       this._rafId = null;
@@ -91,6 +104,60 @@ export class PlayScreen {
       this._hud.remove();
       this._hud = null;
     }
+  }
+
+  /** Toggle between paused and running states. */
+  _togglePause() {
+    if (this._paused) {
+      this._resume();
+    } else {
+      this._pause();
+    }
+  }
+
+  /** Freeze the game and show the pause overlay. */
+  _pause() {
+    if (this._paused) return;
+    this._paused = true;
+
+    // Stop the RAF loop — game state is preserved in memory.
+    if (this._rafId) {
+      cancelAnimationFrame(this._rafId);
+      this._rafId = null;
+    }
+
+    this._pauseMenu = new PauseMenuScreen(this._container, {
+      onResume:   () => this._resume(),
+      onMainMenu: () => this._exitToMainMenu(),
+    }, {
+      settings:  this._settings,
+      actionMap: this._actionMap,
+    });
+    this._pauseMenu.enter();
+  }
+
+  /** Hide the pause overlay and resume the game loop. */
+  _resume() {
+    if (!this._paused) return;
+    this._paused = false;
+
+    if (this._pauseMenu) {
+      this._pauseMenu.exit();
+      this._pauseMenu = null;
+    }
+
+    // Reset time so a long pause doesn't cause a huge dt spike.
+    this._lastTime = performance.now();
+    this._loop(this._lastTime);
+  }
+
+  /** Clean up pause UI then delegate to the normal back callback. */
+  _exitToMainMenu() {
+    if (this._pauseMenu) {
+      this._pauseMenu.exit();
+      this._pauseMenu = null;
+    }
+    this._callbacks.onBack();
   }
 
   _loop(now) {
