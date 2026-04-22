@@ -4,6 +4,7 @@ import {
   STANDARD_BEHAVIORS,
   createBehavior,
 } from '../../src/objects/Behavior.js';
+import { BehaviorEffect } from '../../src/objects/BehaviorEffect.js';
 
 describe('Behavior', () => {
   it('creates a behavior with required fields', () => {
@@ -12,6 +13,7 @@ describe('Behavior', () => {
     expect(b.name).toBe('Move');
     expect(b.animation).toBe(null);
     expect(b.params).toEqual({});
+    expect(b.effects).toEqual([]);
   });
 
   it('accepts optional animation link', () => {
@@ -49,6 +51,57 @@ describe('Behavior', () => {
     c.params.speed = 10;
     expect(b.params.speed).toBe(5);
     expect(c.params.speed).toBe(10);
+  });
+
+  it('accepts effects and stores them as BehaviorEffect instances', () => {
+    const b = new Behavior({
+      id: 'hurt',
+      name: 'Hurt',
+      effects: [{ targetRef: 'self', property: 'properties.health', operation: 'add', value: -10 }],
+    });
+    expect(b.effects).toHaveLength(1);
+    expect(b.effects[0]).toBeInstanceOf(BehaviorEffect);
+    expect(b.effects[0].value).toBe(-10);
+  });
+
+  it('accepts effects as BehaviorEffect instances directly', () => {
+    const eff = new BehaviorEffect({ targetRef: 'self', property: 'x', operation: 'set', value: 0 });
+    const b = new Behavior({ id: 'reset', name: 'Reset', effects: [eff] });
+    expect(b.effects[0]).toBe(eff);
+  });
+
+  it('serializes effects in toJSON', () => {
+    const b = new Behavior({
+      id: 'kill',
+      name: 'Kill',
+      effects: [{ targetRef: 'self', property: 'properties.alive', operation: 'set', value: false }],
+    });
+    const json = b.toJSON();
+    expect(json.effects).toHaveLength(1);
+    expect(json.effects[0]).toEqual({
+      targetRef: 'self', property: 'properties.alive', operation: 'set', value: false,
+    });
+  });
+
+  it('deserializes effects from JSON', () => {
+    const json = {
+      id: 'kill', name: 'Kill', animation: null, params: {},
+      effects: [{ targetRef: 'self', property: 'properties.alive', operation: 'set', value: false }],
+    };
+    const b = Behavior.fromJSON(json);
+    expect(b.effects).toHaveLength(1);
+    expect(b.effects[0]).toBeInstanceOf(BehaviorEffect);
+  });
+
+  it('clone does not share effects array or effect instances', () => {
+    const b = new Behavior({
+      id: 'move', name: 'Move',
+      effects: [{ targetRef: 'self', property: 'x', operation: 'add', value: 1 }],
+    });
+    const c = b.clone();
+    c.effects[0].value = 99;
+    expect(b.effects[0].value).toBe(1);
+    expect(c.effects).not.toBe(b.effects);
   });
 });
 

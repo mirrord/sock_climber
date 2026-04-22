@@ -8,6 +8,7 @@ import { SettingsStore } from '../settings/SettingsStore.js';
 import { PLAYER_W, PLAYER_H, FIXED_DT } from '../utils/constants.js';
 import { resolveBehaviorAnimDef } from './animUtils.js';
 import { STATE } from '../player/PlayerState.js';
+import { evaluateTriggers, applyEffect, createTimerState } from '../objects/BehaviorSystem.js';
 
 /**
  * Maps a PlayerController state string to the behavior id used to look up
@@ -96,8 +97,10 @@ export class PlayMode {
    *   state changes, passing the resolved animation definition.
    * @param {((animDef: object|null) => void)|null} [options.onAnimationChange] —
    *   called with the new animation definition each time the player state changes.
+   * @param {Map<string, import('../objects/GameObject.js').GameObject>|null} [options.objectDefs] —
+   *   Map<type, GameObject> for all object types; used by BehaviorSystem.
    */
-  constructor(level, scene, camera, { inputSystem, playerMesh, eventTarget, playerDef, onAnimationChange, onPausePressed } = {}) {
+  constructor(level, scene, camera, { inputSystem, playerMesh, eventTarget, playerDef, onAnimationChange, onPausePressed, objectDefs } = {}) {
     this.level = level;
     this.scene = scene;
     this.camera = camera;
@@ -139,6 +142,10 @@ export class PlayMode {
     // Pause action — rising-edge detection
     this._onPausePressed = onPausePressed ?? null;
     this._pauseWasActive = false;
+
+    // Behavior system
+    this._objectDefs = objectDefs ?? null;
+    this._timerState = createTimerState();
 
     // Player mesh: use the level's player object mesh when provided; otherwise
     // create a cyan placeholder so play-testing still works without a full renderer.
@@ -186,6 +193,7 @@ export class PlayMode {
       this._ctrl.step(input, FIXED_DT);
       this._accumulator -= FIXED_DT;
     }
+    this._runBehaviorSystem(dt);
     this._updatePlayerAnimation();
     this._syncMesh();
     this._syncCamera();
@@ -207,6 +215,45 @@ export class PlayMode {
   }
 
   // ---- Private ----
+
+  /**
+   * Run the behavior system for all non-player level objects.
+   * Evaluates triggers and applies effects each frame.
+   * @param {number} dt
+   */
+  _runBehaviorSystem(dt) {
+    if (!this._objectDefs) return;
+    const allObjs = this.level.objects;
+    const snapshot = this._inputSystem.snapshot;
+    // collisionEvents: empty for now — to be populated once a full object
+    // collision system is added. 'on_collide' triggers can be driven externally
+    // by passing collisionEvents into evaluateTriggers.
+    const collisionEvents = new Set();
+
+    for (const obj of allObjs) {
+      if (obj.type === 'player') continue;
+      const def = this._objectDefs.get(obj.type);
+      if (!def) continue;
+
+      const fired = evaluateTriggers(
+        obj,
+        def.triggers,
+        dt,
+        snapshot,
+        collisionEvents,
+        this._timerState,
+        allObjs,
+      );
+
+      for (const behaviorId of fired) {
+        const behavior = def.behaviors.find((b) => b.id === behaviorId);
+        if (!behavior) continue;
+        for (const effect of behavior.effects) {
+          applyEffect(effect, obj, allObjs);
+        }
+      }
+    }
+  }
 
   /**
    * Emit onAnimationChange when the resolved animation changes.
@@ -285,6 +332,6 @@ export function createPlayMode(level, renderer, objectDefs, options = {}) {
     level,
     renderer.scene,
     renderer.camera,
-    { playerMesh, playerDef, onAnimationChange, ...options },
+    { playerMesh, playerDef, onAnimationChange, objectDefs, ...options },
   );
 }

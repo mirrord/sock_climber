@@ -4,6 +4,7 @@
  */
 export const ASSET_CATEGORY = {
   OBJECTS: 'objects',
+  BEHAVIORS: 'behaviors',
   LEVELS: 'levels',
   SPRITES: 'sprites',
   SOUNDS: 'sounds',
@@ -47,6 +48,7 @@ export class AssetManifest {
     /** @type {Record<string, Record<string, ManifestEntry>>} category → id → entry */
     this._entries = {
       [ASSET_CATEGORY.OBJECTS]: {},
+      [ASSET_CATEGORY.BEHAVIORS]: {},
       [ASSET_CATEGORY.LEVELS]: {},
       [ASSET_CATEGORY.SPRITES]: {},
       [ASSET_CATEGORY.SOUNDS]: {},

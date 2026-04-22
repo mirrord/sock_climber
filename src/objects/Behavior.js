@@ -1,6 +1,9 @@
+import { BehaviorEffect } from './BehaviorEffect.js';
+
 /**
  * A Behavior defines an action a game object can perform.
- * Behaviors can optionally reference an animation name.
+ * Behaviors can optionally reference an animation name and carry a list of
+ * effects that BehaviorSystem applies when the behavior is activated.
  */
 export class Behavior {
   /**
@@ -9,12 +12,14 @@ export class Behavior {
    * @param {string} opts.name      — display name
    * @param {string|null} [opts.animation] — optional animation to play
    * @param {object} [opts.params]  — arbitrary parameters for this behavior
+   * @param {BehaviorEffect[]} [opts.effects] — effects applied when this behavior fires
    */
-  constructor({ id, name, animation = null, params = {} }) {
+  constructor({ id, name, animation = null, params = {}, effects = [] }) {
     this.id = id;
     this.name = name;
     this.animation = animation;
     this.params = { ...params };
+    this.effects = effects.map((e) => (e instanceof BehaviorEffect ? e : BehaviorEffect.fromJSON(e)));
   }
 
   toJSON() {
@@ -23,6 +28,7 @@ export class Behavior {
       name: this.name,
       animation: this.animation,
       params: { ...this.params },
+      effects: this.effects.map((e) => e.toJSON()),
     };
   }
 
@@ -36,6 +42,7 @@ export class Behavior {
       name: this.name,
       animation: this.animation,
       params: { ...this.params },
+      effects: this.effects.map((e) => e.clone()),
     });
   }
 }

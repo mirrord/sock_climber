@@ -4,6 +4,8 @@ import { EditorUI } from './EditorUI.js';
 import { createPlayMode } from './PlayMode.js';
 import { ObjectEditor } from '../objects/ObjectEditor.js';
 import { ObjectEditorUI } from './ObjectEditorUI.js';
+import { BehaviorEditor } from '../objects/BehaviorEditor.js';
+import { BehaviorEditorUI } from './BehaviorEditorUI.js';
 import { PauseMenuScreen } from '../ui/PauseMenuScreen.js';
 
 const DEFAULT_WIDTH = 30;
@@ -49,6 +51,23 @@ export class EditorApp {
 
     this._objectEditorUI = new ObjectEditorUI(document.body, this._objectEditor, {
       onSelectForPlacement: (obj) => this._startPlacement(obj),
+      onEditBehavior: (behavior) => {
+        this._behaviorEditor.load(behavior);
+        this._objectEditorUI.hide();
+        this._behaviorEditorUI.show();
+      },
+    });
+
+    // Behavior editor
+    this._behaviorEditor = new BehaviorEditor();
+    this._behaviorEditorUI = new BehaviorEditorUI(document.body, this._behaviorEditor, {
+      onBehaviorAssigned: (behavior) => {
+        if (this._objectEditor.current) {
+          this._objectEditor.addBehavior(behavior);
+          this._objectEditorUI.show();
+          this._behaviorEditorUI.hide();
+        }
+      },
     });
 
     // Background layers panel
@@ -60,7 +79,14 @@ export class EditorApp {
       onTogglePlay: () => this._togglePlay(),
       onExport: () => this._exportLevel(),
       onImport: () => this._importLevel(),
-      onToggleObjects: () => this._objectEditorUI.toggle(),
+      onToggleObjects: () => {
+        this._behaviorEditorUI.hide();
+        this._objectEditorUI.toggle();
+      },
+      onToggleBehaviors: () => {
+        this._objectEditorUI.hide();
+        this._behaviorEditorUI.toggle();
+      },
       onResize: (w, h) => {
         this._editor.resize(w, h);
         this._renderer.rebuildFromLevel(this._editor.level);
@@ -101,6 +127,7 @@ export class EditorApp {
       this._renderer.hideHover();
       this._playMode = createPlayMode(this._editor.level, this._renderer, objectDefs, {
         onPausePressed: () => this._toggleEditorPause(),
+        objectDefs,
       });
     } else {
       // Returning to edit — discard pause state
@@ -282,7 +309,14 @@ export class EditorApp {
 
       // O toggles object editor panel
       if (e.code === 'KeyO' && !e.ctrlKey && !e.metaKey) {
+        this._behaviorEditorUI.hide();
         this._objectEditorUI.toggle();
+      }
+
+      // B toggles behavior editor panel
+      if (e.code === 'KeyB' && !e.ctrlKey && !e.metaKey) {
+        this._objectEditorUI.hide();
+        this._behaviorEditorUI.toggle();
       }
     });
   }

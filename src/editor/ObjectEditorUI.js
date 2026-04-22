@@ -19,10 +19,14 @@ export class ObjectEditorUI {
    * @param {object} [options]
    * @param {(obj: import('../objects/GameObject.js').GameObject) => void} [options.onSelectForPlacement]
    *   Called when the user clicks "Place in Level" on a library object.
+   * @param {((behavior: import('../objects/Behavior.js').Behavior) => void)|null} [options.onEditBehavior]
+   *   Called when the user clicks the edit button on a behavior row.
+   *   The caller (EditorApp) should open BehaviorEditorUI scoped to this behavior.
    */
-  constructor(container, objectEditor, { onSelectForPlacement } = {}) {
+  constructor(container, objectEditor, { onSelectForPlacement, onEditBehavior } = {}) {
     this._editor = objectEditor;
     this._onSelectForPlacement = onSelectForPlacement ?? null;
+    this._onEditBehavior = onEditBehavior ?? null;
     this._root = document.createElement('div');
     this._root.id = 'object-editor-panel';
     this._visible = false;
@@ -253,13 +257,27 @@ export class ObjectEditorUI {
       let desc = `${beh.name}`;
       if (beh.animation) desc += ` [anim: ${beh.animation}]`;
       if (Object.keys(beh.params).length) desc += ` ${JSON.stringify(beh.params)}`;
+      if (beh.effects?.length) desc += ` (${beh.effects.length} effect${beh.effects.length > 1 ? 's' : ''})`;
       item.appendChild(this._el('span', '', desc));
+      const actions = this._el('span', '');
+      actions.style.display = 'flex';
+      actions.style.gap = '4px';
+      if (this._onEditBehavior) {
+        const editBtn = this._el('button', '', '✎');
+        editBtn.title = 'Edit behavior in Behavior Editor';
+        editBtn.style.padding = '2px 6px';
+        editBtn.addEventListener('click', () => {
+          this._onEditBehavior(beh);
+        });
+        actions.appendChild(editBtn);
+      }
       const remove = this._el('span', 'remove', '✕');
       remove.addEventListener('click', () => {
         this._editor.removeBehavior(beh.id);
         this.refresh();
       });
-      item.appendChild(remove);
+      actions.appendChild(remove);
+      item.appendChild(actions);
       section.appendChild(item);
     }
 

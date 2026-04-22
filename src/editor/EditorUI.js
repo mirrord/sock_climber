@@ -5,7 +5,7 @@
 export class EditorUI {
   /**
    * @param {HTMLElement} container
-   * @param {object} callbacks — { onTogglePlay, onExport, onImport, onToggleObjects, onResize, onBackgrounds }
+   * @param {object} callbacks — { onTogglePlay, onExport, onImport, onToggleObjects, onToggleBehaviors, onResize, onBackgrounds }
    * @param {object} [options] — { initialWidth, initialHeight }
    */
   constructor(container, callbacks, options = {}) {
@@ -51,6 +51,7 @@ export class EditorUI {
       <button id="btn-import">Import</button>
       <div class="sep"></div>
       <button id="btn-objects" title="O">Objects</button>
+      <button id="btn-behaviors" title="B">Behaviors</button>
       <span class="mode-label" id="mode-label">EDIT</span>
     `;
     container.appendChild(this._root);
@@ -71,6 +72,7 @@ export class EditorUI {
     this._root.querySelector('#btn-export').addEventListener('click', callbacks.onExport);
     this._root.querySelector('#btn-import').addEventListener('click', callbacks.onImport);
     this._root.querySelector('#btn-objects').addEventListener('click', callbacks.onToggleObjects);
+    this._root.querySelector('#btn-behaviors').addEventListener('click', callbacks.onToggleBehaviors);
 
     this._modeLabel = this._root.querySelector('#mode-label');
     this._playBtn = this._root.querySelector('#btn-play');
