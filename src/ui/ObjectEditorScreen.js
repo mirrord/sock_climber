@@ -4,6 +4,7 @@ import { getTemplateList, getTemplate } from '../objects/templates.js';
 import { COLLISION_GROUP } from '../objects/GameObject.js';
 import { STANDARD_BEHAVIORS, createBehavior } from '../objects/Behavior.js';
 import { BehaviorTrigger, TRIGGER_TYPES } from '../objects/BehaviorTrigger.js';
+import { BehaviorEffect, OPERATIONS } from '../objects/BehaviorEffect.js';
 
 const COLLISION_GROUP_NAMES = Object.entries(COLLISION_GROUP)
   .filter(([, v]) => v > 0)
@@ -136,6 +137,8 @@ export class ObjectEditorScreen {
     this._unsavedIds = new Set();
     /** @type {string|null} ID of the currently-selected library item */
     this._selectedLibId = null;
+    /** @type {string|null} Behavior ID being edited in the sub-view (null = list view) */
+    this._activeBehaviorId = null;
     /** @type {Array<object>} imported sprite sheets (persisted in localStorage) */
     this._spriteSheets = this._loadSpriteSheets();
     injectOEStyles();
@@ -184,6 +187,7 @@ export class ObjectEditorScreen {
     this._editor = null;
     this._unsavedIds.clear();
     this._selectedLibId = null;
+    this._activeBehaviorId = null;
     this._spriteAnimManager = null;
     if (this._root) {
       this._root.remove();
@@ -208,6 +212,16 @@ export class ObjectEditorScreen {
       const msg = this._el('p', 'empty-msg', 'Select or create an object to edit its properties.');
       this._leftPanel.appendChild(msg);
       return;
+    }
+    // If a behavior is being edited, show the detail sub-view instead
+    if (this._activeBehaviorId) {
+      const beh = obj.behaviors.find((b) => b.id === this._activeBehaviorId);
+      if (beh) {
+        this._renderBehaviorDetail(beh);
+        return;
+      }
+      // Behavior no longer exists — fall back to list view
+      this._activeBehaviorId = null;
     }
     this._renderObjectFields();
     this._renderPhysics();
@@ -336,17 +350,28 @@ export class ObjectEditorScreen {
       item.style.alignItems = 'flex-start';
       item.style.gap = '4px';
 
-      // Top row: behavior name + remove button
+      // Top row: behavior name + edit + remove buttons
       const topRow = this._el('div', '');
-      topRow.style.cssText = 'display:flex;justify-content:space-between;width:100%;align-items:center;';
+      topRow.style.cssText = 'display:flex;justify-content:space-between;width:100%;align-items:center;gap:4px;';
       topRow.appendChild(this._el('span', '', beh.name));
+      const btnRow = this._el('span', '');
+      btnRow.style.cssText = 'display:flex;gap:2px;flex-shrink:0;';
+      const editBtn = this._el('button', '', '✎');
+      editBtn.title = 'Edit behavior effects and params';
+      editBtn.style.cssText = 'padding:2px 6px;font-size:11px;';
+      editBtn.addEventListener('click', () => {
+        this._activeBehaviorId = beh.id;
+        this._refreshLeft();
+      });
+      btnRow.appendChild(editBtn);
       const del = this._el('span', 'remove', '✕');
       del.addEventListener('click', () => {
         this._editor.removeBehavior(beh.id);
         this._markUnsaved();
         this._refreshLeft();
       });
-      topRow.appendChild(del);
+      btnRow.appendChild(del);
+      topRow.appendChild(btnRow);
       item.appendChild(topRow);
 
       // Animation selector row
@@ -405,6 +430,307 @@ export class ObjectEditorScreen {
     row.appendChild(addBtn);
     section.appendChild(row);
     this._leftPanel.appendChild(section);
+  }
+
+  /**
+   * Render the behavior detail sub-view in the left panel.
+   * @param {import('../objects/Behavior.js').Behavior} beh
+   */
+  _renderBehaviorDetail(beh) {
+    const obj = this._editor.current;
+
+    // Back button
+    const backBtn = this._el('button', '', '← Back to Object');
+    backBtn.dataset.role = 'behavior-back';
+    backBtn.style.cssText = 'display:block;width:100%;margin-bottom:10px;';
+    backBtn.addEventListener('click', () => {
+      this._activeBehaviorId = null;
+      this._refreshLeft();
+    });
+    this._leftPanel.appendChild(backBtn);
+
+    this._leftPanel.appendChild(this._el('h3', '', `Behavior: ${beh.name}`));
+
+    // Name
+    this._leftPanel.appendChild(this._el('label', '', 'Name'));
+    const nameInput = this._el('input');
+    nameInput.value = beh.name;
+    nameInput.addEventListener('change', () => {
+      this._editor.setBehaviorName(beh.id, nameInput.value);
+      this._markUnsaved();
+    });
+    this._leftPanel.appendChild(nameInput);
+
+    // Animation
+    this._leftPanel.appendChild(this._el('label', '', 'Animation'));
+    const animSel = this._el('select');
+    const noneOpt = this._el('option');
+    noneOpt.value = '';
+    noneOpt.textContent = '— none —';
+    animSel.appendChild(noneOpt);
+    for (const anim of obj.animations) {
+      const opt = this._el('option');
+      opt.value = anim.name;
+      opt.textContent = anim.name;
+      animSel.appendChild(opt);
+    }
+    animSel.value = beh.animation ?? '';
+    animSel.addEventListener('change', () => {
+      this._editor.setBehaviorAnimation(beh.id, animSel.value || null);
+      this._markUnsaved();
+    });
+    this._leftPanel.appendChild(animSel);
+
+    // Params
+    const paramsSection = this._el('div', 'section');
+    paramsSection.appendChild(this._el('h3', '', 'Params'));
+    for (const [key, val] of Object.entries(beh.params)) {
+      const row = this._el('div', 'row');
+      row.style.alignItems = 'center';
+      const kLabel = this._el('span', '', key + ':');
+      kLabel.style.minWidth = '60px';
+      row.appendChild(kLabel);
+      const input = this._el('input');
+      input.value = String(val);
+      input.style.flex = '1';
+      input.addEventListener('change', () => {
+        const v = input.value;
+        const num = Number(v);
+        this._editor.setBehaviorParam(beh.id, key, isNaN(num) ? v : num);
+        this._markUnsaved();
+      });
+      row.appendChild(input);
+      const delBtn = this._el('span', 'remove', '✕');
+      delBtn.addEventListener('click', () => {
+        this._editor.removeBehaviorParam(beh.id, key);
+        this._markUnsaved();
+        this._refreshLeft();
+      });
+      row.appendChild(delBtn);
+      paramsSection.appendChild(row);
+    }
+    const addParamRow = this._el('div', 'row');
+    const pkInput = this._el('input');
+    pkInput.placeholder = 'key';
+    pkInput.style.flex = '1';
+    const pvInput = this._el('input');
+    pvInput.placeholder = 'value';
+    pvInput.style.flex = '1';
+    const addParamBtn = this._el('button', '', '+ Add');
+    addParamBtn.addEventListener('click', () => {
+      if (!pkInput.value) return;
+      const v = pvInput.value;
+      const num = Number(v);
+      this._editor.setBehaviorParam(beh.id, pkInput.value, isNaN(num) ? v : num);
+      this._markUnsaved();
+      this._refreshLeft();
+    });
+    addParamRow.appendChild(pkInput);
+    addParamRow.appendChild(pvInput);
+    addParamRow.appendChild(addParamBtn);
+    paramsSection.appendChild(addParamRow);
+    this._leftPanel.appendChild(paramsSection);
+
+    // Effects
+    const templates = getTemplateList();
+    const effectsSection = this._el('div', 'section');
+    effectsSection.appendChild(this._el('h3', '', 'Effects'));
+    const hint = this._el('div', 'empty-msg', 'Target "self" (own properties) or "target" (contact object).');
+    hint.style.marginBottom = '6px';
+    effectsSection.appendChild(hint);
+
+    beh.effects.forEach((eff, i) => {
+      const isSpawn = eff.operation === 'spawn';
+      const isDestroy = eff.operation === 'destroy';
+
+      const row = document.createElement('div');
+      row.style.cssText = 'display:grid;grid-template-columns:1fr 1fr 80px 60px auto;gap:4px;align-items:center;background:#1a1a3a;border:1px solid #444;padding:4px;margin:3px 0;';
+
+      const targetSel = document.createElement('select');
+      targetSel.style.marginBottom = '0';
+      for (const t of ['self', 'target']) {
+        const opt = document.createElement('option');
+        opt.value = t;
+        opt.textContent = t;
+        if (t === eff.targetRef) opt.selected = true;
+        targetSel.appendChild(opt);
+      }
+      targetSel.addEventListener('change', () => {
+        this._editor.updateEffectOnBehavior(beh.id, i, { targetRef: targetSel.value });
+        this._markUnsaved();
+      });
+
+      const propInput = this._el('input');
+      propInput.value = isSpawn || isDestroy ? '' : (eff.property ?? '');
+      propInput.placeholder = isSpawn ? '(spawn)' : isDestroy ? '(destroy)' : 'x';
+      propInput.disabled = isSpawn || isDestroy;
+      propInput.addEventListener('change', () => {
+        if (!isSpawn && !isDestroy) {
+          this._editor.updateEffectOnBehavior(beh.id, i, { property: propInput.value });
+          this._markUnsaved();
+        }
+      });
+
+      const opSel = document.createElement('select');
+      opSel.style.marginBottom = '0';
+      for (const op of OPERATIONS) {
+        const opt = document.createElement('option');
+        opt.value = op;
+        opt.textContent = op;
+        if (op === eff.operation) opt.selected = true;
+        opSel.appendChild(opt);
+      }
+      opSel.addEventListener('change', () => {
+        this._editor.updateEffectOnBehavior(beh.id, i, { operation: opSel.value });
+        this._markUnsaved();
+        this._refreshLeft();
+      });
+
+      const valInput = this._el('input');
+      valInput.value = isSpawn || isDestroy ? '' : String(eff.value ?? '');
+      valInput.disabled = isSpawn || isDestroy;
+      valInput.placeholder = isSpawn || isDestroy ? '' : '0';
+      valInput.addEventListener('change', () => {
+        if (!isSpawn && !isDestroy) {
+          const v = valInput.value;
+          const num = Number(v);
+          this._editor.updateEffectOnBehavior(beh.id, i, { value: isNaN(num) ? v : num });
+          this._markUnsaved();
+        }
+      });
+
+      const delBtn = this._el('span', 'remove', '✕');
+      delBtn.style.cursor = 'pointer';
+      delBtn.addEventListener('click', () => {
+        this._editor.removeEffectFromBehavior(beh.id, i);
+        this._markUnsaved();
+        this._refreshLeft();
+      });
+
+      row.appendChild(targetSel);
+      row.appendChild(propInput);
+      row.appendChild(opSel);
+      row.appendChild(valInput);
+      row.appendChild(delBtn);
+      effectsSection.appendChild(row);
+
+      if (isSpawn) {
+        const spec = eff.spawnSpec ?? { objectType: '', offsetX: 0, offsetY: 0, velocityX: 0, velocityY: 0, properties: {}, lifetime: 0 };
+        const specForm = document.createElement('div');
+        specForm.style.cssText = 'background:#0f0f23;border:1px solid #444;padding:6px 8px;margin:0 0 4px 0;';
+
+        const makeRow = (label, inputEl) => {
+          const r = this._el('div', 'row');
+          r.style.alignItems = 'center';
+          const lbl = this._el('span', '', label);
+          lbl.style.cssText = 'min-width:80px;color:#8899bb;font-size:11px;';
+          r.appendChild(lbl);
+          inputEl.style.flex = '1';
+          r.appendChild(inputEl);
+          return r;
+        };
+
+        const typeSel2 = document.createElement('select');
+        typeSel2.style.marginBottom = '0';
+        const blankOpt = document.createElement('option');
+        blankOpt.value = '';
+        blankOpt.textContent = '-- select type --';
+        typeSel2.appendChild(blankOpt);
+        for (const tmpl of templates) {
+          const opt = document.createElement('option');
+          opt.value = tmpl.type;
+          opt.textContent = tmpl.name;
+          if (tmpl.type === spec.objectType) opt.selected = true;
+          typeSel2.appendChild(opt);
+        }
+        typeSel2.addEventListener('change', () => {
+          this._editor.updateEffectOnBehavior(beh.id, i, { spawnSpec: { ...spec, objectType: typeSel2.value } });
+          this._markUnsaved();
+        });
+        specForm.appendChild(makeRow('Object Type', typeSel2));
+
+        const makeNumInput = (label, field, defaultVal) => {
+          const inp = this._el('input');
+          inp.type = 'number';
+          inp.step = '0.1';
+          inp.value = String(spec[field] ?? defaultVal);
+          inp.addEventListener('change', () => {
+            this._editor.updateEffectOnBehavior(beh.id, i, { spawnSpec: { ...spec, [field]: parseFloat(inp.value) || 0 } });
+            this._markUnsaved();
+          });
+          specForm.appendChild(makeRow(label, inp));
+        };
+
+        makeNumInput('Offset X', 'offsetX', 0);
+        makeNumInput('Offset Y', 'offsetY', 0);
+        makeNumInput('Velocity X', 'velocityX', 0);
+        makeNumInput('Velocity Y', 'velocityY', 0);
+        makeNumInput('Lifetime (s)', 'lifetime', 0);
+        effectsSection.appendChild(specForm);
+      }
+    });
+
+    // Add effect row
+    const addEffRow = this._el('div', 'row');
+    addEffRow.style.marginTop = '6px';
+
+    const newTarget = document.createElement('select');
+    newTarget.style.flex = '1';
+    newTarget.style.marginBottom = '0';
+    for (const t of ['self', 'target']) {
+      const opt = document.createElement('option');
+      opt.value = t;
+      opt.textContent = t;
+      newTarget.appendChild(opt);
+    }
+
+    const newProp = this._el('input');
+    newProp.placeholder = 'x';
+    newProp.style.flex = '1';
+
+    const newOp = document.createElement('select');
+    newOp.style.flex = '0 0 70px';
+    newOp.style.marginBottom = '0';
+    for (const op of OPERATIONS) {
+      const opt = document.createElement('option');
+      opt.value = op;
+      opt.textContent = op;
+      newOp.appendChild(opt);
+    }
+
+    const newVal = this._el('input');
+    newVal.placeholder = '0';
+    newVal.style.flex = '0 0 50px';
+
+    const addEffBtn = this._el('button', '', '+');
+    addEffBtn.addEventListener('click', () => {
+      const op = newOp.value;
+      const isSpawn = op === 'spawn';
+      const isDestroy = op === 'destroy';
+      if (!isSpawn && !isDestroy && !newProp.value) return;
+      const rawVal = newVal.value;
+      const num = Number(rawVal);
+      const spawnSpec = isSpawn
+        ? { objectType: '', offsetX: 0, offsetY: 0, velocityX: 0, velocityY: 0, properties: {}, lifetime: 0 }
+        : null;
+      this._editor.addEffectToBehavior(beh.id, new BehaviorEffect({
+        targetRef: newTarget.value || 'self',
+        property: isSpawn || isDestroy ? '' : newProp.value,
+        operation: op,
+        value: isNaN(num) ? rawVal : num,
+        spawnSpec,
+      }));
+      this._markUnsaved();
+      this._refreshLeft();
+    });
+
+    addEffRow.appendChild(newTarget);
+    addEffRow.appendChild(newProp);
+    addEffRow.appendChild(newOp);
+    addEffRow.appendChild(newVal);
+    addEffRow.appendChild(addEffBtn);
+    effectsSection.appendChild(addEffRow);
+    this._leftPanel.appendChild(effectsSection);
   }
 
   _renderTriggers() {

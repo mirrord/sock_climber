@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { ObjectEditor } from '../../src/objects/ObjectEditor.js';
 import { GameObject, COLLISION_GROUP } from '../../src/objects/GameObject.js';
 import { Behavior } from '../../src/objects/Behavior.js';
+import { BehaviorEffect } from '../../src/objects/BehaviorEffect.js';
 import { BehaviorTrigger } from '../../src/objects/BehaviorTrigger.js';
 
 describe('ObjectEditor', () => {
@@ -190,5 +191,64 @@ describe('ObjectEditor', () => {
 
   it('setBehaviorAnimation throws when no object is loaded', () => {
     expect(() => editor.setBehaviorAnimation('idle', 'anim')).toThrow();
+  });
+
+  // ---- Behavior effect editing ----
+
+  it('addEffectToBehavior appends an effect to the matching behavior', () => {
+    editor.createBlank('custom', 'Obj');
+    const effect = new BehaviorEffect({ targetRef: 'self', property: 'x', operation: 'add', value: 1 });
+    editor.addEffectToBehavior('idle', effect);
+    const b = editor.current.behaviors.find((bh) => bh.id === 'idle');
+    expect(b.effects).toHaveLength(1);
+    expect(b.effects[0]).toBe(effect);
+  });
+
+  it('addEffectToBehavior does nothing for unknown behavior id', () => {
+    editor.createBlank('custom', 'Obj');
+    expect(() => editor.addEffectToBehavior('nonexistent', new BehaviorEffect({ targetRef: 'self', property: 'x', operation: 'set', value: 0 }))).not.toThrow();
+  });
+
+  it('removeEffectFromBehavior removes effect by index', () => {
+    editor.createBlank('custom', 'Obj');
+    const e1 = new BehaviorEffect({ targetRef: 'self', property: 'x', operation: 'add', value: 1 });
+    const e2 = new BehaviorEffect({ targetRef: 'self', property: 'y', operation: 'add', value: 2 });
+    editor.addEffectToBehavior('idle', e1);
+    editor.addEffectToBehavior('idle', e2);
+    editor.removeEffectFromBehavior('idle', 0);
+    const b = editor.current.behaviors.find((bh) => bh.id === 'idle');
+    expect(b.effects).toHaveLength(1);
+    expect(b.effects[0]).toBe(e2);
+  });
+
+  it('updateEffectOnBehavior patches fields of an existing effect', () => {
+    editor.createBlank('custom', 'Obj');
+    const e = new BehaviorEffect({ targetRef: 'self', property: 'x', operation: 'add', value: 1 });
+    editor.addEffectToBehavior('idle', e);
+    editor.updateEffectOnBehavior('idle', 0, { value: 99 });
+    const b = editor.current.behaviors.find((bh) => bh.id === 'idle');
+    expect(b.effects[0].value).toBe(99);
+  });
+
+  it('setBehaviorName renames the matching behavior', () => {
+    editor.createBlank('custom', 'Obj');
+    editor.setBehaviorName('idle', 'Stand Still');
+    const b = editor.current.behaviors.find((bh) => bh.id === 'idle');
+    expect(b.name).toBe('Stand Still');
+  });
+
+  it('setBehaviorParam sets a param on the matching behavior', () => {
+    editor.createBlank('custom', 'Obj');
+    editor.setBehaviorParam('idle', 'speed', 3);
+    const b = editor.current.behaviors.find((bh) => bh.id === 'idle');
+    expect(b.params.speed).toBe(3);
+  });
+
+  it('removeBehaviorParam removes a param from the matching behavior', () => {
+    editor.createBlank('custom', 'Obj');
+    editor.setBehaviorParam('idle', 'speed', 3);
+    editor.removeBehaviorParam('idle', 'speed');
+    const b = editor.current.behaviors.find((bh) => bh.id === 'idle');
+    expect(b.params.speed).toBeUndefined();
   });
 });

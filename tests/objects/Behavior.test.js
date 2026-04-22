@@ -79,7 +79,7 @@ describe('Behavior', () => {
     const json = b.toJSON();
     expect(json.effects).toHaveLength(1);
     expect(json.effects[0]).toEqual({
-      targetRef: 'self', property: 'properties.alive', operation: 'set', value: false,
+      targetRef: 'self', property: 'properties.alive', operation: 'set', value: false, spawnSpec: null,
     });
   });
 

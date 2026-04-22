@@ -2,6 +2,7 @@ import { BehaviorEditor } from '../objects/BehaviorEditor.js';
 import { STANDARD_BEHAVIORS } from '../objects/Behavior.js';
 import { BehaviorEffect, OPERATIONS } from '../objects/BehaviorEffect.js';
 import { TRIGGER_TYPES } from '../objects/BehaviorTrigger.js';
+import { getTemplateList } from '../objects/templates.js';
 
 /**
  * Slide-out panel for editing the behavior library.
@@ -322,32 +323,38 @@ export class BehaviorEditorUI {
     const section = this._el('div', 'section');
     section.appendChild(this._el('h3', '', 'Effects'));
     section.appendChild(this._el('div', 'empty-msg',
-      'Effects are applied to objects when this behavior fires. ' +
-      'Target "self" or any object ID from the level. ' +
-      'Property path: x, y, or properties.<key>'));
+      'Effects are applied when this behavior fires. ' +
+      'Target "self", "target" (contact object), or any object ID. ' +
+      'Property path: x, y, or properties.<key>. Use "spawn" to create objects.'));
 
     if (b.effects.length === 0) {
       section.appendChild(this._el('div', 'empty-msg', 'No effects'));
     }
 
+    const templates = getTemplateList();
+
     b.effects.forEach((eff, i) => {
+      const isSpawn = eff.operation === 'spawn';
+      const isDestroy = eff.operation === 'destroy';
+
       const row = document.createElement('div');
       row.className = 'effect-row';
 
       const targetInput = this._el('input');
       targetInput.value = eff.targetRef;
-      targetInput.title = '"self" or a level object id';
+      targetInput.title = '"self", "target" (contact), or a level object id';
       targetInput.placeholder = 'self';
       targetInput.addEventListener('change', () => {
         this._editor.updateEffect(i, { targetRef: targetInput.value });
       });
 
       const propInput = this._el('input');
-      propInput.value = eff.property;
+      propInput.value = isSpawn || isDestroy ? '' : eff.property;
       propInput.title = 'e.g. x, y, properties.health';
-      propInput.placeholder = 'x';
+      propInput.placeholder = isSpawn ? '(spawn)' : isDestroy ? '(destroy)' : 'x';
+      propInput.disabled = isSpawn || isDestroy;
       propInput.addEventListener('change', () => {
-        this._editor.updateEffect(i, { property: propInput.value });
+        if (!isSpawn && !isDestroy) this._editor.updateEffect(i, { property: propInput.value });
       });
 
       const opSel = document.createElement('select');
@@ -361,15 +368,20 @@ export class BehaviorEditorUI {
       }
       opSel.addEventListener('change', () => {
         this._editor.updateEffect(i, { operation: opSel.value });
+        this.refresh();
       });
 
       const valInput = this._el('input');
-      valInput.value = String(eff.value);
+      valInput.value = isSpawn || isDestroy ? '' : String(eff.value);
       valInput.title = 'value';
+      valInput.disabled = isSpawn || isDestroy;
+      valInput.placeholder = isSpawn || isDestroy ? '' : '0';
       valInput.addEventListener('change', () => {
-        const v = valInput.value;
-        const num = Number(v);
-        this._editor.updateEffect(i, { value: isNaN(num) ? v : num });
+        if (!isSpawn && !isDestroy) {
+          const v = valInput.value;
+          const num = Number(v);
+          this._editor.updateEffect(i, { value: isNaN(num) ? v : num });
+        }
       });
 
       const delBtn = this._el('span', 'remove', '✕');
@@ -384,6 +396,62 @@ export class BehaviorEditorUI {
       row.appendChild(valInput);
       row.appendChild(delBtn);
       section.appendChild(row);
+
+      // Spawn spec sub-form
+      if (isSpawn) {
+        const spec = eff.spawnSpec ?? { objectType: '', offsetX: 0, offsetY: 0, velocityX: 0, velocityY: 0, properties: {}, lifetime: 0 };
+        const specForm = document.createElement('div');
+        specForm.style.cssText = 'background:#070f1a;border:1px solid #335;padding:6px 8px;margin:0 0 4px 0;';
+
+        const makeSpecRow = (label, inputEl) => {
+          const r = this._el('div', 'row');
+          r.style.alignItems = 'center';
+          const lbl = this._el('span', '', label);
+          lbl.style.cssText = 'min-width:80px;color:#8899bb;font-size:11px;';
+          r.appendChild(lbl);
+          inputEl.style.flex = '1';
+          r.appendChild(inputEl);
+          return r;
+        };
+
+        // objectType select
+        const typeSel = document.createElement('select');
+        typeSel.style.marginBottom = '0';
+        const blankOpt = document.createElement('option');
+        blankOpt.value = '';
+        blankOpt.textContent = '-- select type --';
+        typeSel.appendChild(blankOpt);
+        for (const tmpl of templates) {
+          const opt = document.createElement('option');
+          opt.value = tmpl.type;
+          opt.textContent = tmpl.name;
+          if (tmpl.type === spec.objectType) opt.selected = true;
+          typeSel.appendChild(opt);
+        }
+        typeSel.addEventListener('change', () => {
+          this._editor.updateEffect(i, { spawnSpec: { ...spec, objectType: typeSel.value } });
+        });
+        specForm.appendChild(makeSpecRow('Object Type', typeSel));
+
+        const makeNumInput = (label, field, defaultVal) => {
+          const inp = this._el('input');
+          inp.type = 'number';
+          inp.step = '0.1';
+          inp.value = spec[field] ?? defaultVal;
+          inp.addEventListener('change', () => {
+            this._editor.updateEffect(i, { spawnSpec: { ...spec, [field]: parseFloat(inp.value) || 0 } });
+          });
+          specForm.appendChild(makeSpecRow(label, inp));
+        };
+
+        makeNumInput('Offset X', 'offsetX', 0);
+        makeNumInput('Offset Y', 'offsetY', 0);
+        makeNumInput('Velocity X', 'velocityX', 0);
+        makeNumInput('Velocity Y', 'velocityY', 0);
+        makeNumInput('Lifetime (s)', 'lifetime', 0);
+
+        section.appendChild(specForm);
+      }
     });
 
     // Column headers for the add-form
@@ -407,7 +475,7 @@ export class BehaviorEditorUI {
     const newTarget = this._el('input');
     newTarget.placeholder = 'self';
     newTarget.style.flex = '1';
-    newTarget.title = '"self" or level object id';
+    newTarget.title = '"self", "target", or level object id';
 
     const newProp = this._el('input');
     newProp.placeholder = 'x';
@@ -431,14 +499,21 @@ export class BehaviorEditorUI {
     const addBtn = this._el('button', '', '+');
     addBtn.title = 'Add effect';
     addBtn.addEventListener('click', () => {
-      if (!newTarget.value || !newProp.value) return;
+      const op = newOp.value;
+      const isSpawn = op === 'spawn';
+      const isDestroy = op === 'destroy';
+      if (!isSpawn && !isDestroy && (!newTarget.value || !newProp.value)) return;
       const rawVal = newVal.value;
       const num = Number(rawVal);
+      const spawnSpec = isSpawn
+        ? { objectType: '', offsetX: 0, offsetY: 0, velocityX: 0, velocityY: 0, properties: {}, lifetime: 0 }
+        : null;
       this._editor.addEffect(new BehaviorEffect({
         targetRef: newTarget.value || 'self',
-        property: newProp.value,
-        operation: newOp.value,
+        property: isSpawn || isDestroy ? '' : newProp.value,
+        operation: op,
         value: isNaN(num) ? rawVal : num,
+        spawnSpec,
       }));
       this.refresh();
     });

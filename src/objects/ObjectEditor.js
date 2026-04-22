@@ -108,6 +108,74 @@ export class ObjectEditor {
     if (b) b.animation = animationName;
   }
 
+  /**
+   * Rename a behavior.
+   * @param {string} behaviorId
+   * @param {string} name
+   */
+  setBehaviorName(behaviorId, name) {
+    this._requireCurrent();
+    const b = this.current.behaviors.find((bh) => bh.id === behaviorId);
+    if (b) b.name = name;
+  }
+
+  /**
+   * Set a param key on a behavior.
+   * @param {string} behaviorId
+   * @param {string} key
+   * @param {*} value
+   */
+  setBehaviorParam(behaviorId, key, value) {
+    this._requireCurrent();
+    const b = this.current.behaviors.find((bh) => bh.id === behaviorId);
+    if (b) b.params[key] = value;
+  }
+
+  /**
+   * Remove a param key from a behavior.
+   * @param {string} behaviorId
+   * @param {string} key
+   */
+  removeBehaviorParam(behaviorId, key) {
+    this._requireCurrent();
+    const b = this.current.behaviors.find((bh) => bh.id === behaviorId);
+    if (b) delete b.params[key];
+  }
+
+  /**
+   * Append an effect to a specific behavior.
+   * @param {string} behaviorId
+   * @param {import('./BehaviorEffect.js').BehaviorEffect} effect
+   */
+  addEffectToBehavior(behaviorId, effect) {
+    this._requireCurrent();
+    const b = this.current.behaviors.find((bh) => bh.id === behaviorId);
+    if (b) b.effects.push(effect);
+  }
+
+  /**
+   * Remove an effect from a behavior by index.
+   * @param {string} behaviorId
+   * @param {number} index
+   */
+  removeEffectFromBehavior(behaviorId, index) {
+    this._requireCurrent();
+    const b = this.current.behaviors.find((bh) => bh.id === behaviorId);
+    if (b) b.effects.splice(index, 1);
+  }
+
+  /**
+   * Patch fields of an existing effect on a behavior.
+   * @param {string} behaviorId
+   * @param {number} index
+   * @param {object} patch
+   */
+  updateEffectOnBehavior(behaviorId, index, patch) {
+    this._requireCurrent();
+    const b = this.current.behaviors.find((bh) => bh.id === behaviorId);
+    if (b && b.effects[index]) Object.assign(b.effects[index], patch);
+  }
+
   addTrigger(trigger) {
     this._requireCurrent();
     this.current.addTrigger(trigger);

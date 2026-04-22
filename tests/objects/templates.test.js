@@ -162,4 +162,37 @@ describe('templates', () => {
     // never show a transparent/out-of-bounds UV region.
     expect(fallAnim.frameStart).toBe(jumpAnim.frameStart);
   });
+
+  // ── projectile template ────────────────────────────────────────────────────
+
+  it('has a projectile template', () => {
+    const types = getTemplateList().map((t) => t.type);
+    expect(types).toContain('projectile');
+  });
+
+  it('projectile has PROJECTILE collision group', () => {
+    const p = getTemplate('projectile');
+    expect(p.collisionGroup).toBe(COLLISION_GROUP.PROJECTILE);
+  });
+
+  it('projectile masks against ENEMY and ENVIRONMENT', () => {
+    const p = getTemplate('projectile');
+    expect(p.collisionMask & COLLISION_GROUP.ENEMY).toBeTruthy();
+    expect(p.collisionMask & COLLISION_GROUP.ENVIRONMENT).toBeTruthy();
+  });
+
+  it('projectile has expected default properties', () => {
+    const p = getTemplate('projectile');
+    expect(p.properties.width).toBeDefined();
+    expect(p.properties.height).toBeDefined();
+    expect(p.properties.speed).toBeDefined();
+    expect(p.properties.damage).toBeDefined();
+    expect(p.properties.lifetime).toBeDefined();
+  });
+
+  it('projectile has an idle behavior', () => {
+    const p = getTemplate('projectile');
+    const ids = p.behaviors.map((b) => b.id);
+    expect(ids).toContain('idle');
+  });
 });

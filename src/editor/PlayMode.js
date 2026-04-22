@@ -8,7 +8,7 @@ import { SettingsStore } from '../settings/SettingsStore.js';
 import { PLAYER_W, PLAYER_H, FIXED_DT } from '../utils/constants.js';
 import { resolveBehaviorAnimDef } from './animUtils.js';
 import { STATE } from '../player/PlayerState.js';
-import { evaluateTriggers, applyEffect, createTimerState } from '../objects/BehaviorSystem.js';
+import { evaluateTriggers, applyEffect, createTimerState, detectContacts, executeBehavior } from '../objects/BehaviorSystem.js';
 
 /**
  * Maps a PlayerController state string to the behavior id used to look up
@@ -146,6 +146,8 @@ export class PlayMode {
     // Behavior system
     this._objectDefs = objectDefs ?? null;
     this._timerState = createTimerState();
+    /** @type {Map<string, {obj: object, mesh: THREE.Mesh, lifetime: number}>} */
+    this._runtimeObjects = new Map();
 
     // Player mesh: use the level's player object mesh when provided; otherwise
     // create a cyan placeholder so play-testing still works without a full renderer.
@@ -202,6 +204,13 @@ export class PlayMode {
   /** Remove mesh and detach input listeners. */
   dispose() {
     this._inputSystem.detach(this._eventTarget);
+    // Clean up runtime-spawned objects
+    for (const { mesh } of this._runtimeObjects.values()) {
+      this.scene.remove(mesh);
+      mesh.geometry.dispose();
+      mesh.material.dispose();
+    }
+    this._runtimeObjects.clear();
     if (this._ownsPlayerMesh) {
       this.scene.remove(this.mesh);
       this.mesh.geometry.dispose();
@@ -223,12 +232,22 @@ export class PlayMode {
    */
   _runBehaviorSystem(dt) {
     if (!this._objectDefs) return;
-    const allObjs = this.level.objects;
-    const snapshot = this._inputSystem.snapshot;
-    // collisionEvents: empty for now — to be populated once a full object
-    // collision system is added. 'on_collide' triggers can be driven externally
-    // by passing collisionEvents into evaluateTriggers.
+
+    // Build the full object list: level objects + runtime-spawned objects
+    const levelObjs = this.level.objects;
+    const runtimeObjs = Array.from(this._runtimeObjects.values()).map((r) => r.obj);
+    const allObjs = [...levelObjs, ...runtimeObjs];
+
+    // Detect AABB contacts between all objects
+    const contacts = detectContacts(allObjs);
+
+    // Build collisionEvents set from contacts (checks collision masks)
     const collisionEvents = new Set();
+    const snapshot = this._inputSystem.snapshot;
+
+    // Collect spawn and destroy requests across all objects this frame
+    const spawnQueue = [];
+    const destroySet = new Set();
 
     for (const obj of allObjs) {
       if (obj.type === 'player') continue;
@@ -248,10 +267,71 @@ export class PlayMode {
       for (const behaviorId of fired) {
         const behavior = def.behaviors.find((b) => b.id === behaviorId);
         if (!behavior) continue;
-        for (const effect of behavior.effects) {
-          applyEffect(effect, obj, allObjs);
-        }
+        const { spawnRequests, destroyIds } = executeBehavior(behavior, obj, allObjs, contacts);
+        for (const req of spawnRequests) spawnQueue.push(req);
+        for (const id of destroyIds) destroySet.add(id);
       }
+    }
+
+    // Update lifetime of existing runtime objects; mark expired ones for destroy
+    for (const [id, entry] of this._runtimeObjects) {
+      if (entry.lifetime > 0) {
+        entry.lifetime -= dt;
+        if (entry.lifetime <= 0) destroySet.add(id);
+      }
+    }
+
+    // Process destroy requests
+    for (const id of destroySet) {
+      this._destroyRuntimeObject(id);
+    }
+
+    // Process spawn requests
+    for (const req of spawnQueue) {
+      this._spawnRuntimeObject(req);
+    }
+  }
+
+  /**
+   * Spawn a new runtime object from a SpawnRequest.
+   * @param {import('../objects/BehaviorSystem.js').SpawnRequest} req
+   */
+  _spawnRuntimeObject(req) {
+    const id = `rt_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const w = (req.properties?.width ?? 0.5) * TILE_SIZE;
+    const h = (req.properties?.height ?? 0.5) * TILE_SIZE;
+    const geo = new THREE.PlaneGeometry(w, h);
+    const mat = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.x = (req.x - this._offsetX) * TILE_SIZE;
+    mesh.position.y = (req.y - this._offsetY) * TILE_SIZE;
+    mesh.position.z = 0.1;
+    this.scene.add(mesh);
+    const obj = {
+      id,
+      type: req.objectType,
+      x: req.x,
+      y: req.y,
+      properties: {
+        velocityX: req.velocityX,
+        velocityY: req.velocityY,
+        ...req.properties,
+      },
+    };
+    this._runtimeObjects.set(id, { obj, mesh, lifetime: req.lifetime });
+  }
+
+  /**
+   * Remove a runtime object by id (level or runtime).
+   * @param {string} id
+   */
+  _destroyRuntimeObject(id) {
+    const entry = this._runtimeObjects.get(id);
+    if (entry) {
+      this.scene.remove(entry.mesh);
+      entry.mesh.geometry.dispose();
+      entry.mesh.material.dispose();
+      this._runtimeObjects.delete(id);
     }
   }
 

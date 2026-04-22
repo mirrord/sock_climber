@@ -847,3 +847,91 @@ describe('PlayMode — enableGravity:false animation', () => {
     expect(calls[calls.length - 1]).toBe(animMoveUp);
   });
 });
+
+// ── PlayMode — runtime object spawning ────────────────────────────────────────
+
+import { Behavior } from '../../src/objects/Behavior.js';
+import { BehaviorEffect } from '../../src/objects/BehaviorEffect.js';
+import { BehaviorTrigger } from '../../src/objects/BehaviorTrigger.js';
+import { GameObject, COLLISION_GROUP } from '../../src/objects/GameObject.js';
+
+function makeSpawnStubs() {
+  const level = new Level(10, 10);
+  level.objects = [{ id: 'p1', type: 'player', x: 4, y: 4, properties: {} }];
+  const scene = { add: vi.fn(), remove: vi.fn() };
+  const camera = { left: -10, right: 10, top: 10, bottom: -10, updateProjectionMatrix: vi.fn() };
+  const inputSystem = {
+    attach: vi.fn(), detach: vi.fn(), update: vi.fn(),
+    get snapshot() {
+      return Object.freeze({ actions: Object.freeze(new Set()), axes: Object.freeze({}) });
+    },
+  };
+  const playerMesh = { position: { x: 0, y: 0, z: 0.15 }, scale: { x: 1 } };
+  return { level, scene, camera, inputSystem, playerMesh };
+}
+
+/** Build a minimal objectDefs Map that causes the enemy to spawn a projectile every frame. */
+function makeShooterDefs(level) {
+  level.objects.push({ id: 'e1', type: 'enemy', x: 2, y: 2, properties: {} });
+
+  const shootBehavior = new Behavior({ id: 'shoot', name: 'Shoot', animation: null, params: {} });
+  shootBehavior.effects = [new BehaviorEffect({
+    targetRef: 'self',
+    property: '',
+    operation: 'spawn',
+    value: 0,
+    spawnSpec: { objectType: 'projectile', offsetX: 1, offsetY: 0, velocityX: 0, velocityY: 0, properties: {}, lifetime: 10 },
+  })];
+
+  const enemyDef = new GameObject({ type: 'enemy', name: 'Enemy', collisionGroup: COLLISION_GROUP.ENEMY });
+  enemyDef.behaviors = [shootBehavior];
+  enemyDef.triggers = [new BehaviorTrigger({ type: 'timer', behaviorId: 'shoot', params: { interval: 0.001 } })];
+
+  return new Map([['enemy', enemyDef]]);
+}
+
+describe('PlayMode — runtime object spawning', () => {
+  it('spawns a runtime object when a spawn effect fires', () => {
+    const { level, scene, camera, inputSystem, playerMesh } = makeSpawnStubs();
+    const objectDefs = makeShooterDefs(level);
+    const pm = new PlayMode(level, scene, camera, { inputSystem, playerMesh, objectDefs });
+    pm.update(0.1); // timer interval is 0.001 → fires immediately
+    // A mesh for the spawned projectile should have been added to the scene
+    expect(scene.add).toHaveBeenCalled();
+    pm.dispose();
+  });
+
+  it('removes runtime objects when their lifetime expires', () => {
+    const { level, scene, camera, inputSystem, playerMesh } = makeSpawnStubs();
+    // Enemy shoots a projectile with lifetime = 0.05 s
+    level.objects.push({ id: 'e1', type: 'enemy', x: 2, y: 2, properties: {} });
+    const shootBehavior = new Behavior({ id: 'shoot', name: 'Shoot', animation: null, params: {} });
+    shootBehavior.effects = [new BehaviorEffect({
+      targetRef: 'self', property: '', operation: 'spawn', value: 0,
+      spawnSpec: { objectType: 'projectile', offsetX: 0, offsetY: 0, velocityX: 0, velocityY: 0, properties: {}, lifetime: 0.05 },
+    })];
+    const enemyDef = new GameObject({ type: 'enemy', name: 'Enemy', collisionGroup: COLLISION_GROUP.ENEMY });
+    enemyDef.behaviors = [shootBehavior];
+    enemyDef.triggers = [new BehaviorTrigger({ type: 'timer', behaviorId: 'shoot', params: { interval: 0.001 } })];
+    const objectDefs = new Map([['enemy', enemyDef]]);
+
+    const pm = new PlayMode(level, scene, camera, { inputSystem, playerMesh, objectDefs });
+    pm.update(0.02);  // spawn fires; projectile lifetime starts at 0.05 s → 0.05 - 0.02 = 0.03 remaining
+    const addCallCount = scene.add.mock.calls.length;
+    expect(addCallCount).toBeGreaterThan(0);
+
+    pm.update(0.05);  // another 0.05 s → lifetime expires → object removed
+    expect(scene.remove).toHaveBeenCalled();
+    pm.dispose();
+  });
+
+  it('cleans up all runtime objects on dispose()', () => {
+    const { level, scene, camera, inputSystem, playerMesh } = makeSpawnStubs();
+    const objectDefs = makeShooterDefs(level);
+    const pm = new PlayMode(level, scene, camera, { inputSystem, playerMesh, objectDefs });
+    pm.update(0.1); // spawn fires
+    pm.dispose();
+    // scene.remove should be called for spawned objects during dispose
+    expect(scene.remove).toHaveBeenCalled();
+  });
+});

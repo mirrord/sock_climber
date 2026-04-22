@@ -190,3 +190,111 @@ describe('ObjectEditorScreen — enableGravity toggle', () => {
     expect(spy).toHaveBeenCalledWith('enableGravity', true);
   });
 });
+
+// ── ObjectEditorScreen — behavior detail sub-view ─────────────────────────────
+
+describe('ObjectEditorScreen — behavior detail sub-view', () => {
+  let screen, container;
+
+  function makeObjWithBehavior() {
+    const obj = new GameObject({
+      type: 'custom',
+      name: 'My Object',
+      behaviors: [
+        new Behavior({ id: 'idle', name: 'Idle', animation: null, params: { speed: 3 } }),
+      ],
+      animations: [],
+    });
+    return obj;
+  }
+
+  beforeEach(() => {
+    ({ screen, container } = makeScreen());
+    screen.enter();
+    screen._editor.current = makeObjWithBehavior();
+    screen._refreshLeft();
+  });
+
+  afterEach(() => {
+    screen.exit();
+    container.remove();
+  });
+
+  it('renders an Edit button for each behavior', () => {
+    const btns = Array.from(container.querySelectorAll('button')).filter(b => b.textContent.includes('✎'));
+    expect(btns.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('clicking Edit button switches to behavior detail sub-view', () => {
+    const editBtn = Array.from(container.querySelectorAll('button')).find(b => b.textContent.includes('✎'));
+    editBtn.click();
+    expect(screen._activeBehaviorId).toBe('idle');
+    expect(container.textContent).toContain('Behavior: Idle');
+    expect(container.querySelector('[data-role="behavior-back"]')).not.toBeNull();
+  });
+
+  it('Back button returns to object list view', () => {
+    screen._activeBehaviorId = 'idle';
+    screen._refreshLeft();
+    const backBtn = container.querySelector('[data-role="behavior-back"]');
+    backBtn.click();
+    expect(screen._activeBehaviorId).toBeNull();
+    expect(container.querySelector('[data-role="behavior-back"]')).toBeNull();
+  });
+
+  it('detail view shows existing params', () => {
+    screen._activeBehaviorId = 'idle';
+    screen._refreshLeft();
+    expect(container.textContent).toContain('speed');
+  });
+
+  it('detail view name input calls setBehaviorName on change', () => {
+    screen._activeBehaviorId = 'idle';
+    screen._refreshLeft();
+    const spy = vi.spyOn(screen._editor, 'setBehaviorName');
+    const nameInput = container.querySelector('input[type="text"], input:not([type])');
+    nameInput.value = 'Stand Still';
+    nameInput.dispatchEvent(new Event('change'));
+    expect(spy).toHaveBeenCalledWith('idle', 'Stand Still');
+  });
+
+  it('add param button calls setBehaviorParam', () => {
+    screen._activeBehaviorId = 'idle';
+    screen._refreshLeft();
+    const spy = vi.spyOn(screen._editor, 'setBehaviorParam');
+    const allInputs = Array.from(container.querySelectorAll('input:not([type="number"])'));
+    // Find key/value inputs in the Add Param row (last 2 plain inputs before the Add button)
+    const pkInput = allInputs.find(i => i.placeholder === 'key');
+    const pvInput = allInputs.find(i => i.placeholder === 'value');
+    const addBtn = Array.from(container.querySelectorAll('button')).find(b => b.textContent === '+ Add');
+    pkInput.value = 'damage';
+    pvInput.value = '5';
+    addBtn.click();
+    expect(spy).toHaveBeenCalledWith('idle', 'damage', 5);
+  });
+
+  it('remove param button calls removeBehaviorParam', () => {
+    screen._activeBehaviorId = 'idle';
+    screen._refreshLeft();
+    const spy = vi.spyOn(screen._editor, 'removeBehaviorParam');
+    // The ✕ inside the params section
+    const paramsSection = Array.from(container.querySelectorAll('.section')).find(s => s.textContent.includes('Params'));
+    const removeBtn = paramsSection.querySelector('.remove');
+    removeBtn.click();
+    expect(spy).toHaveBeenCalledWith('idle', 'speed');
+  });
+
+  it('add effect button calls addEffectToBehavior', () => {
+    screen._activeBehaviorId = 'idle';
+    screen._refreshLeft();
+    const spy = vi.spyOn(screen._editor, 'addEffectToBehavior');
+    const effectsSection = Array.from(container.querySelectorAll('.section')).find(s => s.textContent.includes('Effects'));
+    const propInput = effectsSection.querySelector('input[placeholder="x"]');
+    propInput.value = 'x';
+    const addEffBtn = effectsSection.querySelector('button');
+    addEffBtn.click();
+    expect(spy).toHaveBeenCalled();
+    const [calledId] = spy.mock.calls[0];
+    expect(calledId).toBe('idle');
+  });
+});

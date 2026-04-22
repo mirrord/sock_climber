@@ -37,7 +37,7 @@ describe('BehaviorEffect', () => {
   it('serializes to JSON', () => {
     const e = new BehaviorEffect({ targetRef: 'self', property: 'y', operation: 'add', value: 5 });
     const json = e.toJSON();
-    expect(json).toEqual({ targetRef: 'self', property: 'y', operation: 'add', value: 5 });
+    expect(json).toEqual({ targetRef: 'self', property: 'y', operation: 'add', value: 5, spawnSpec: null });
   });
 
   it('deserializes from JSON', () => {
@@ -68,5 +68,59 @@ describe('BehaviorEffect', () => {
     expect(c.property).toBe(e.property);
     expect(c.operation).toBe(e.operation);
     expect(c.value).toBe(e.value);
+  });
+
+  // ── spawn operation ────────────────────────────────────────────────────────
+
+  it('accepts target as targetRef', () => {
+    const e = new BehaviorEffect({ targetRef: 'target', property: 'x', operation: 'set', value: 0 });
+    expect(e.targetRef).toBe('target');
+  });
+
+  it('creates spawn effect with spawnSpec', () => {
+    const spec = { objectType: 'projectile', offsetX: 0.5, offsetY: 0, velocityX: 8, velocityY: 0, properties: {}, lifetime: 2 };
+    const e = new BehaviorEffect({ targetRef: 'self', property: '', operation: 'spawn', value: 0, spawnSpec: spec });
+    expect(e.operation).toBe('spawn');
+    expect(e.spawnSpec).toEqual(spec);
+  });
+
+  it('creates destroy effect', () => {
+    const e = new BehaviorEffect({ targetRef: 'self', property: '', operation: 'destroy', value: 0 });
+    expect(e.operation).toBe('destroy');
+  });
+
+  it('defaults spawnSpec to null when not provided', () => {
+    const e = new BehaviorEffect({ targetRef: 'self', property: 'x', operation: 'set', value: 0 });
+    expect(e.spawnSpec).toBeNull();
+  });
+
+  it('serializes spawnSpec in toJSON', () => {
+    const spec = { objectType: 'projectile', offsetX: 1, offsetY: 0, velocityX: 5, velocityY: 0, properties: {}, lifetime: 3 };
+    const e = new BehaviorEffect({ targetRef: 'self', property: '', operation: 'spawn', value: 0, spawnSpec: spec });
+    const json = e.toJSON();
+    expect(json.spawnSpec).toEqual(spec);
+  });
+
+  it('round-trips spawn effect through JSON', () => {
+    const spec = { objectType: 'projectile', offsetX: 0, offsetY: 0, velocityX: 6, velocityY: 0, properties: { damage: 2 }, lifetime: 1.5 };
+    const e = new BehaviorEffect({ targetRef: 'self', property: '', operation: 'spawn', value: 0, spawnSpec: spec });
+    const restored = BehaviorEffect.fromJSON(e.toJSON());
+    expect(restored.operation).toBe('spawn');
+    expect(restored.spawnSpec).toEqual(spec);
+  });
+
+  it('clones spawn effect with isolated spawnSpec', () => {
+    const spec = { objectType: 'projectile', offsetX: 0, offsetY: 0, velocityX: 6, velocityY: 0, properties: {}, lifetime: 2 };
+    const e = new BehaviorEffect({ targetRef: 'self', property: '', operation: 'spawn', value: 0, spawnSpec: spec });
+    const c = e.clone();
+    expect(c.spawnSpec).toEqual(spec);
+    expect(c.spawnSpec).not.toBe(e.spawnSpec);
+  });
+});
+
+describe('OPERATIONS', () => {
+  it('contains spawn and destroy', () => {
+    expect(OPERATIONS).toContain('spawn');
+    expect(OPERATIONS).toContain('destroy');
   });
 });

@@ -128,12 +128,19 @@ export function evaluateTriggers(
  * @param {import('./BehaviorEffect.js').BehaviorEffect} effect
  * @param {object} ownerObject         — the object the behavior belongs to
  * @param {object[]} allLevelObjects   — all level objects (for remote targeting)
+ * @param {Map<string, string[]>} [contacts] — contact map from detectContacts; required to resolve 'target'
  */
-export function applyEffect(effect, ownerObject, allLevelObjects) {
-  const target =
-    effect.targetRef === 'self'
-      ? ownerObject
-      : allLevelObjects.find((o) => o.id === effect.targetRef);
+export function applyEffect(effect, ownerObject, allLevelObjects, contacts = new Map()) {
+  let target;
+  if (effect.targetRef === 'self') {
+    target = ownerObject;
+  } else if (effect.targetRef === 'target') {
+    const contactIds = contacts.get(ownerObject.id) ?? [];
+    const firstId = contactIds[0];
+    target = firstId ? allLevelObjects.find((o) => o.id === firstId) : undefined;
+  } else {
+    target = allLevelObjects.find((o) => o.id === effect.targetRef);
+  }
 
   if (!target) return;
 
@@ -174,3 +181,104 @@ function _applyOp(obj, key, operation, value) {
       break;
   }
 }
+
+// ── detectContacts ─────────────────────────────────────────────────────────
+
+/**
+ * Compute AABB overlaps for a flat list of level objects.
+ * Returns a Map<id, id[]> where each array is the list of ids that object
+ * is currently touching.
+ *
+ * Object bounds: center at (x, y); half-extents from properties.width/height
+ * (defaulting to 1×1).
+ *
+ * @param {object[]} levelObjects
+ * @returns {Map<string, string[]>}
+ */
+export function detectContacts(levelObjects) {
+  const contacts = new Map();
+  const n = levelObjects.length;
+  for (let i = 0; i < n; i++) {
+    const a = levelObjects[i];
+    const aw = (a.properties?.width ?? 1) / 2;
+    const ah = (a.properties?.height ?? 1) / 2;
+    for (let j = i + 1; j < n; j++) {
+      const b = levelObjects[j];
+      const bw = (b.properties?.width ?? 1) / 2;
+      const bh = (b.properties?.height ?? 1) / 2;
+      const overlapX = Math.abs((a.x ?? 0) - (b.x ?? 0)) < aw + bw;
+      const overlapY = Math.abs((a.y ?? 0) - (b.y ?? 0)) < ah + bh;
+      if (overlapX && overlapY) {
+        if (!contacts.has(a.id)) contacts.set(a.id, []);
+        if (!contacts.has(b.id)) contacts.set(b.id, []);
+        contacts.get(a.id).push(b.id);
+        contacts.get(b.id).push(a.id);
+      }
+    }
+  }
+  return contacts;
+}
+
+// ── executeBehavior ────────────────────────────────────────────────────────
+
+/**
+ * Execute all effects of a behavior for a given owner object.
+ * Normal (set/add/multiply) effects are applied immediately.
+ * 'spawn' effects produce SpawnRequest records for the caller to process.
+ * 'destroy' effects produce object ids for the caller to remove.
+ *
+ * @param {import('./Behavior.js').Behavior} behavior
+ * @param {object} ownerObject
+ * @param {object[]} allLevelObjects
+ * @param {Map<string, string[]>} contacts  — from detectContacts()
+ * @returns {{ spawnRequests: SpawnRequest[], destroyIds: string[] }}
+ */
+export function executeBehavior(behavior, ownerObject, allLevelObjects, contacts) {
+  const spawnRequests = [];
+  const destroyIds = [];
+
+  for (const effect of (behavior.effects ?? [])) {
+    if (effect.operation === 'spawn') {
+      if (!effect.spawnSpec) continue;
+      const spec = effect.spawnSpec;
+      spawnRequests.push({
+        objectType: spec.objectType,
+        x: (ownerObject.x ?? 0) + (spec.offsetX ?? 0),
+        y: (ownerObject.y ?? 0) + (spec.offsetY ?? 0),
+        velocityX: spec.velocityX ?? 0,
+        velocityY: spec.velocityY ?? 0,
+        properties: { ...(spec.properties ?? {}) },
+        lifetime: spec.lifetime ?? 0,
+        ownerId: ownerObject.id,
+      });
+    } else if (effect.operation === 'destroy') {
+      // Resolve the target id
+      let targetId;
+      if (effect.targetRef === 'self') {
+        targetId = ownerObject.id;
+      } else if (effect.targetRef === 'target') {
+        const contactIds = contacts.get(ownerObject.id) ?? [];
+        targetId = contactIds[0] ?? null;
+      } else {
+        targetId = effect.targetRef;
+      }
+      if (targetId) destroyIds.push(targetId);
+    } else {
+      applyEffect(effect, ownerObject, allLevelObjects, contacts);
+    }
+  }
+
+  return { spawnRequests, destroyIds };
+}
+
+/**
+ * @typedef {object} SpawnRequest
+ * @property {string} objectType
+ * @property {number} x
+ * @property {number} y
+ * @property {number} velocityX
+ * @property {number} velocityY
+ * @property {object} properties
+ * @property {number} lifetime   — seconds; 0 = infinite
+ * @property {string} ownerId
+ */

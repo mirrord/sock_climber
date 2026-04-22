@@ -119,6 +119,20 @@ export const TEMPLATES = {
     p.addTrigger(new BehaviorTrigger({ type: 'control', behaviorId: 'dash',       params: { action: 'dash'      } }));
     return p;
   })(),
+
+  projectile: (() => {
+    const proj = new GameObject({
+      type: 'projectile',
+      name: 'Projectile',
+      collisionGroup: COLLISION_GROUP.PROJECTILE,
+      collisionMask: COLLISION_GROUP.ENEMY | COLLISION_GROUP.ENVIRONMENT,
+      properties: { width: 0.5, height: 0.5, speed: 8, damage: 1, lifetime: 2, velocityX: 0, velocityY: 0 },
+    });
+    proj.addBehavior(new Behavior({ id: 'idle', name: 'Idle', animation: null, params: {} }));
+    proj.addBehavior(new Behavior({ id: 'move', name: 'Move', animation: null, params: {} }));
+    proj.addBehavior(new Behavior({ id: 'die', name: 'Die', animation: null, params: {} }));
+    return proj;
+  })(),
 };
 
 /**

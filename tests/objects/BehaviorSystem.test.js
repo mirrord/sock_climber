@@ -3,6 +3,8 @@ import {
   evaluateTriggers,
   applyEffect,
   createTimerState,
+  detectContacts,
+  executeBehavior,
 } from '../../src/objects/BehaviorSystem.js';
 import { BehaviorTrigger } from '../../src/objects/BehaviorTrigger.js';
 import { BehaviorEffect } from '../../src/objects/BehaviorEffect.js';
@@ -219,5 +221,142 @@ describe('applyEffect — targetRef by object id', () => {
     const owner = makeObj('obj_1');
     const effect = new BehaviorEffect({ targetRef: 'unknown', property: 'x', operation: 'set', value: 99 });
     expect(() => applyEffect(effect, owner, [owner])).not.toThrow();
+  });
+});
+
+// ── detectContacts ─────────────────────────────────────────────────────────
+
+import { Behavior } from '../../src/objects/Behavior.js';
+
+function makeObjSized(id, x, y, w = 1, h = 1) {
+  return { id, x, y, properties: { width: w, height: h } };
+}
+
+describe('detectContacts', () => {
+  it('returns a Map', () => {
+    const result = detectContacts([]);
+    expect(result).toBeInstanceOf(Map);
+  });
+
+  it('detects overlap between two touching objects', () => {
+    // Two 1×1 objects at same position — clearly overlapping
+    const a = makeObjSized('a', 0, 0, 1, 1);
+    const b = makeObjSized('b', 0.5, 0, 1, 1);
+    const contacts = detectContacts([a, b]);
+    expect(contacts.get('a')).toContain('b');
+    expect(contacts.get('b')).toContain('a');
+  });
+
+  it('does not report non-overlapping objects', () => {
+    const a = makeObjSized('a', 0, 0, 1, 1);
+    const b = makeObjSized('b', 10, 0, 1, 1);
+    const contacts = detectContacts([a, b]);
+    expect(contacts.get('a') ?? []).not.toContain('b');
+  });
+
+  it('does not report self-contact', () => {
+    const a = makeObjSized('a', 0, 0, 1, 1);
+    const contacts = detectContacts([a]);
+    expect(contacts.get('a') ?? []).not.toContain('a');
+  });
+
+  it('defaults to 1×1 hitbox when properties.width/height are absent', () => {
+    const a = { id: 'a', x: 0, y: 0, properties: {} };
+    const b = { id: 'b', x: 0.5, y: 0, properties: {} };
+    const contacts = detectContacts([a, b]);
+    expect(contacts.get('a')).toContain('b');
+  });
+});
+
+// ── executeBehavior ────────────────────────────────────────────────────────
+
+describe('executeBehavior — normal effects', () => {
+  it('applies non-spawn effects and returns empty spawn/destroy lists', () => {
+    const owner = makeObj('o', 5, 5);
+    const behavior = new Behavior({ id: 'move', name: 'Move', animation: null, params: {} });
+    behavior.effects = [new BehaviorEffect({ targetRef: 'self', property: 'x', operation: 'add', value: 1 })];
+    const result = executeBehavior(behavior, owner, [owner], new Map());
+    expect(owner.x).toBe(6);
+    expect(result.spawnRequests).toHaveLength(0);
+    expect(result.destroyIds).toHaveLength(0);
+  });
+
+  it('resolves target via contacts map', () => {
+    const owner = makeObj('o', 0, 0);
+    const target = makeObj('t', 0, 0, { health: 10 });
+    const contacts = new Map([['o', ['t']]]);
+    const behavior = new Behavior({ id: 'hit', name: 'Hit', animation: null, params: {} });
+    behavior.effects = [new BehaviorEffect({ targetRef: 'target', property: 'properties.health', operation: 'add', value: -5 })];
+    executeBehavior(behavior, owner, [owner, target], contacts);
+    expect(target.properties.health).toBe(5);
+  });
+});
+
+describe('executeBehavior — spawn effect', () => {
+  it('produces a spawnRequest for spawn operation', () => {
+    const owner = makeObj('o', 3, 4);
+    const behavior = new Behavior({ id: 'shoot', name: 'Shoot', animation: null, params: {} });
+    behavior.effects = [new BehaviorEffect({
+      targetRef: 'self',
+      property: '',
+      operation: 'spawn',
+      value: 0,
+      spawnSpec: { objectType: 'projectile', offsetX: 1, offsetY: 0, velocityX: 8, velocityY: 0, properties: {}, lifetime: 2 },
+    })];
+    const result = executeBehavior(behavior, owner, [owner], new Map());
+    expect(result.spawnRequests).toHaveLength(1);
+    const req = result.spawnRequests[0];
+    expect(req.objectType).toBe('projectile');
+    expect(req.x).toBe(4);   // owner.x + offsetX
+    expect(req.y).toBe(4);   // owner.y + offsetY
+    expect(req.velocityX).toBe(8);
+    expect(req.lifetime).toBe(2);
+    expect(req.ownerId).toBe('o');
+  });
+
+  it('ignores spawn effect when spawnSpec is null', () => {
+    const owner = makeObj('o', 0, 0);
+    const behavior = new Behavior({ id: 'b', name: 'B', animation: null, params: {} });
+    behavior.effects = [new BehaviorEffect({ targetRef: 'self', property: '', operation: 'spawn', value: 0, spawnSpec: null })];
+    const result = executeBehavior(behavior, owner, [owner], new Map());
+    expect(result.spawnRequests).toHaveLength(0);
+  });
+});
+
+describe('executeBehavior — destroy effect', () => {
+  it('produces a destroyId for destroy operation targeting self', () => {
+    const owner = makeObj('o', 0, 0);
+    const behavior = new Behavior({ id: 'die', name: 'Die', animation: null, params: {} });
+    behavior.effects = [new BehaviorEffect({ targetRef: 'self', property: '', operation: 'destroy', value: 0 })];
+    const result = executeBehavior(behavior, owner, [owner], new Map());
+    expect(result.destroyIds).toContain('o');
+  });
+
+  it('produces a destroyId for destroy operation targeting contact', () => {
+    const owner = makeObj('o', 0, 0);
+    const target = makeObj('t', 0, 0);
+    const contacts = new Map([['o', ['t']]]);
+    const behavior = new Behavior({ id: 'kill', name: 'Kill', animation: null, params: {} });
+    behavior.effects = [new BehaviorEffect({ targetRef: 'target', property: '', operation: 'destroy', value: 0 })];
+    const result = executeBehavior(behavior, owner, [owner, target], contacts);
+    expect(result.destroyIds).toContain('t');
+  });
+});
+
+describe('applyEffect — target resolution via contacts', () => {
+  it('resolves target from contacts when targetRef is "target"', () => {
+    const owner = makeObj('o', 0, 0);
+    const target = makeObj('t', 0, 0, { hp: 10 });
+    const contacts = new Map([['o', ['t']]]);
+    const effect = new BehaviorEffect({ targetRef: 'target', property: 'properties.hp', operation: 'add', value: -3 });
+    applyEffect(effect, owner, [owner, target], contacts);
+    expect(target.properties.hp).toBe(7);
+  });
+
+  it('does nothing when contacts is empty and targetRef is "target"', () => {
+    const owner = makeObj('o', 0, 0);
+    const effect = new BehaviorEffect({ targetRef: 'target', property: 'x', operation: 'set', value: 99 });
+    expect(() => applyEffect(effect, owner, [owner], new Map())).not.toThrow();
+    expect(owner.x).toBe(0);
   });
 });
