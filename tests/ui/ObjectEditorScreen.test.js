@@ -298,3 +298,251 @@ describe('ObjectEditorScreen — behavior detail sub-view', () => {
     expect(calledId).toBe('idle');
   });
 });
+
+// ── ObjectEditorScreen — custom named behavior creation form ──────────────────
+
+describe('ObjectEditorScreen — custom named behavior creation form', () => {
+  let screen, container;
+
+  beforeEach(() => {
+    ({ screen, container } = makeScreen());
+    screen.enter();
+    screen._editor.createBlank('custom', 'Test Object');
+    screen._refreshLeft();
+  });
+
+  afterEach(() => {
+    screen.exit();
+    container.remove();
+  });
+
+  it('renders a Name input with placeholder "Name…"', () => {
+    const inputs = container.querySelectorAll('input[placeholder="Name…"]');
+    expect(inputs.length).toBe(1);
+  });
+
+  it('renders an ID input with placeholder "id (auto)"', () => {
+    const inputs = container.querySelectorAll('input[placeholder="id (auto)"]');
+    expect(inputs.length).toBe(1);
+  });
+
+  it('renders a "+ Custom" button in the behaviors section', () => {
+    const btns = Array.from(container.querySelectorAll('button'));
+    expect(btns.some((b) => b.textContent.includes('Custom'))).toBe(true);
+  });
+
+  it('clicking Custom adds a behavior with the given name', () => {
+    const nameInput = container.querySelector('input[placeholder="Name…"]');
+    nameInput.value = 'Spin';
+    const customBtn = Array.from(container.querySelectorAll('button'))
+      .find((b) => b.textContent.includes('Custom'));
+    customBtn.click();
+    expect(screen._editor.current.behaviors.some((b) => b.name === 'Spin')).toBe(true);
+  });
+
+  it('clicking Custom with a provided ID uses that ID', () => {
+    const nameInput = container.querySelector('input[placeholder="Name…"]');
+    const idInput = container.querySelector('input[placeholder="id (auto)"]');
+    nameInput.value = 'Wobble';
+    idInput.value = 'wobble_42';
+    const customBtn = Array.from(container.querySelectorAll('button'))
+      .find((b) => b.textContent.includes('Custom'));
+    customBtn.click();
+    expect(screen._editor.current.behaviors.some((b) => b.id === 'wobble_42')).toBe(true);
+  });
+
+  it('clicking Custom with blank name falls back to "New Behavior"', () => {
+    const customBtn = Array.from(container.querySelectorAll('button'))
+      .find((b) => b.textContent.includes('Custom'));
+    customBtn.click();
+    expect(screen._editor.current.behaviors.some((b) => b.name === 'New Behavior')).toBe(true);
+  });
+
+  it('clicking Custom with blank ID auto-generates one starting with "custom_"', () => {
+    const nameInput = container.querySelector('input[placeholder="Name…"]');
+    nameInput.value = 'AutoId';
+    const customBtn = Array.from(container.querySelectorAll('button'))
+      .find((b) => b.textContent.includes('Custom'));
+    customBtn.click();
+    const added = screen._editor.current.behaviors.find((b) => b.name === 'AutoId');
+    expect(added).toBeDefined();
+    expect(added.id).toMatch(/^custom_/);
+  });
+
+  it('newly created custom behavior appears in the rendered behaviors list', () => {
+    const nameInput = container.querySelector('input[placeholder="Name…"]');
+    nameInput.value = 'Bounce';
+    const customBtn = Array.from(container.querySelectorAll('button'))
+      .find((b) => b.textContent.includes('Custom'));
+    customBtn.click();
+    expect(container.querySelector('.oe-left').textContent).toContain('Bounce');
+  });
+});
+
+// ── ObjectEditorScreen — accessible variables in behavior detail ──────────────
+
+describe('ObjectEditorScreen — accessible variables in behavior detail sub-view', () => {
+  let screen, container;
+
+  function makeObjWithProps(properties = {}) {
+    return new GameObject({
+      type: 'custom',
+      name: 'PropObj',
+      behaviors: [new Behavior({ id: 'idle', name: 'Idle', animation: null, params: {} })],
+      animations: [],
+      properties,
+    });
+  }
+
+  beforeEach(() => {
+    ({ screen, container } = makeScreen());
+    screen.enter();
+  });
+
+  afterEach(() => {
+    screen.exit();
+    container.remove();
+  });
+
+  it('renders the "Accessible Variables" section inside the behavior detail view', () => {
+    screen._editor.current = makeObjWithProps();
+    screen._activeBehaviorId = 'idle';
+    screen._refreshLeft();
+    const headings = Array.from(container.querySelectorAll('h3'));
+    expect(headings.some((h) => h.textContent.includes('Accessible Variables'))).toBe(true);
+  });
+
+  it('shows built-in variable tags x, y, id, name, type in the detail view', () => {
+    screen._editor.current = makeObjWithProps();
+    screen._activeBehaviorId = 'idle';
+    screen._refreshLeft();
+    const tags = Array.from(container.querySelectorAll('.tag')).map((t) => t.textContent);
+    expect(tags).toContain('x');
+    expect(tags).toContain('y');
+    expect(tags).toContain('id');
+    expect(tags).toContain('name');
+    expect(tags).toContain('type');
+  });
+
+  it('shows velocityX, velocityY, collisionGroup, collisionMask in built-ins', () => {
+    screen._editor.current = makeObjWithProps();
+    screen._activeBehaviorId = 'idle';
+    screen._refreshLeft();
+    const tags = Array.from(container.querySelectorAll('.tag')).map((t) => t.textContent);
+    expect(tags).toContain('velocityX');
+    expect(tags).toContain('velocityY');
+    expect(tags).toContain('collisionGroup');
+    expect(tags).toContain('collisionMask');
+  });
+
+  it('shows properties.<key> tags for each custom property', () => {
+    screen._editor.current = makeObjWithProps({ health: 100, damage: 5 });
+    screen._activeBehaviorId = 'idle';
+    screen._refreshLeft();
+    const tags = Array.from(container.querySelectorAll('.tag')).map((t) => t.textContent);
+    expect(tags).toContain('properties.health');
+    expect(tags).toContain('properties.damage');
+  });
+
+  it('shows "No custom properties" message when object has no custom properties', () => {
+    screen._editor.current = makeObjWithProps();
+    screen._activeBehaviorId = 'idle';
+    screen._refreshLeft();
+    expect(container.querySelector('.oe-left').textContent).toContain('No custom properties');
+  });
+
+  it('does not show enableGravity as a custom property tag', () => {
+    screen._editor.current = makeObjWithProps({ enableGravity: true });
+    screen._activeBehaviorId = 'idle';
+    screen._refreshLeft();
+    const tags = Array.from(container.querySelectorAll('.tag')).map((t) => t.textContent);
+    expect(tags).not.toContain('properties.enableGravity');
+  });
+
+  it('accessible variables section is absent when not in behavior detail view', () => {
+    screen._editor.current = makeObjWithProps();
+    screen._activeBehaviorId = null;
+    screen._refreshLeft();
+    // The object list view renders _renderAccessibleVariables (from previous work) not the detail one.
+    // Either way the heading may appear — but the detail-view hint text must NOT be present.
+    expect(container.querySelector('.oe-left').textContent)
+      .not.toContain('Use these as property targets in effects above');
+  });
+});
+
+// ── ObjectEditorScreen — auto-save on edit ────────────────────────────────────
+
+describe('ObjectEditorScreen — auto-save on edit', () => {
+  let screen, container;
+
+  function makeStoreScreen() {
+    const c = document.createElement('div');
+    document.body.appendChild(c);
+    const store = new ObjectStore();
+    const saveSpy = vi.spyOn(store, 'save');
+    const callbacks = { onBack: vi.fn() };
+    const s = new ObjectEditorScreen(c, callbacks, store);
+    return { screen: s, container: c, store, saveSpy };
+  }
+
+  afterEach(() => {
+    screen.exit();
+    container.remove();
+  });
+
+  it('does not render a "Save to Library" button when an object is loaded', () => {
+    ({ screen, container } = makeScreen());
+    screen.enter();
+    screen._editor.current = new GameObject({ type: 'custom', name: 'Test' });
+    screen._editor.saveToLibrary();
+    screen._selectedLibId = screen._editor.current.id;
+    screen._refreshLeft();
+    const btns = Array.from(container.querySelectorAll('button')).map((b) => b.textContent);
+    expect(btns.every((t) => !t.includes('Save to Library'))).toBe(true);
+  });
+
+  it('name change immediately calls store.save', () => {
+    let store, saveSpy;
+    ({ screen, container, store, saveSpy } = makeStoreScreen());
+    screen.enter();
+    screen._editor.createBlank('custom', 'Foo');
+    screen._editor.saveToLibrary();
+    screen._selectedLibId = screen._editor.current.id;
+    screen._refreshLeft();
+
+    const nameInput = container.querySelector('input');
+    nameInput.value = 'Bar';
+    nameInput.dispatchEvent(new Event('change'));
+
+    expect(saveSpy).toHaveBeenCalled();
+    const savedObj = saveSpy.mock.calls[saveSpy.mock.calls.length - 1][0];
+    expect(savedObj.name).toBe('Bar');
+  });
+
+  it('creating a new object immediately persists to store', () => {
+    let saveSpy;
+    ({ screen, container, saveSpy } = makeStoreScreen());
+    screen.enter();
+
+    const newBtn = Array.from(container.querySelectorAll('button'))
+      .find((b) => b.textContent.includes('New Object'));
+    newBtn.click();
+
+    expect(saveSpy).toHaveBeenCalled();
+  });
+
+  it('name change immediately updates the library entry', () => {
+    ({ screen, container } = makeScreen());
+    screen.enter();
+    screen._editor.createBlank('custom', 'OldName');
+    screen._editor.saveToLibrary();
+    screen._selectedLibId = screen._editor.library[0].id; // use library entry's id
+    screen._refreshLeft();
+
+    const nameInput = container.querySelector('input');
+    nameInput.value = 'NewName';
+    nameInput.dispatchEvent(new Event('change'));
+
+    expect(screen._editor.library[0].name).toBe('NewName');
+  });
+});

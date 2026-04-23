@@ -2,7 +2,7 @@ import { ObjectEditor } from '../objects/ObjectEditor.js';
 import { SpriteAnimationManager } from './SpriteAnimationManager.js';
 import { getTemplateList, getTemplate } from '../objects/templates.js';
 import { COLLISION_GROUP } from '../objects/GameObject.js';
-import { STANDARD_BEHAVIORS, createBehavior } from '../objects/Behavior.js';
+import { Behavior, STANDARD_BEHAVIORS, createBehavior } from '../objects/Behavior.js';
 import { BehaviorTrigger, TRIGGER_TYPES } from '../objects/BehaviorTrigger.js';
 import { BehaviorEffect, OPERATIONS } from '../objects/BehaviorEffect.js';
 
@@ -68,6 +68,10 @@ function injectOEStyles() {
     .oe-left .checkbox-group { display: flex; flex-wrap: wrap; gap: 6px; }
     .oe-left .checkbox-group label { display: inline-flex; align-items: center; gap: 3px; color: #ccc; }
     .oe-left .empty-msg { color: #667; font-style: italic; }
+    .oe-left .tag {
+      background: #1a3a4a; color: #6bf; border: 1px solid #2a4a5a;
+      padding: 1px 5px; border-radius: 2px; font-size: 10px;
+    }
 
     /* Center — viewport */
     .oe-center {
@@ -133,8 +137,7 @@ export class ObjectEditorScreen {
     this._store = objectStore;
     this._root = null;
     this._editor = null;
-    /** @type {Set<string>} IDs of objects not yet saved to library */
-    this._unsavedIds = new Set();
+
     /** @type {string|null} ID of the currently-selected library item */
     this._selectedLibId = null;
     /** @type {string|null} Behavior ID being edited in the sub-view (null = list view) */
@@ -185,7 +188,6 @@ export class ObjectEditorScreen {
 
   exit() {
     this._editor = null;
-    this._unsavedIds.clear();
     this._selectedLibId = null;
     this._activeBehaviorId = null;
     this._spriteAnimManager = null;
@@ -242,8 +244,7 @@ export class ObjectEditorScreen {
     nameInput.value = obj.name;
     nameInput.addEventListener('change', () => {
       this._editor.setName(nameInput.value);
-      this._markUnsaved();
-      this._refreshRight();
+      this._autoSave();
     });
     section.appendChild(nameInput);
 
@@ -273,7 +274,7 @@ export class ObjectEditorScreen {
     cb.checked = obj.properties.enableGravity !== false;
     cb.addEventListener('change', () => {
       this._editor.setProperty('enableGravity', cb.checked);
-      this._markUnsaved();
+      this._autoSave();
       this._refreshLeft();
     });
     const lbl = this._el('label', '', 'Enable Gravity');
@@ -300,7 +301,7 @@ export class ObjectEditorScreen {
         this._editor.setCollisionGroup(
           cb.checked ? obj.collisionGroup | value : obj.collisionGroup & ~value
         );
-        this._markUnsaved();
+        this._autoSave();
       });
       lbl.appendChild(cb);
       lbl.appendChild(document.createTextNode(name));
@@ -319,7 +320,7 @@ export class ObjectEditorScreen {
         this._editor.setCollisionMask(
           cb.checked ? obj.collisionMask | value : obj.collisionMask & ~value
         );
-        this._markUnsaved();
+        this._autoSave();
       });
       lbl.appendChild(cb);
       lbl.appendChild(document.createTextNode(name));
@@ -367,7 +368,7 @@ export class ObjectEditorScreen {
       const del = this._el('span', 'remove', '✕');
       del.addEventListener('click', () => {
         this._editor.removeBehavior(beh.id);
-        this._markUnsaved();
+        this._autoSave();
         this._refreshLeft();
       });
       btnRow.appendChild(del);
@@ -403,7 +404,7 @@ export class ObjectEditorScreen {
 
       animSel.addEventListener('change', () => {
         this._editor.setBehaviorAnimation(beh.id, animSel.value || null);
-        this._markUnsaved();
+        this._autoSave();
       });
       animRow.appendChild(animSel);
       item.appendChild(animRow);
@@ -411,7 +412,7 @@ export class ObjectEditorScreen {
       section.appendChild(item);
     }
 
-    // Add behavior
+    // Add standard behavior
     const row = this._el('div', 'row');
     const sel = this._el('select');
     for (const sb of STANDARD_BEHAVIORS) {
@@ -424,11 +425,37 @@ export class ObjectEditorScreen {
     const addBtn = this._el('button', '', '+ Add');
     addBtn.addEventListener('click', () => {
       this._editor.addBehavior(createBehavior(sel.value));
-      this._markUnsaved();
+      this._autoSave();
       this._refreshLeft();
     });
     row.appendChild(addBtn);
     section.appendChild(row);
+
+    // Custom named behavior creation form
+    const customRow = this._el('div', 'row');
+    customRow.style.alignItems = 'center';
+    const customNameInput = this._el('input');
+    customNameInput.placeholder = 'Name…';
+    customNameInput.style.flex = '2';
+    customNameInput.title = 'New custom behavior name';
+    customRow.appendChild(customNameInput);
+    const customIdInput = this._el('input');
+    customIdInput.placeholder = 'id (auto)';
+    customIdInput.style.flex = '1';
+    customIdInput.title = 'Optional unique ID; auto-generated if blank';
+    customRow.appendChild(customIdInput);
+    const customBtn = this._el('button', '', '+ Custom');
+    customBtn.title = 'Create and add a blank custom behavior';
+    customBtn.addEventListener('click', () => {
+      const name = customNameInput.value.trim() || 'New Behavior';
+      const id = customIdInput.value.trim() || `custom_${Date.now()}`;
+      this._editor.addBehavior(new Behavior({ id, name }));
+      this._autoSave();
+      this._refreshLeft();
+    });
+    customRow.appendChild(customBtn);
+    section.appendChild(customRow);
+
     this._leftPanel.appendChild(section);
   }
 
@@ -457,7 +484,7 @@ export class ObjectEditorScreen {
     nameInput.value = beh.name;
     nameInput.addEventListener('change', () => {
       this._editor.setBehaviorName(beh.id, nameInput.value);
-      this._markUnsaved();
+      this._autoSave();
     });
     this._leftPanel.appendChild(nameInput);
 
@@ -477,7 +504,7 @@ export class ObjectEditorScreen {
     animSel.value = beh.animation ?? '';
     animSel.addEventListener('change', () => {
       this._editor.setBehaviorAnimation(beh.id, animSel.value || null);
-      this._markUnsaved();
+      this._autoSave();
     });
     this._leftPanel.appendChild(animSel);
 
@@ -497,13 +524,13 @@ export class ObjectEditorScreen {
         const v = input.value;
         const num = Number(v);
         this._editor.setBehaviorParam(beh.id, key, isNaN(num) ? v : num);
-        this._markUnsaved();
+        this._autoSave();
       });
       row.appendChild(input);
       const delBtn = this._el('span', 'remove', '✕');
       delBtn.addEventListener('click', () => {
         this._editor.removeBehaviorParam(beh.id, key);
-        this._markUnsaved();
+        this._autoSave();
         this._refreshLeft();
       });
       row.appendChild(delBtn);
@@ -522,7 +549,7 @@ export class ObjectEditorScreen {
       const v = pvInput.value;
       const num = Number(v);
       this._editor.setBehaviorParam(beh.id, pkInput.value, isNaN(num) ? v : num);
-      this._markUnsaved();
+      this._autoSave();
       this._refreshLeft();
     });
     addParamRow.appendChild(pkInput);
@@ -557,7 +584,7 @@ export class ObjectEditorScreen {
       }
       targetSel.addEventListener('change', () => {
         this._editor.updateEffectOnBehavior(beh.id, i, { targetRef: targetSel.value });
-        this._markUnsaved();
+        this._autoSave();
       });
 
       const propInput = this._el('input');
@@ -567,7 +594,7 @@ export class ObjectEditorScreen {
       propInput.addEventListener('change', () => {
         if (!isSpawn && !isDestroy) {
           this._editor.updateEffectOnBehavior(beh.id, i, { property: propInput.value });
-          this._markUnsaved();
+          this._autoSave();
         }
       });
 
@@ -582,7 +609,7 @@ export class ObjectEditorScreen {
       }
       opSel.addEventListener('change', () => {
         this._editor.updateEffectOnBehavior(beh.id, i, { operation: opSel.value });
-        this._markUnsaved();
+        this._autoSave();
         this._refreshLeft();
       });
 
@@ -595,7 +622,7 @@ export class ObjectEditorScreen {
           const v = valInput.value;
           const num = Number(v);
           this._editor.updateEffectOnBehavior(beh.id, i, { value: isNaN(num) ? v : num });
-          this._markUnsaved();
+          this._autoSave();
         }
       });
 
@@ -603,7 +630,7 @@ export class ObjectEditorScreen {
       delBtn.style.cursor = 'pointer';
       delBtn.addEventListener('click', () => {
         this._editor.removeEffectFromBehavior(beh.id, i);
-        this._markUnsaved();
+        this._autoSave();
         this._refreshLeft();
       });
 
@@ -645,7 +672,7 @@ export class ObjectEditorScreen {
         }
         typeSel2.addEventListener('change', () => {
           this._editor.updateEffectOnBehavior(beh.id, i, { spawnSpec: { ...spec, objectType: typeSel2.value } });
-          this._markUnsaved();
+          this._autoSave();
         });
         specForm.appendChild(makeRow('Object Type', typeSel2));
 
@@ -656,7 +683,7 @@ export class ObjectEditorScreen {
           inp.value = String(spec[field] ?? defaultVal);
           inp.addEventListener('change', () => {
             this._editor.updateEffectOnBehavior(beh.id, i, { spawnSpec: { ...spec, [field]: parseFloat(inp.value) || 0 } });
-            this._markUnsaved();
+            this._autoSave();
           });
           specForm.appendChild(makeRow(label, inp));
         };
@@ -720,7 +747,7 @@ export class ObjectEditorScreen {
         value: isNaN(num) ? rawVal : num,
         spawnSpec,
       }));
-      this._markUnsaved();
+      this._autoSave();
       this._refreshLeft();
     });
 
@@ -731,6 +758,47 @@ export class ObjectEditorScreen {
     addEffRow.appendChild(addEffBtn);
     effectsSection.appendChild(addEffRow);
     this._leftPanel.appendChild(effectsSection);
+
+    // Accessible variables reference
+    this._renderAccessibleVariablesDetail();
+  }
+
+  _renderAccessibleVariablesDetail() {
+    const obj = this._editor.current;
+    const section = this._el('div', 'section');
+    section.appendChild(this._el('h3', '', 'Accessible Variables'));
+
+    const hint = this._el('div', 'empty-msg',
+      'Use these as property targets in effects above. '
+      + 'Custom properties are accessed via properties.<key>.');
+    hint.style.marginBottom = '6px';
+    section.appendChild(hint);
+
+    const BUILTIN_VARS = ['x', 'y', 'name', 'type', 'id', 'collisionGroup', 'collisionMask', 'velocityX', 'velocityY'];
+    section.appendChild(this._el('label', '', 'Built-in:'));
+    const builtinRow = this._el('div', 'row');
+    for (const v of BUILTIN_VARS) {
+      const tag = this._el('span', 'tag', v);
+      tag.title = `Built-in field: ${v}`;
+      builtinRow.appendChild(tag);
+    }
+    section.appendChild(builtinRow);
+
+    const propKeys = Object.keys(obj.properties).filter((k) => k !== 'enableGravity');
+    if (propKeys.length > 0) {
+      section.appendChild(this._el('label', '', 'Custom properties:'));
+      const propRow = this._el('div', 'row');
+      for (const key of propKeys) {
+        const tag = this._el('span', 'tag', `properties.${key}`);
+        tag.title = `Object property: ${key} = ${obj.properties[key]}`;
+        propRow.appendChild(tag);
+      }
+      section.appendChild(propRow);
+    } else {
+      section.appendChild(this._el('div', 'empty-msg', 'No custom properties — add them in the object view'));
+    }
+
+    this._leftPanel.appendChild(section);
   }
 
   _renderTriggers() {
@@ -749,7 +817,7 @@ export class ObjectEditorScreen {
       const idx = i;
       del.addEventListener('click', () => {
         this._editor.removeTrigger(idx);
-        this._markUnsaved();
+        this._autoSave();
         this._refreshLeft();
       });
       item.appendChild(del);
@@ -780,7 +848,7 @@ export class ObjectEditorScreen {
         type: typeSel.value,
         behaviorId: behSel.value,
       }));
-      this._markUnsaved();
+      this._autoSave();
       this._refreshLeft();
     });
     row.appendChild(addBtn);
@@ -804,14 +872,14 @@ export class ObjectEditorScreen {
         const v = input.value;
         const num = Number(v);
         this._editor.setProperty(key, isNaN(num) ? v : num);
-        this._markUnsaved();
+        this._autoSave();
       });
       row.appendChild(input);
       const delBtn = this._el('span', 'remove', '✕');
       delBtn.style.cursor = 'pointer';
       delBtn.addEventListener('click', () => {
         delete this._editor.current.properties[key];
-        this._markUnsaved();
+        this._autoSave();
         this._refreshLeft();
       });
       row.appendChild(delBtn);
@@ -832,7 +900,7 @@ export class ObjectEditorScreen {
       const v = valInput.value;
       const num = Number(v);
       this._editor.setProperty(keyInput.value, isNaN(num) ? v : num);
-      this._markUnsaved();
+      this._autoSave();
       this._refreshLeft();
     });
     row.appendChild(keyInput);
@@ -846,25 +914,6 @@ export class ObjectEditorScreen {
     const section = this._el('div', 'section');
     section.appendChild(this._el('h3', '', 'Actions'));
     const row = this._el('div', 'row');
-
-    const saveLib = this._el('button', '', 'Save to Library');
-    saveLib.addEventListener('click', () => {
-      const obj = this._editor.current;
-      // Update library entry in place if already present, otherwise push
-      const existing = this._editor.library.findIndex(o => o.id === obj.id);
-      if (existing !== -1) {
-        this._editor.library[existing] = obj.clone();
-      } else {
-        this._editor.saveToLibrary();
-      }
-      if (this._store) {
-        this._store.save(obj);
-      }
-      this._unsavedIds.delete(obj.id);
-      this._selectedLibId = obj.id;
-      this._refresh();
-    });
-    row.appendChild(saveLib);
 
     const exportBtn = this._el('button', '', 'Export JSON');
     exportBtn.addEventListener('click', () => {
@@ -891,7 +940,12 @@ export class ObjectEditorScreen {
         reader.onload = () => {
           try {
             this._editor.importJSON(/** @type {string} */ (reader.result));
-            this._unsavedIds.add(this._editor.current.id);
+            const cur = this._editor.current;
+            if (!this._editor.library.some(o => o.id === cur.id)) {
+              this._editor.saveToLibrary();
+            }
+            this._selectedLibId = cur.id;
+            if (this._store) this._store.save(cur);
             this._refresh();
           } catch (_) { /* ignore invalid */ }
         };
@@ -922,15 +976,15 @@ export class ObjectEditorScreen {
       getAnimations: () => obj.animations,
       addAnimation: (anim) => {
         this._editor.addAnimation(anim);
-        this._markUnsaved();
+        this._autoSave();
       },
       removeAnimation: (id) => {
         this._editor.removeAnimation(id);
-        this._markUnsaved();
+        this._autoSave();
       },
       updateAnimation: (id, patch) => {
         this._editor.updateAnimation(id, patch);
-        this._markUnsaved();
+        this._autoSave();
       },
       getSpriteSheets: () => this._spriteSheets,
       addSpriteSheet: (sheet) => {
@@ -972,9 +1026,9 @@ export class ObjectEditorScreen {
     const newBtn = this._el('button', 'new-btn', '+ New Object');
     newBtn.addEventListener('click', () => {
       this._editor.createBlank('custom', 'Untitled');
-      this._unsavedIds.add(this._editor.current.id);
       this._editor.saveToLibrary();
-      this._selectedLibId = this._editor.current.id;
+      this._selectedLibId = this._editor.library.at(-1).id;
+      if (this._store) this._store.save(this._editor.current);
       this._refresh();
     });
     this._rightPanel.appendChild(newBtn);
@@ -996,9 +1050,9 @@ export class ObjectEditorScreen {
     tmplSel.addEventListener('change', () => {
       if (!tmplSel.value) return;
       this._editor.createFromTemplate(tmplSel.value);
-      this._unsavedIds.add(this._editor.current.id);
       this._editor.saveToLibrary();
-      this._selectedLibId = this._editor.current.id;
+      this._selectedLibId = this._editor.library.at(-1).id;
+      if (this._store) this._store.save(this._editor.current);
       tmplSel.value = '';
       this._refresh();
     });
@@ -1014,7 +1068,6 @@ export class ObjectEditorScreen {
       const obj = this._editor.library[i];
       const item = this._el('div', 'obj-item');
       if (obj.id === this._selectedLibId) item.classList.add('selected');
-      if (this._unsavedIds.has(obj.id)) item.classList.add('unsaved');
 
       const nameSpan = this._el('span', 'name', obj.name || '(unnamed)');
       item.appendChild(nameSpan);
@@ -1025,7 +1078,6 @@ export class ObjectEditorScreen {
       const idx = i;
       del.addEventListener('click', (e) => {
         e.stopPropagation();
-        this._unsavedIds.delete(obj.id);
         if (this._selectedLibId === obj.id) {
           this._selectedLibId = null;
           this._editor.current = null;
@@ -1049,18 +1101,29 @@ export class ObjectEditorScreen {
 
   // ---- Helpers ----
 
-  _markUnsaved() {
-    if (this._editor.current) {
-      this._unsavedIds.add(this._editor.current.id);
-      // Sync edits back into the library entry
-      if (this._selectedLibId) {
-        const idx = this._editor.library.findIndex(o => o.id === this._selectedLibId);
-        if (idx !== -1) {
-          this._editor.library[idx] = this._editor.current.clone();
-        }
+  _autoSave() {
+    const obj = this._editor.current;
+    if (!obj) return;
+    // Sync library entry in place (preserving its id) so _selectedLibId stays valid
+    if (this._selectedLibId) {
+      const idx = this._editor.library.findIndex(o => o.id === this._selectedLibId);
+      if (idx !== -1) {
+        const libEntry = this._editor.library[idx];
+        libEntry.name = obj.name;
+        libEntry.type = obj.type;
+        libEntry.collisionGroup = obj.collisionGroup;
+        libEntry.collisionMask = obj.collisionMask;
+        libEntry.behaviors = obj.behaviors.map(b => b.clone());
+        libEntry.triggers = obj.triggers.map(t => t.clone());
+        libEntry.properties = { ...obj.properties };
+        libEntry.animations = obj.animations.map(a => ({ ...a }));
       }
-      this._refreshRight();
     }
+    // Persist to store immediately
+    if (this._store) {
+      this._store.save(obj);
+    }
+    this._refreshRight();
   }
 
   _el(tag, cls = '', text = '') {

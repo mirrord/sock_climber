@@ -30,6 +30,7 @@ export class ObjectEditorUI {
     this._root = document.createElement('div');
     this._root.id = 'object-editor-panel';
     this._visible = false;
+    this._currentLibIdx = null;
     this._root.innerHTML = `
       <style>
         #object-editor-panel {
@@ -78,6 +79,10 @@ export class ObjectEditorUI {
           border-radius: 4px; text-align: center;
         }
         #object-editor-panel .close-btn:hover { color: #eee; border-color: #aaa; }
+        #object-editor-panel .tag {
+          background: #1a3a4a; color: #6bf; border: 1px solid #2a4a5a;
+          padding: 1px 5px; border-radius: 2px; font-size: 10px;
+        }
       </style>
       <div id="oe-content"></div>
     `;
@@ -118,6 +123,7 @@ export class ObjectEditorUI {
       this._renderBehaviors();
       this._renderTriggers();
       this._renderProperties();
+      this._renderAccessibleVariables();
       this._renderActions();
     }
   }
@@ -136,6 +142,8 @@ export class ObjectEditorUI {
       const btn = this._el('button', '', tmpl.name);
       btn.addEventListener('click', () => {
         this._editor.createFromTemplate(tmpl.type);
+        this._editor.saveToLibrary();
+        this._currentLibIdx = this._editor.library.length - 1;
         this.refresh();
       });
       row.appendChild(btn);
@@ -143,6 +151,8 @@ export class ObjectEditorUI {
     const blankBtn = this._el('button', '', '+ Blank');
     blankBtn.addEventListener('click', () => {
       this._editor.createBlank('custom', 'New Object');
+      this._editor.saveToLibrary();
+      this._currentLibIdx = this._editor.library.length - 1;
       this.refresh();
     });
     row.appendChild(blankBtn);
@@ -163,6 +173,7 @@ export class ObjectEditorUI {
       const loadBtn = this._el('button', '', 'Load');
       loadBtn.addEventListener('click', () => {
         this._editor.loadFromLibrary(i);
+        this._currentLibIdx = i;
         this.refresh();
       });
       const delBtn = this._el('button', 'danger', 'X');
@@ -197,6 +208,7 @@ export class ObjectEditorUI {
     nameInput.value = obj.name;
     nameInput.addEventListener('change', () => {
       this._editor.setName(nameInput.value);
+      this._autoSave();
       this.refresh();
     });
     section.appendChild(nameInput);
@@ -221,6 +233,7 @@ export class ObjectEditorUI {
       cb.addEventListener('change', () => {
         const cur = this._editor.current.collisionGroup;
         this._editor.setCollisionGroup(cb.checked ? cur | value : cur & ~value);
+        this._autoSave();
       });
       lbl.appendChild(cb);
       lbl.appendChild(document.createTextNode(name));
@@ -238,6 +251,7 @@ export class ObjectEditorUI {
       cb.addEventListener('change', () => {
         const cur = this._editor.current.collisionMask;
         this._editor.setCollisionMask(cb.checked ? cur | value : cur & ~value);
+        this._autoSave();
       });
       lbl.appendChild(cb);
       lbl.appendChild(document.createTextNode(name));
@@ -274,6 +288,7 @@ export class ObjectEditorUI {
       const remove = this._el('span', 'remove', '✕');
       remove.addEventListener('click', () => {
         this._editor.removeBehavior(beh.id);
+        this._autoSave();
         this.refresh();
       });
       actions.appendChild(remove);
@@ -281,7 +296,7 @@ export class ObjectEditorUI {
       section.appendChild(item);
     }
 
-    // Add behavior dropdown
+    // Add standard behavior dropdown
     const row = this._el('div', 'row');
     const sel = document.createElement('select');
     sel.style.flex = '1';
@@ -297,11 +312,78 @@ export class ObjectEditorUI {
       const beh = createBehavior(sel.value);
       if (beh) {
         this._editor.addBehavior(beh);
+        this._autoSave();
         this.refresh();
       }
     });
     row.appendChild(addBtn);
     section.appendChild(row);
+
+    // Custom behavior creation form
+    const customRow = this._el('div', 'row');
+    customRow.style.alignItems = 'center';
+    const customNameInput = this._el('input');
+    customNameInput.placeholder = 'Name…';
+    customNameInput.style.flex = '2';
+    customNameInput.title = 'New custom behavior name';
+    customRow.appendChild(customNameInput);
+    const customIdInput = this._el('input');
+    customIdInput.placeholder = 'id (auto)';
+    customIdInput.style.flex = '1';
+    customIdInput.title = 'Optional unique ID; auto-generated if blank';
+    customRow.appendChild(customIdInput);
+    const customBtn = this._el('button', '', '+ Custom');
+    customBtn.title = 'Create and add a blank custom behavior';
+    customBtn.addEventListener('click', () => {
+      const name = customNameInput.value.trim() || 'New Behavior';
+      const id = customIdInput.value.trim() || `custom_${Date.now()}`;
+      this._editor.addBehavior(new Behavior({ id, name }));
+      customNameInput.value = '';
+      customIdInput.value = '';
+      this._autoSave();
+      this.refresh();
+    });
+    customRow.appendChild(customBtn);
+    section.appendChild(customRow);
+
+    this._content.appendChild(section);
+  }
+
+  _renderAccessibleVariables() {
+    const obj = this._editor.current;
+    const section = this._el('div', 'section');
+    section.appendChild(this._el('h3', '', 'Accessible Variables'));
+
+    const hint = this._el('div', 'empty-msg',
+      'Reference these in behavior effects. Built-ins always available; '
+      + 'custom properties via properties.<key>.');
+    hint.style.marginBottom = '6px';
+    section.appendChild(hint);
+
+    const BUILTIN_VARS = ['x', 'y', 'name', 'type', 'id', 'collisionGroup', 'collisionMask', 'velocityX', 'velocityY'];
+    section.appendChild(this._el('label', '', 'Built-in:'));
+    const builtinRow = this._el('div', 'row');
+    for (const v of BUILTIN_VARS) {
+      const tag = this._el('span', 'tag', v);
+      tag.title = `Built-in field: ${v}`;
+      builtinRow.appendChild(tag);
+    }
+    section.appendChild(builtinRow);
+
+    const propKeys = Object.keys(obj.properties);
+    if (propKeys.length > 0) {
+      section.appendChild(this._el('label', '', 'Custom properties:'));
+      const propRow = this._el('div', 'row');
+      for (const key of propKeys) {
+        const tag = this._el('span', 'tag', `properties.${key}`);
+        tag.title = `Object property: ${key} = ${obj.properties[key]}`;
+        propRow.appendChild(tag);
+      }
+      section.appendChild(propRow);
+    } else {
+      section.appendChild(this._el('div', 'empty-msg', 'No custom properties — add them above'));
+    }
+
     this._content.appendChild(section);
   }
 
@@ -318,6 +400,7 @@ export class ObjectEditorUI {
       const remove = this._el('span', 'remove', '✕');
       remove.addEventListener('click', () => {
         this._editor.removeTrigger(i);
+        this._autoSave();
         this.refresh();
       });
       item.appendChild(remove);
@@ -353,6 +436,7 @@ export class ObjectEditorUI {
         type: typeSel.value,
         behaviorId: behSel.value,
       }));
+      this._autoSave();
       this.refresh();
     });
     row.appendChild(addBtn);
@@ -377,12 +461,14 @@ export class ObjectEditorUI {
         const v = input.value;
         const num = Number(v);
         this._editor.setProperty(key, isNaN(num) ? v : num);
+        this._autoSave();
       });
       row.appendChild(input);
       const delBtn = this._el('span', 'remove', '✕');
       delBtn.style.cursor = 'pointer';
       delBtn.addEventListener('click', () => {
         delete this._editor.current.properties[key];
+        this._autoSave();
         this.refresh();
       });
       row.appendChild(delBtn);
@@ -403,6 +489,7 @@ export class ObjectEditorUI {
       const v = valInput.value;
       const num = Number(v);
       this._editor.setProperty(keyInput.value, isNaN(num) ? v : num);
+      this._autoSave();
       this.refresh();
     });
     row.appendChild(keyInput);
@@ -416,13 +503,6 @@ export class ObjectEditorUI {
     const section = this._el('div', 'section');
     section.appendChild(this._el('h3', '', 'Actions'));
     const row = this._el('div', 'row');
-
-    const saveLib = this._el('button', '', 'Save to Library');
-    saveLib.addEventListener('click', () => {
-      this._editor.saveToLibrary();
-      this.refresh();
-    });
-    row.appendChild(saveLib);
 
     const exportBtn = this._el('button', '', 'Export JSON');
     exportBtn.addEventListener('click', () => {
@@ -463,6 +543,14 @@ export class ObjectEditorUI {
   }
 
   // ---- Helpers ----
+
+  _autoSave() {
+    const obj = this._editor.current;
+    if (!obj) return;
+    if (this._currentLibIdx !== null && this._currentLibIdx < this._editor.library.length) {
+      this._editor.library[this._currentLibIdx] = obj.clone();
+    }
+  }
 
   _el(tag, cls = '', text = '') {
     const el = document.createElement(tag);

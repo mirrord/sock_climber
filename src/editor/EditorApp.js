@@ -53,6 +53,7 @@ export class EditorApp {
       onSelectForPlacement: (obj) => this._startPlacement(obj),
       onEditBehavior: (behavior) => {
         this._behaviorEditor.load(behavior);
+        this._behaviorEditorUI.setContext(this._objectEditor.current);
         this._objectEditorUI.hide();
         this._behaviorEditorUI.show();
       },

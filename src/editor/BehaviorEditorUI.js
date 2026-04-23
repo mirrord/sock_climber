@@ -24,6 +24,8 @@ export class BehaviorEditorUI {
     this._editor = behaviorEditor;
     this._onBehaviorAssigned = onBehaviorAssigned ?? null;
     this._visible = false;
+    /** @type {import('../objects/GameObject.js').GameObject|null} */
+    this._contextObject = null;
 
     this._root = document.createElement('div');
     this._root.id = 'behavior-editor-panel';
@@ -99,6 +101,15 @@ export class BehaviorEditorUI {
     this._content = this._root.querySelector('#be-content');
   }
 
+  /**
+   * Set the GameObject whose member variables will be shown as reference
+   * in the behavior editor (helps when writing effect targets / properties).
+   * @param {import('../objects/GameObject.js').GameObject|null} object
+   */
+  setContext(object) {
+    this._contextObject = object ?? null;
+  }
+
   toggle() {
     this._visible = !this._visible;
     this._root.classList.toggle('visible', this._visible);
@@ -135,6 +146,7 @@ export class BehaviorEditorUI {
 
     if (this._editor.current) {
       this._renderEditFields();
+      this._renderMemberVariables();
       this._renderParams();
       this._renderEffects();
       this._renderActions();
@@ -146,6 +158,50 @@ export class BehaviorEditorUI {
   }
 
   // ---- Sections ----
+
+  _renderMemberVariables() {
+    const section = this._el('div', 'section');
+    section.appendChild(this._el('h3', '', 'Accessible Variables'));
+
+    const hint = this._el('div', 'empty-msg',
+      'Use these as "Property" or via "target" in effects. ' +
+      'Custom properties are prefixed with properties.');
+    hint.style.marginBottom = '6px';
+    section.appendChild(hint);
+
+    // Built-in fields always available on any object
+    const BUILTIN_VARS = ['x', 'y', 'name', 'type', 'id', 'collisionGroup', 'collisionMask', 'velocityX', 'velocityY'];
+    const builtinRow = this._el('div', 'row');
+    builtinRow.style.flexWrap = 'wrap';
+    for (const v of BUILTIN_VARS) {
+      const tag = this._el('span', 'tag', v);
+      tag.title = `Built-in field: ${v}`;
+      builtinRow.appendChild(tag);
+    }
+    section.appendChild(this._el('label', '', 'Built-in:'));
+    section.appendChild(builtinRow);
+
+    // Object custom properties from context
+    const obj = this._contextObject;
+    const propEntries = obj ? Object.keys(obj.properties) : [];
+    if (propEntries.length > 0) {
+      const propRow = this._el('div', 'row');
+      propRow.style.flexWrap = 'wrap';
+      for (const key of propEntries) {
+        const tag = this._el('span', 'tag', `properties.${key}`);
+        tag.title = `Object property: ${key} = ${obj.properties[key]}`;
+        propRow.appendChild(tag);
+      }
+      section.appendChild(this._el('label', '', 'Custom properties:'));
+      section.appendChild(propRow);
+    } else if (obj) {
+      section.appendChild(this._el('div', 'empty-msg', 'No custom properties on this object'));
+    } else {
+      section.appendChild(this._el('div', 'empty-msg', 'Open via object editor to see custom properties'));
+    }
+
+    this._content.appendChild(section);
+  }
 
   _renderStandardBehaviors() {
     const section = this._el('div', 'section');
@@ -181,15 +237,33 @@ export class BehaviorEditorUI {
     const section = this._el('div', 'section');
     section.appendChild(this._el('h3', '', `Custom Behaviors (${this._editor.library.length})`));
 
-    const createRow = this._el('div', 'row');
-    const createBtn = this._el('button', '', '+ New Blank');
+    const createForm = this._el('div', 'row');
+    createForm.style.alignItems = 'center';
+
+    const nameInput = this._el('input');
+    nameInput.placeholder = 'Name…';
+    nameInput.style.flex = '2';
+    nameInput.title = 'New behavior name';
+    createForm.appendChild(nameInput);
+
+    const idInput = this._el('input');
+    idInput.placeholder = 'id (auto)';
+    idInput.style.flex = '1';
+    idInput.title = 'Optional unique ID; auto-generated if blank';
+    createForm.appendChild(idInput);
+
+    const createBtn = this._el('button', '', '+ Create');
+    createBtn.title = 'Create a new blank behavior with this name';
     createBtn.addEventListener('click', () => {
-      const id = `custom_${Date.now()}`;
-      this._editor.createBlank(id, 'New Behavior');
+      const name = nameInput.value.trim() || 'New Behavior';
+      const id = idInput.value.trim() || `custom_${Date.now()}`;
+      this._editor.createBlank(id, name);
+      nameInput.value = '';
+      idInput.value = '';
       this.refresh();
     });
-    createRow.appendChild(createBtn);
-    section.appendChild(createRow);
+    createForm.appendChild(createBtn);
+    section.appendChild(createForm);
 
     if (this._editor.library.length === 0) {
       section.appendChild(this._el('div', 'empty-msg', 'No custom behaviors saved'));
