@@ -126,10 +126,10 @@ describe('ObjectEditor', () => {
     expect(() => editor.setName('x')).toThrow();
   });
 
-  it('manages a library of saved objects', () => {
-    editor.createBlank('custom', 'Obj A');
+  it('manages a library of saved objects with distinct types', () => {
+    editor.createBlank('typeA', 'Obj A');
     editor.saveToLibrary();
-    editor.createBlank('custom', 'Obj B');
+    editor.createBlank('typeB', 'Obj B');
     editor.saveToLibrary();
 
     expect(editor.library).toHaveLength(2);
@@ -137,10 +137,20 @@ describe('ObjectEditor', () => {
     expect(editor.library[1].name).toBe('Obj B');
   });
 
-  it('loads from library by index', () => {
-    editor.createBlank('custom', 'Obj A');
+  it('saveToLibrary updates an existing entry with the same id instead of duplicating (Fix #7)', () => {
+    editor.createBlank('hero', 'Hero');
     editor.saveToLibrary();
-    editor.createBlank('custom', 'Obj B');
+    editor.setName('Hero Updated');
+    editor.saveToLibrary();
+    expect(editor.library).toHaveLength(1);
+    expect(editor.library[0].name).toBe('Hero Updated');
+  });
+
+  it('loads from library by index', () => {
+    editor.createBlank('typeA', 'Obj A');
+    editor.saveToLibrary();
+    editor.createBlank('typeB', 'Obj B');
+    editor.saveToLibrary();
 
     editor.loadFromLibrary(0);
     expect(editor.current.name).toBe('Obj A');
@@ -228,6 +238,25 @@ describe('ObjectEditor', () => {
     editor.updateEffectOnBehavior('idle', 0, { value: 99 });
     const b = editor.current.behaviors.find((bh) => bh.id === 'idle');
     expect(b.effects[0].value).toBe(99);
+  });
+
+  it('updateEffectOnBehavior clears spawnSpec when operation changes away from spawn (Fix #8)', () => {
+    editor.createBlank('custom', 'Obj');
+    const spawnSpec = { objectType: 'bullet', offsetX: 0, offsetY: 0, velocityX: 0, velocityY: 0, properties: {}, lifetime: 1 };
+    const e = new BehaviorEffect({ targetRef: 'self', property: '', operation: 'spawn', value: 0, spawnSpec });
+    editor.addEffectToBehavior('idle', e);
+    editor.updateEffectOnBehavior('idle', 0, { operation: 'set', property: 'x', value: 0 });
+    const b = editor.current.behaviors.find((bh) => bh.id === 'idle');
+    expect(b.effects[0].spawnSpec).toBeNull();
+  });
+
+  it('updateEffectOnBehavior clears property when operation changes to spawn (Fix #8)', () => {
+    editor.createBlank('custom', 'Obj');
+    const e = new BehaviorEffect({ targetRef: 'self', property: 'properties.health', operation: 'set', value: 0 });
+    editor.addEffectToBehavior('idle', e);
+    editor.updateEffectOnBehavior('idle', 0, { operation: 'spawn' });
+    const b = editor.current.behaviors.find((bh) => bh.id === 'idle');
+    expect(b.effects[0].property).toBeNull();
   });
 
   it('setBehaviorName renames the matching behavior', () => {

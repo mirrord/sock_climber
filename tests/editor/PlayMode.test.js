@@ -935,3 +935,213 @@ describe('PlayMode — runtime object spawning', () => {
     expect(scene.remove).toHaveBeenCalled();
   });
 });
+
+// ── PlayMode — on_collide trigger wiring (Fix #1) ─────────────────────────────
+
+describe('PlayMode — on_collide trigger fires via detectContacts', () => {
+  function makeCollideStubs() {
+    const level = new Level(10, 10);
+    level.objects = [
+      { id: 'p1', type: 'player', x: 4, y: 4, properties: {} },
+      // Two overlapping enemies — their contact should trigger on_collide
+      { id: 'e1', type: 'enemy', x: 2, y: 2, properties: { width: 1, height: 1, health: 3 } },
+      { id: 'e2', type: 'hazard', x: 2, y: 2, properties: { width: 1, height: 1 } },
+    ];
+    const scene = { add: vi.fn(), remove: vi.fn() };
+    const camera = { left: -10, right: 10, top: 10, bottom: -10, updateProjectionMatrix: vi.fn() };
+    const inputSystem = {
+      attach: vi.fn(), detach: vi.fn(), update: vi.fn(),
+      get snapshot() {
+        return Object.freeze({ actions: Object.freeze(new Set()), axes: Object.freeze({}) });
+      },
+    };
+    const playerMesh = { position: { x: 0, y: 0, z: 0.15 }, scale: { x: 1 } };
+    return { level, scene, camera, inputSystem, playerMesh };
+  }
+
+  it('applies an on_collide effect when two overlapping objects have a matching trigger', () => {
+    const { level, scene, camera, inputSystem, playerMesh } = makeCollideStubs();
+
+    // Enemy behavior: on_collide(with=hazard) → set health to 0
+    const dieBehavior = new Behavior({ id: 'die', name: 'Die', animation: null, params: {} });
+    dieBehavior.effects = [new BehaviorEffect({
+      targetRef: 'self', property: 'properties.health', operation: 'set', value: 0,
+    })];
+    const enemyDef = new GameObject({ type: 'enemy', name: 'Enemy' });
+    enemyDef.behaviors = [dieBehavior];
+    enemyDef.triggers = [new BehaviorTrigger({ type: 'on_collide', behaviorId: 'die', params: { with: 'hazard' } })];
+
+    const hazardDef = new GameObject({ type: 'hazard', name: 'Hazard' });
+
+    const objectDefs = new Map([['enemy', enemyDef], ['hazard', hazardDef]]);
+    const pm = new PlayMode(level, scene, camera, { inputSystem, playerMesh, objectDefs });
+    pm.update(1 / 60);
+
+    // The on_collide trigger fired: health should now be 0
+    const enemy = level.objects.find((o) => o.id === 'e1');
+    expect(enemy.properties.health).toBe(0);
+    pm.dispose();
+  });
+
+  it('does NOT fire on_collide when objects are not touching', () => {
+    const { level, scene, camera, inputSystem, playerMesh } = makeCollideStubs();
+    // Move e2 far away so no contact
+    level.objects.find((o) => o.id === 'e2').x = 20;
+
+    const dieBehavior = new Behavior({ id: 'die', name: 'Die', animation: null, params: {} });
+    dieBehavior.effects = [new BehaviorEffect({
+      targetRef: 'self', property: 'properties.health', operation: 'set', value: 0,
+    })];
+    const enemyDef = new GameObject({ type: 'enemy', name: 'Enemy' });
+    enemyDef.behaviors = [dieBehavior];
+    enemyDef.triggers = [new BehaviorTrigger({ type: 'on_collide', behaviorId: 'die', params: { with: 'hazard' } })];
+
+    const hazardDef = new GameObject({ type: 'hazard', name: 'Hazard' });
+    const objectDefs = new Map([['enemy', enemyDef], ['hazard', hazardDef]]);
+    const pm = new PlayMode(level, scene, camera, { inputSystem, playerMesh, objectDefs });
+    pm.update(1 / 60);
+
+    const enemy = level.objects.find((o) => o.id === 'e1');
+    expect(enemy.properties.health).toBe(3); // unchanged
+    pm.dispose();
+  });
+});
+
+// ── PlayMode — player participates in BehaviorSystem (Fix #2) ─────────────────
+
+describe('PlayMode — player control trigger runs through BehaviorSystem', () => {
+  function makePlayerBehaviorStubs() {
+    const level = new Level(10, 10);
+    for (let x = 0; x < 10; x++) level.setTile(x, 4, TILE.SOLID);
+    level.objects = [{ id: 'p1', type: 'player', x: 4, y: 3, properties: { score: 0 } }];
+    const scene = { add: vi.fn(), remove: vi.fn() };
+    const camera = { left: -10, right: 10, top: 10, bottom: -10, updateProjectionMatrix: vi.fn() };
+    const playerMesh = { position: { x: 0, y: 0, z: 0.15 }, scale: { x: 1 } };
+    return { level, scene, camera, playerMesh };
+  }
+
+  it('fires a control trigger on the player object when the action is active', () => {
+    const { level, scene, camera, playerMesh } = makePlayerBehaviorStubs();
+    let activeActions = new Set(['jump']);
+    const inputSystem = {
+      attach: vi.fn(), detach: vi.fn(), update: vi.fn(),
+      get snapshot() {
+        return Object.freeze({ actions: Object.freeze(new Set(activeActions)), axes: Object.freeze({}) });
+      },
+    };
+
+    // Player def: control(action=jump) → scoreTick behavior → add 1 to score
+    const scoreTickBehavior = new Behavior({ id: 'scoreTick', name: 'ScoreTick', animation: null, params: {} });
+    scoreTickBehavior.effects = [new BehaviorEffect({
+      targetRef: 'self', property: 'properties.score', operation: 'add', value: 1,
+    })];
+    const playerDef = new GameObject({ type: 'player', name: 'Player' });
+    playerDef.behaviors = [scoreTickBehavior];
+    playerDef.triggers = [new BehaviorTrigger({ type: 'control', behaviorId: 'scoreTick', params: { action: 'jump' } })];
+
+    const objectDefs = new Map([['player', playerDef]]);
+    const pm = new PlayMode(level, scene, camera, { inputSystem, playerMesh, objectDefs });
+    pm.update(1 / 60);
+
+    const playerObj = level.objects.find((o) => o.id === 'p1');
+    expect(playerObj.properties.score).toBe(1);
+    pm.dispose();
+  });
+});
+
+// ── PlayMode — onAnimationsUpdate callback (Fix #3) ───────────────────────────
+
+describe('PlayMode — onAnimationsUpdate', () => {
+  function makeBasicStubs() {
+    const level = new Level(10, 10);
+    level.objects = [{ id: 'p1', type: 'player', x: 4, y: 4, properties: {} }];
+    const scene = { add: vi.fn(), remove: vi.fn() };
+    const camera = { left: -10, right: 10, top: 10, bottom: -10, updateProjectionMatrix: vi.fn() };
+    const inputSystem = {
+      attach: vi.fn(), detach: vi.fn(), update: vi.fn(),
+      get snapshot() {
+        return Object.freeze({ actions: Object.freeze(new Set()), axes: Object.freeze({}) });
+      },
+    };
+    const playerMesh = { position: { x: 0, y: 0, z: 0.15 }, scale: { x: 1 } };
+    return { level, scene, camera, inputSystem, playerMesh };
+  }
+
+  it('calls onAnimationsUpdate(dt) every update', () => {
+    const { level, scene, camera, inputSystem, playerMesh } = makeBasicStubs();
+    const onAnimationsUpdate = vi.fn();
+    const pm = new PlayMode(level, scene, camera, { inputSystem, playerMesh, onAnimationsUpdate });
+    pm.update(1 / 60);
+    expect(onAnimationsUpdate).toHaveBeenCalledWith(1 / 60);
+    pm.dispose();
+  });
+
+  it('does not throw when onAnimationsUpdate is not provided', () => {
+    const { level, scene, camera, inputSystem, playerMesh } = makeBasicStubs();
+    const pm = new PlayMode(level, scene, camera, { inputSystem, playerMesh });
+    expect(() => pm.update(1 / 60)).not.toThrow();
+    pm.dispose();
+  });
+
+  it('createPlayMode wires onAnimationsUpdate to renderer.updateObjectAnimations', () => {
+    const level = new Level(10, 10);
+    level.objects = [{ id: 'p1', type: 'player', x: 4, y: 4, properties: {} }];
+    const playerMesh = { position: { x: 0, y: 0 }, scale: { x: 1 } };
+    const renderer = {
+      scene: { add: vi.fn(), remove: vi.fn() },
+      camera: { left: -10, right: 10, top: 10, bottom: -10, updateProjectionMatrix: vi.fn() },
+      getObjectMesh: vi.fn(() => playerMesh),
+      setObjectAnimation: vi.fn(),
+      updateObjectAnimations: vi.fn(),
+    };
+    const inputSystem = {
+      attach: vi.fn(), detach: vi.fn(), update: vi.fn(),
+      get snapshot() {
+        return Object.freeze({ actions: Object.freeze(new Set()), axes: Object.freeze({}) });
+      },
+    };
+    const pm = createPlayMode(level, renderer, null, { inputSystem });
+    pm.update(1 / 60);
+    expect(renderer.updateObjectAnimations).toHaveBeenCalledWith(1 / 60);
+    pm.dispose();
+  });
+});
+
+// ── PlayMode — timerState cleanup on object destroy (Fix #6) ──────────────────
+
+describe('PlayMode — timerState cleanup on runtime object destroy', () => {
+  it('removes timerState entries for an object when it is destroyed via lifetime expiry', () => {
+    const level = new Level(10, 10);
+    level.objects = [{ id: 'p1', type: 'player', x: 4, y: 4, properties: {} }];
+    // Enemy with timer trigger that spawns a short-lived object
+    level.objects.push({ id: 'e1', type: 'enemy', x: 2, y: 2, properties: {} });
+    const scene = { add: vi.fn(), remove: vi.fn() };
+    const camera = { left: -10, right: 10, top: 10, bottom: -10, updateProjectionMatrix: vi.fn() };
+    const inputSystem = {
+      attach: vi.fn(), detach: vi.fn(), update: vi.fn(),
+      get snapshot() {
+        return Object.freeze({ actions: Object.freeze(new Set()), axes: Object.freeze({}) });
+      },
+    };
+    const playerMesh = { position: { x: 0, y: 0, z: 0.15 }, scale: { x: 1 } };
+
+    const shootBehavior = new Behavior({ id: 'shoot', name: 'Shoot', animation: null, params: {} });
+    shootBehavior.effects = [new BehaviorEffect({
+      targetRef: 'self', property: '', operation: 'spawn', value: 0,
+      spawnSpec: { objectType: 'projectile', offsetX: 0, offsetY: 0, velocityX: 0, velocityY: 0, properties: {}, lifetime: 0.01 },
+    })];
+    const enemyDef = new GameObject({ type: 'enemy', name: 'Enemy' });
+    enemyDef.behaviors = [shootBehavior];
+    enemyDef.triggers = [new BehaviorTrigger({ type: 'timer', behaviorId: 'shoot', params: { interval: 0.001 } })];
+    const objectDefs = new Map([['enemy', enemyDef]]);
+
+    const pm = new PlayMode(level, scene, camera, { inputSystem, playerMesh, objectDefs });
+    pm.update(0.02); // spawn fires; projectile lifetime = 0.01 → expires this frame
+    // Access internal timerState to verify cleanup
+    // The spawned projectile id starts with 'rt_'; any keys for it should be gone
+    const timerKeys = Array.from(pm._timerState.keys());
+    const projectileKeys = timerKeys.filter((k) => k.startsWith('rt_'));
+    expect(projectileKeys).toHaveLength(0);
+    pm.dispose();
+  });
+});

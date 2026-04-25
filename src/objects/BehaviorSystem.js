@@ -62,7 +62,7 @@ export function evaluateTriggers(
       }
 
       case 'proximity': {
-        const range = trig.params.range ?? 0;
+        const range = trig.params.radius ?? trig.params.range ?? 0;
         const inRange = allLevelObjects.some((obj) => {
           if (obj === owner || obj.id === owner.id) return false;
           const dx = (obj.x ?? 0) - (owner.x ?? 0);
@@ -93,13 +93,18 @@ export function evaluateTriggers(
         const threshold = trig.params.threshold ?? 0;
         const comparison = trig.params.comparison ?? 'lte';
         const propVal = owner.properties?.[propKey];
+        const prevKey = `${key}_prev`;
+        let conditionMet = false;
         if (propVal !== undefined) {
-          if (comparison === 'lte' && propVal <= threshold) fired.push(trig.behaviorId);
-          else if (comparison === 'lt'  && propVal <  threshold) fired.push(trig.behaviorId);
-          else if (comparison === 'gte' && propVal >= threshold) fired.push(trig.behaviorId);
-          else if (comparison === 'gt'  && propVal >  threshold) fired.push(trig.behaviorId);
-          else if (comparison === 'eq'  && propVal === threshold) fired.push(trig.behaviorId);
+          if (comparison === 'lte' && propVal <= threshold) conditionMet = true;
+          else if (comparison === 'lt'  && propVal <  threshold) conditionMet = true;
+          else if (comparison === 'gte' && propVal >= threshold) conditionMet = true;
+          else if (comparison === 'gt'  && propVal >  threshold) conditionMet = true;
+          else if (comparison === 'eq'  && propVal === threshold) conditionMet = true;
         }
+        const wasTrue = timerState.get(prevKey) === true;
+        timerState.set(prevKey, conditionMet);
+        if (conditionMet && !wasTrue) fired.push(trig.behaviorId);
         break;
       }
 

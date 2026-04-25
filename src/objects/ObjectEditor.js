@@ -52,10 +52,15 @@ export class ObjectEditor {
 
   // ---- Library ----
 
-  /** Save a clone of the current object into the library. */
+  /** Save a clone of the current object into the library, updating an existing entry with the same type. */
   saveToLibrary() {
     this._requireCurrent();
-    this.library.push(this.current.clone());
+    const idx = this.library.findIndex((o) => o.type === this.current.type);
+    if (idx !== -1) {
+      this.library[idx] = this.current.clone();
+    } else {
+      this.library.push(this.current.clone());
+    }
   }
 
   /** Load an object from the library by index (cloned). */
@@ -166,6 +171,9 @@ export class ObjectEditor {
 
   /**
    * Patch fields of an existing effect on a behavior.
+   * When the operation changes, stale fields for the previous operation are cleared:
+   * - Changing away from 'spawn'/'destroy' clears spawnSpec.
+   * - Changing to 'spawn'/'destroy' clears property.
    * @param {string} behaviorId
    * @param {number} index
    * @param {object} patch
@@ -173,7 +181,18 @@ export class ObjectEditor {
   updateEffectOnBehavior(behaviorId, index, patch) {
     this._requireCurrent();
     const b = this.current.behaviors.find((bh) => bh.id === behaviorId);
-    if (b && b.effects[index]) Object.assign(b.effects[index], patch);
+    if (!b || !b.effects[index]) return;
+    const eff = b.effects[index];
+    const newOp = patch.operation ?? eff.operation;
+    Object.assign(eff, patch);
+    if (patch.operation !== undefined) {
+      const isSpawnLike = newOp === 'spawn' || newOp === 'destroy';
+      if (isSpawnLike) {
+        eff.property = null;
+      } else {
+        eff.spawnSpec = null;
+      }
+    }
   }
 
   addTrigger(trigger) {

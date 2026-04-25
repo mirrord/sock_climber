@@ -74,6 +74,15 @@ describe('BehaviorEditor', () => {
     expect(editor.library[0].id).toBe('x');
   });
 
+  it('saveToLibrary updates an existing entry with the same id instead of duplicating', () => {
+    editor.createBlank('x', 'X');
+    editor.saveToLibrary();
+    editor.setName('X-Updated');
+    editor.saveToLibrary();
+    expect(editor.library).toHaveLength(1);
+    expect(editor.library[0].name).toBe('X-Updated');
+  });
+
   it('loadFromLibrary sets current to a clone of the library entry', () => {
     editor.createBlank('y', 'Y');
     editor.saveToLibrary();
@@ -152,6 +161,21 @@ describe('BehaviorEditor', () => {
     editor.updateEffect(0, { value: 42, operation: 'add' });
     expect(editor.current.effects[0].value).toBe(42);
     expect(editor.current.effects[0].operation).toBe('add');
+  });
+
+  it('updateEffect clears spawnSpec when operation changes away from spawn', () => {
+    const spawnSpec = { objectType: 'bullet', offsetX: 0, offsetY: 0, velocityX: 0, velocityY: 0, properties: {}, lifetime: 1 };
+    editor.createBlank('x', 'X');
+    editor.addEffect(new BehaviorEffect({ targetRef: 'self', property: '', operation: 'spawn', value: 0, spawnSpec }));
+    editor.updateEffect(0, { operation: 'set', property: 'x', value: 0 });
+    expect(editor.current.effects[0].spawnSpec).toBeNull();
+  });
+
+  it('updateEffect clears property when operation changes to spawn', () => {
+    editor.createBlank('x', 'X');
+    editor.addEffect(new BehaviorEffect({ targetRef: 'self', property: 'properties.health', operation: 'set', value: 0 }));
+    editor.updateEffect(0, { operation: 'spawn' });
+    expect(editor.current.effects[0].property).toBeNull();
   });
 
   it('addEffect / removeEffect / updateEffect throw when no current', () => {

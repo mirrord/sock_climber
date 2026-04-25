@@ -97,10 +97,12 @@ export class PlayMode {
    *   state changes, passing the resolved animation definition.
    * @param {((animDef: object|null) => void)|null} [options.onAnimationChange] —
    *   called with the new animation definition each time the player state changes.
+   * @param {((dt: number) => void)|null} [options.onAnimationsUpdate] —
+   *   called with dt each frame so the renderer can advance all object animations.
    * @param {Map<string, import('../objects/GameObject.js').GameObject>|null} [options.objectDefs] —
    *   Map<type, GameObject> for all object types; used by BehaviorSystem.
    */
-  constructor(level, scene, camera, { inputSystem, playerMesh, eventTarget, playerDef, onAnimationChange, onPausePressed, objectDefs } = {}) {
+  constructor(level, scene, camera, { inputSystem, playerMesh, eventTarget, playerDef, onAnimationChange, onAnimationsUpdate, onPausePressed, objectDefs } = {}) {
     this.level = level;
     this.scene = scene;
     this.camera = camera;
@@ -142,6 +144,9 @@ export class PlayMode {
     // Pause action — rising-edge detection
     this._onPausePressed = onPausePressed ?? null;
     this._pauseWasActive = false;
+
+    // Per-frame animation tick callback (drives renderer.updateObjectAnimations)
+    this._onAnimationsUpdate = onAnimationsUpdate ?? null;
 
     // Behavior system
     this._objectDefs = objectDefs ?? null;
@@ -197,6 +202,7 @@ export class PlayMode {
     }
     this._runBehaviorSystem(dt);
     this._updatePlayerAnimation();
+    if (this._onAnimationsUpdate) this._onAnimationsUpdate(dt);
     this._syncMesh();
     this._syncCamera();
   }
@@ -226,7 +232,7 @@ export class PlayMode {
   // ---- Private ----
 
   /**
-   * Run the behavior system for all non-player level objects.
+   * Run the behavior system for all level objects (including the player).
    * Evaluates triggers and applies effects each frame.
    * @param {number} dt
    */
@@ -238,11 +244,17 @@ export class PlayMode {
     const runtimeObjs = Array.from(this._runtimeObjects.values()).map((r) => r.obj);
     const allObjs = [...levelObjs, ...runtimeObjs];
 
+    // Sync player level-object position from the physics controller so proximity
+    // checks and collision detection use the current world position.
+    const playerLevelObj = levelObjs.find((o) => o.type === 'player');
+    if (playerLevelObj) {
+      playerLevelObj.x = this._ctrl.x;
+      playerLevelObj.y = this._ctrl.y;
+    }
+
     // Detect AABB contacts between all objects
     const contacts = detectContacts(allObjs);
 
-    // Build collisionEvents set from contacts (checks collision masks)
-    const collisionEvents = new Set();
     const snapshot = this._inputSystem.snapshot;
 
     // Collect spawn and destroy requests across all objects this frame
@@ -250,16 +262,33 @@ export class PlayMode {
     const destroySet = new Set();
 
     for (const obj of allObjs) {
-      if (obj.type === 'player') continue;
       const def = this._objectDefs.get(obj.type);
       if (!def) continue;
 
+      // Build per-object collisionEvents: add behaviorIds for on_collide triggers
+      // whose 'with' type matches at least one of this object's current contacts.
+      const objContactIds = contacts.get(obj.id) ?? [];
+      const objCollisionEvents = new Set();
+      const defTriggers = def.triggers ?? [];
+      if (objContactIds.length > 0) {
+        for (const trig of defTriggers) {
+          if (trig.type !== 'on_collide') continue;
+          const withType = trig.params?.with;
+          if (!withType || objContactIds.some((cId) => {
+            const co = allObjs.find((o) => o.id === cId);
+            return co && co.type === withType;
+          })) {
+            objCollisionEvents.add(trig.behaviorId);
+          }
+        }
+      }
+
       const fired = evaluateTriggers(
         obj,
-        def.triggers,
+        defTriggers,
         dt,
         snapshot,
-        collisionEvents,
+        objCollisionEvents,
         this._timerState,
         allObjs,
       );
@@ -323,6 +352,7 @@ export class PlayMode {
 
   /**
    * Remove a runtime object by id (level or runtime).
+   * Also purges any timer/stat-change state entries keyed by this id.
    * @param {string} id
    */
   _destroyRuntimeObject(id) {
@@ -332,6 +362,11 @@ export class PlayMode {
       entry.mesh.geometry.dispose();
       entry.mesh.material.dispose();
       this._runtimeObjects.delete(id);
+    }
+    // Purge any timerState / stat_change-prev entries for this object id
+    const prefix = `${id}_`;
+    for (const key of this._timerState.keys()) {
+      if (key.startsWith(prefix)) this._timerState.delete(key);
     }
   }
 
@@ -408,10 +443,13 @@ export function createPlayMode(level, renderer, objectDefs, options = {}) {
   const onAnimationChange = (playerObj && playerDef)
     ? (animDef) => renderer.setObjectAnimation(playerObj.id, animDef)
     : null;
+  const onAnimationsUpdate = typeof renderer.updateObjectAnimations === 'function'
+    ? (dt) => renderer.updateObjectAnimations(dt)
+    : null;
   return new PlayMode(
     level,
     renderer.scene,
     renderer.camera,
-    { playerMesh, playerDef, onAnimationChange, objectDefs, ...options },
+    { playerMesh, playerDef, onAnimationChange, onAnimationsUpdate, objectDefs, ...options },
   );
 }

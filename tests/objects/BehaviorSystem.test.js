@@ -360,3 +360,64 @@ describe('applyEffect — target resolution via contacts', () => {
     expect(owner.x).toBe(0);
   });
 });
+
+// ── evaluateTriggers — proximity radius param (Fix #4) ────────────────────────
+
+describe('evaluateTriggers — proximity radius param', () => {
+  it('fires when trigger uses "radius" param and object is within range', () => {
+    const triggers = [makeTrigger('proximity', 'chase', { radius: 5 })];
+    const owner = makeObj('obj_1', 0, 0);
+    const others = [makeObj('player', 3, 4)]; // distance = 5
+    const fired = evaluateTriggers(owner, triggers, 0.016, emptyInput(), new Set(), createTimerState(), others);
+    expect(fired).toContain('chase');
+  });
+
+  it('does not fire when trigger uses "radius" param and object is out of range', () => {
+    const triggers = [makeTrigger('proximity', 'chase', { radius: 3 })];
+    const owner = makeObj('obj_1', 0, 0);
+    const others = [makeObj('player', 10, 10)];
+    const fired = evaluateTriggers(owner, triggers, 0.016, emptyInput(), new Set(), createTimerState(), others);
+    expect(fired).not.toContain('chase');
+  });
+
+  it('also still works with legacy "range" param', () => {
+    const triggers = [makeTrigger('proximity', 'chase', { range: 5 })];
+    const owner = makeObj('obj_1', 0, 0);
+    const others = [makeObj('player', 3, 4)];
+    const fired = evaluateTriggers(owner, triggers, 0.016, emptyInput(), new Set(), createTimerState(), others);
+    expect(fired).toContain('chase');
+  });
+});
+
+// ── evaluateTriggers — stat_change fires on transition only (Fix #5) ──────────
+
+describe('evaluateTriggers — stat_change fires on transition', () => {
+  it('fires on the first frame the condition becomes true', () => {
+    const triggers = [makeTrigger('stat_change', 'die', { property: 'health', threshold: 0, comparison: 'lte' })];
+    const owner = makeObj('obj_1', 0, 0, { health: -5 });
+    const timerState = createTimerState();
+    const fired = evaluateTriggers(owner, triggers, 0.016, emptyInput(), new Set(), timerState);
+    expect(fired).toContain('die');
+  });
+
+  it('does NOT fire again on the second consecutive frame when condition still holds', () => {
+    const triggers = [makeTrigger('stat_change', 'die', { property: 'health', threshold: 0, comparison: 'lte' })];
+    const owner = makeObj('obj_1', 0, 0, { health: -5 });
+    const timerState = createTimerState();
+    evaluateTriggers(owner, triggers, 0.016, emptyInput(), new Set(), timerState); // first: fires
+    const fired2 = evaluateTriggers(owner, triggers, 0.016, emptyInput(), new Set(), timerState); // second: should NOT fire
+    expect(fired2).not.toContain('die');
+  });
+
+  it('fires again after the condition resets (false → true transition)', () => {
+    const triggers = [makeTrigger('stat_change', 'die', { property: 'health', threshold: 0, comparison: 'lte' })];
+    const owner = makeObj('obj_1', 0, 0, { health: -5 });
+    const timerState = createTimerState();
+    evaluateTriggers(owner, triggers, 0.016, emptyInput(), new Set(), timerState); // fires
+    owner.properties.health = 10; // condition now false
+    evaluateTriggers(owner, triggers, 0.016, emptyInput(), new Set(), timerState); // resets
+    owner.properties.health = -5; // condition true again
+    const fired3 = evaluateTriggers(owner, triggers, 0.016, emptyInput(), new Set(), timerState);
+    expect(fired3).toContain('die');
+  });
+});

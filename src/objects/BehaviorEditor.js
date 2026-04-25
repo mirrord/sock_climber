@@ -63,10 +63,15 @@ export class BehaviorEditor {
 
   // ---- Library ----
 
-  /** Save a clone of the current behavior into the library. */
+  /** Save a clone of the current behavior into the library, updating an existing entry with the same id. */
   saveToLibrary() {
     this._requireCurrent();
-    this.library.push(this.current.clone());
+    const idx = this.library.findIndex((b) => b.id === this.current.id);
+    if (idx !== -1) {
+      this.library[idx] = this.current.clone();
+    } else {
+      this.library.push(this.current.clone());
+    }
   }
 
   /** Load a behavior from the library by index (cloned). */
@@ -134,13 +139,26 @@ export class BehaviorEditor {
 
   /**
    * Patch fields of a BehaviorEffect by index.
+   * When the operation changes, stale fields for the previous operation are cleared:
+   * - Changing away from 'spawn'/'destroy' clears spawnSpec.
+   * - Changing to 'spawn'/'destroy' clears property.
    * @param {number} index
    * @param {Partial<BehaviorEffect>} patch
    */
   updateEffect(index, patch) {
     this._requireCurrent();
     const eff = this.current.effects[index];
-    if (eff) Object.assign(eff, patch);
+    if (!eff) return;
+    const newOp = patch.operation ?? eff.operation;
+    Object.assign(eff, patch);
+    if (patch.operation !== undefined) {
+      const isSpawnLike = newOp === 'spawn' || newOp === 'destroy';
+      if (isSpawnLike) {
+        eff.property = null;
+      } else {
+        eff.spawnSpec = null;
+      }
+    }
   }
 
   // ---- Private ----
