@@ -29,8 +29,8 @@ export class MainMenuScreen {
         <li><button class="menu-btn" data-action="levelBuilder">Level Builder</button></li>
         <li><button class="menu-btn" data-action="objectEditor">Object Editor</button></li>` : '';
     this._root.innerHTML = `
-      <h1>PUPPETS</h1>
-      <div class="subtitle">a precision platformer</div>
+      <h1>SOCK CLIMBER</h1>
+      <div class="subtitle">Szleft son-son-Vallefto, Toeless of Sandalvar, was bleached white on the day he was to kill a king.</div>
       <ul class="menu-list">
         <li><button class="menu-btn" data-action="levelSelect">Level Select</button></li>
         ${devItems}
