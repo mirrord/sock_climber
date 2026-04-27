@@ -58,6 +58,17 @@
         color: #ffd66e;
       }
 
+      /* Highlight outline for the gamepad-focused control inside Settings */
+      .gp-focused {
+        outline: 2px solid #ffd66e;
+        outline-offset: 2px;
+      }
+      input.audio-slider.gp-focused,
+      input.audio-mute.gp-focused {
+        outline: 2px solid #ffd66e;
+        outline-offset: 3px;
+      }
+
       /* ── Title screen ─────────────────────────────────────────────────── */
       #title h1 {
         font-size: 3rem;
@@ -115,6 +126,16 @@
         cursor: pointer;
         padding: 0.2rem 0.4rem;
         border-radius: 3px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+      }
+      .binding-row .binding-key,
+      .gamepad-button-row .binding-key {
+        color: #ffd96b;
+        text-align: right;
+        white-space: nowrap;
       }
       .binding-row:hover,
       .gamepad-button-row:hover,

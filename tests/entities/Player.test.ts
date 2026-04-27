@@ -13,7 +13,7 @@ const DT = 1 / 120;
 
 /** Build a synthetic InputSnapshot without needing a real Input instance. */
 function makeSnap(opts: {
-  axes?: { moveX?: number; springX?: number; springY?: number };
+  axes?: { moveX?: number };
   down?: Action[];
   pressed?: Action[];
   released?: Action[];
@@ -21,8 +21,6 @@ function makeSnap(opts: {
   return {
     axes: {
       moveX: opts.axes?.moveX ?? 0,
-      springX: opts.axes?.springX ?? 0,
-      springY: opts.axes?.springY ?? 0,
     },
     buttonsDown: new Set<Action>(opts.down ?? []),
     buttonsPressed: new Set<Action>(opts.pressed ?? []),
@@ -381,12 +379,12 @@ describe("Player — wall kick", () => {
 // ─── Spring ───────────────────────────────────────────────────────────────────
 
 describe("Player — spring", () => {
-  it("SpringUp held for 0.5 s fully charges the spring", () => {
+  it("Crouch held for 0.5 s fully charges the spring", () => {
     const player = new Player({ x: 5, y: 5 }, { springChargeRate: 2.0 });
     player.body.flags.onGround = true;
     const steps = Math.round(0.5 / DT);
     for (let i = 0; i < steps; i++) {
-      player.update(DT, makeSnap({ down: ["SpringUp"] }));
+      player.update(DT, makeSnap({ down: ["Crouch"] }));
     }
     // 2.0 charge/s × 0.5 s = 1.0 → fully charged.
     expect(player.springCharge).toBeCloseTo(1.0, 2);
@@ -396,15 +394,13 @@ describe("Player — spring", () => {
   it("spring charge is clamped to 1.0", () => {
     const player = new Player({ x: 5, y: 5 }, { springChargeRate: 10 });
     player.body.flags.onGround = true;
-    // A single step at rate 10 would exceed 1.0 (10/120 ≈ 0.083 — many steps).
-    // Drive until > 1.0 would be reached.
     for (let i = 0; i < 20; i++) {
-      player.update(DT, makeSnap({ down: ["SpringUp"] }));
+      player.update(DT, makeSnap({ down: ["Crouch"] }));
     }
     expect(player.springCharge).toBeLessThanOrEqual(1.0);
   });
 
-  it("releasing SpringUp applies upward impulse proportional to charge", () => {
+  it("releasing Crouch with MoveRight held fires a diagonal up-right spring", () => {
     const maxImpulse = 20;
     const player = new Player({ x: 5, y: 5 }, { springChargeRate: 2.0, springMaxImpulse: maxImpulse });
     player.body.flags.onGround = true;
@@ -412,17 +408,66 @@ describe("Player — spring", () => {
     // Charge for 0.5 s → full charge.
     const steps = Math.round(0.5 / DT);
     for (let i = 0; i < steps; i++) {
-      player.update(DT, makeSnap({ down: ["SpringUp"] }));
+      player.update(DT, makeSnap({ down: ["Crouch"] }));
     }
 
-    // Set a known starting velocity so the impulse effect is predictable.
+    player.body.velocity.x = 0;
     player.body.velocity.y = 0;
 
-    // Release spring (no spring buttons held).
-    player.update(DT, EMPTY_SNAPSHOT);
+    // Release crouch while holding MoveRight.
+    player.update(
+      DT,
+      makeSnap({ down: ["MoveRight"], released: ["Crouch"], axes: { moveX: 1 } }),
+    );
 
-    // Impulse = charge (1.0) × maxImpulse (20) in the upward direction.
-    expect(player.body.velocity.y).toBeCloseTo(-maxImpulse, 2);
+    const expected = maxImpulse / Math.SQRT2;
+    expect(player.body.velocity.x).toBeCloseTo(expected, 2);
+    expect(player.body.velocity.y).toBeCloseTo(-expected, 2);
+    expect(player.springCharge).toBe(0);
+    expect(player.isSpringCharging).toBe(false);
+  });
+
+  it("releasing Crouch with MoveLeft held fires a diagonal up-left spring", () => {
+    const maxImpulse = 20;
+    const player = new Player({ x: 5, y: 5 }, { springChargeRate: 2.0, springMaxImpulse: maxImpulse });
+    player.body.flags.onGround = true;
+
+    const steps = Math.round(0.5 / DT);
+    for (let i = 0; i < steps; i++) {
+      player.update(DT, makeSnap({ down: ["Crouch"] }));
+    }
+
+    player.body.velocity.x = 0;
+    player.body.velocity.y = 0;
+
+    player.update(
+      DT,
+      makeSnap({ down: ["MoveLeft"], released: ["Crouch"], axes: { moveX: -1 } }),
+    );
+
+    const expected = maxImpulse / Math.SQRT2;
+    expect(player.body.velocity.x).toBeCloseTo(-expected, 2);
+    expect(player.body.velocity.y).toBeCloseTo(-expected, 2);
+  });
+
+  it("releasing Crouch with no direction held does NOT fire a spring", () => {
+    const maxImpulse = 20;
+    const player = new Player({ x: 5, y: 5 }, { springChargeRate: 2.0, springMaxImpulse: maxImpulse });
+    player.body.flags.onGround = true;
+
+    const steps = Math.round(0.5 / DT);
+    for (let i = 0; i < steps; i++) {
+      player.update(DT, makeSnap({ down: ["Crouch"] }));
+    }
+
+    player.body.velocity.x = 0;
+    player.body.velocity.y = 0;
+
+    // Release crouch with no direction.
+    player.update(DT, makeSnap({ released: ["Crouch"] }));
+
+    expect(player.body.velocity.x).toBe(0);
+    expect(player.body.velocity.y).toBe(0);
     expect(player.springCharge).toBe(0);
     expect(player.isSpringCharging).toBe(false);
   });
@@ -436,14 +481,20 @@ describe("Player — spring", () => {
     // Charge for 0.25 s → charge = 2.0 × 0.25 = 0.5
     const steps = Math.round(0.25 / DT);
     for (let i = 0; i < steps; i++) {
-      player.update(DT, makeSnap({ down: ["SpringUp"] }));
+      player.update(DT, makeSnap({ down: ["Crouch"] }));
     }
 
     const charge = player.springCharge;
+    player.body.velocity.x = 0;
     player.body.velocity.y = 0;
-    player.update(DT, EMPTY_SNAPSHOT); // release
+    player.update(
+      DT,
+      makeSnap({ down: ["MoveRight"], released: ["Crouch"], axes: { moveX: 1 } }),
+    );
 
-    expect(player.body.velocity.y).toBeCloseTo(-charge * maxImpulse, 2);
+    const expected = (charge * maxImpulse) / Math.SQRT2;
+    expect(player.body.velocity.x).toBeCloseTo(expected, 2);
+    expect(player.body.velocity.y).toBeCloseTo(-expected, 2);
   });
 });
 

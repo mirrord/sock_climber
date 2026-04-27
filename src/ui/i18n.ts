@@ -38,6 +38,7 @@ export const TEXT = {
     gamepadAxes: "Gamepad Axes",
     resetSection: "Reset to defaults",
     listening: "[press input… (Esc to cancel)]",
+    unbound: "—",
     close: "Close",
   },
   patch: {

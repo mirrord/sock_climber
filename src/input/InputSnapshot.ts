@@ -5,10 +5,6 @@ import type { Bindings } from "./Bindings.js";
 export interface InputAxes {
   /** Horizontal movement: negative = left, positive = right. */
   moveX: number;
-  /** Spring aim horizontal: negative = left, positive = right. */
-  springX: number;
-  /** Spring aim vertical: negative = up, positive = down. */
-  springY: number;
 }
 
 /** Immutable snapshot of input state for a single frame. */
@@ -26,7 +22,7 @@ export interface InputSnapshot {
 
 /** An empty, no-op snapshot — useful as a safe default. */
 export const EMPTY_SNAPSHOT: InputSnapshot = {
-  axes: { moveX: 0, springX: 0, springY: 0 },
+  axes: { moveX: 0 },
   buttonsDown: new Set(),
   buttonsPressed: new Set(),
   buttonsReleased: new Set(),

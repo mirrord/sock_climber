@@ -116,8 +116,28 @@ const scoreSystem = new ScoreSystem(bus);
 const settings = new Settings(input, audioBus, audioSettings);
 const hud = new HUD(bus);
 const patchPicker = new PatchPicker(bus, upgradeSystem, player);
-const pause = new Pause(bus, onQuit, () => { pause.hide(); settings.show(() => pause.show()); });
-const title = new Title(bus, () => { title.hide(); settings.show(() => title.show()); });
+
+/**
+ * True while the Settings overlay is open. Gameplay updates (including the
+ * pause toggle) are fully suspended in this state so that key/button presses
+ * used to navigate or rebind controls cannot leak into the simulation.
+ */
+let settingsOpen = false;
+
+/** Open the settings overlay, suspending gameplay until it is closed. */
+function openSettings(onClose: () => void): void {
+  settingsOpen = true;
+  settings.show(() => {
+    settingsOpen = false;
+    // Discard any input buffered while the overlay was up so the next
+    // gameplay frame starts from a clean slate.
+    input.flush();
+    onClose();
+  });
+}
+
+const pause = new Pause(bus, onQuit, () => { pause.hide(); openSettings(() => pause.show()); });
+const title = new Title(bus, () => { title.hide(); openSettings(() => title.show()); });
 const gameOver = new GameOver(bus, scoreSystem, onRestart);
 
 // ─── Game state ───────────────────────────────────────────────────────────
@@ -201,6 +221,10 @@ const loop = createLoop({
   update(dt) {
     // Sample input first so the pause toggle is always responsive.
     const snap = input.poll(clock.now());
+
+    // While the settings overlay is open, gameplay is fully suspended and
+    // no input (including the Pause toggle) is allowed to affect play.
+    if (settingsOpen) return;
 
     // Pause toggle — edge-detect the Pause action before alive/paused guards.
     if (snap.buttonsPressed.has("Pause")) {

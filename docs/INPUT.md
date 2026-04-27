@@ -8,7 +8,7 @@
 ## InputSnapshot shape
 ```
 InputSnapshot {
-  axes: { moveX: -1..1, springX: -1..1, springY: -1..1 }
+  axes: { moveX: -1..1 }
   buttonsDown:    Set<Action>
   buttonsPressed: Set<Action>   // edge: this frame
   buttonsReleased: Set<Action>  // edge: this frame
@@ -17,7 +17,7 @@ InputSnapshot {
 ```
 
 ## Actions (from design.md)
-`MoveLeft, MoveRight, Crouch, Jump, Dash, SpringUp, SpringDown, SpringLeft, SpringRight, Attack, ApplyPatch, Pause`
+`MoveLeft, MoveRight, Crouch, Jump, Dash, Attack, ApplyPatch, Pause`
 
 ## Default bindings
 | Action      | Keyboard | Gamepad |
@@ -26,7 +26,6 @@ InputSnapshot {
 | Crouch      | S        | Left stick down / B |
 | Jump        | Space    | A |
 | Dash        | Shift    | RB |
-| Spring dir  | I/J/K/L  | Right stick |
 | Attack      | H        | X |
 | Apply patch | Q        | Y |
 | Pause       | Esc      | Start |
@@ -34,7 +33,7 @@ InputSnapshot {
 ## Implementation notes
 - Keyboard via `keydown` / `keyup` listeners populating a raw state map; gamepad via `navigator.getGamepads()` polled each frame.
 - Edge sets computed by diffing previous and current `buttonsDown`.
-- Spring inputs may be **held** to charge; release is detected via `buttonsReleased`. Charge state itself lives in the player controller, not in input.
+- **Spring jump**: charged by **holding `Crouch`**; on `Crouch` release, if a horizontal direction (`MoveLeft` / `MoveRight`) is held, the player launches diagonally upward in that direction. Releasing `Crouch` with no direction held just stands up and discards charge. Spring is not a separately bindable action.
 - Rebinding stored in `localStorage`; settings UI mutates a `Bindings` table consumed by the input layer.
 
 ## Tests

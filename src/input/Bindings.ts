@@ -27,10 +27,6 @@ export const DEFAULT_KEYBOARD_BINDINGS: KeyboardBindings = {
   Space: "Jump",
   ShiftLeft: "Dash",
   ShiftRight: "Dash",
-  KeyI: "SpringUp",
-  KeyK: "SpringDown",
-  KeyJ: "SpringLeft",
-  KeyL: "SpringRight",
   KeyH: "Attack",
   KeyQ: "ApplyPatch",
   Escape: "Pause",
@@ -48,8 +44,6 @@ export const DEFAULT_GAMEPAD_BUTTON_BINDINGS: GamepadButtonBindings = {
 
 export const DEFAULT_GAMEPAD_AXES: Partial<Record<number, AxisBinding>> = {
   0: { positive: "MoveRight", negative: "MoveLeft" },   // left stick X
-  3: { positive: "SpringDown", negative: "SpringUp" },  // right stick Y
-  2: { positive: "SpringRight", negative: "SpringLeft" }, // right stick X
 };
 
 const STORAGE_KEY = "sock_climber_bindings";

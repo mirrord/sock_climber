@@ -43,7 +43,7 @@ npm run format       # Prettier (writes in place)
 | Crouch | S | Left stick down / B |
 | Jump | Space | A |
 | Dash | Shift | RB |
-| Spring direction | I / J / K / L | Right stick |
+| Spring jump | Hold Crouch, release while holding A or D | Hold Crouch, release while holding direction |
 | Attack | H | X |
 | Apply patch | Q | Y |
 | Pause | Esc | Start |

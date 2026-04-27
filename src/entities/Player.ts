@@ -298,45 +298,42 @@ export class Player implements Entity {
     }
 
     // ─── Spring charge / release ──────────────────────────────────────────
+    // Spring is charged by holding Crouch. Releasing Crouch while a direction
+    // (MoveLeft / MoveRight) is held fires the spring impulse in that direction
+    // (with an upward component). Releasing Crouch with no direction held just
+    // ends the crouch and discards any accumulated charge.
+    //
+    // NOTE: This block runs after horizontal movement so the spring impulse
+    // is not immediately overwritten by the run-acceleration target velocity.
     if (!this._isDashing) {
-      let springHeld = false;
-      let dirX = snap.axes.springX;
-      let dirY = snap.axes.springY;
+      const crouchHeld = snap.buttonsDown.has("Crouch");
+      const crouchReleased = snap.buttonsReleased.has("Crouch");
 
-      if (snap.buttonsDown.has("SpringUp")) {
-        springHeld = true;
-        dirY = -1;
-      }
-      if (snap.buttonsDown.has("SpringDown")) {
-        springHeld = true;
-        dirY = 1;
-      }
-      if (snap.buttonsDown.has("SpringLeft")) {
-        springHeld = true;
-        dirX = -1;
-      }
-      if (snap.buttonsDown.has("SpringRight")) {
-        springHeld = true;
-        dirX = 1;
-      }
-      if (snap.axes.springX !== 0 || snap.axes.springY !== 0) springHeld = true;
-
-      if (springHeld) {
-        const len = Math.sqrt(dirX * dirX + dirY * dirY);
-        if (len > 0) {
-          this._springDirX = dirX / len;
-          this._springDirY = dirY / len;
-        }
+      if (crouchHeld) {
         this._springCharge = Math.min(1, this._springCharge + s.springChargeRate * dt);
         this._isSpringCharging = true;
-      } else if (this._isSpringCharging) {
-        // Spring released — apply impulse.
-        const impulse = this._springCharge * s.springMaxImpulse;
-        this.body.velocity.x += this._springDirX * impulse;
-        this.body.velocity.y += this._springDirY * impulse;
+      } else if (crouchReleased && this._isSpringCharging) {
+        const dirX = snap.axes.moveX;
+        if (dirX !== 0) {
+          // Diagonal upward launch in the held horizontal direction.
+          const sx = Math.sign(dirX);
+          const len = Math.SQRT2;
+          this._springDirX = sx / len;
+          this._springDirY = -1 / len;
+          const impulse = this._springCharge * s.springMaxImpulse;
+          this.body.velocity.x += this._springDirX * impulse;
+          this.body.velocity.y += this._springDirY * impulse;
+          // Lock horizontal authority briefly so the run controller does not
+          // immediately overwrite the spring's horizontal velocity.
+          this._wallKickLockTimer = s.wallKickLockDuration;
+          this._bus?.emit("onSpringRelease", {});
+        }
         this._springCharge = 0;
         this._isSpringCharging = false;
-        this._bus?.emit("onSpringRelease", {});
+      } else if (!crouchHeld && this._isSpringCharging) {
+        // Crouch was lost without a release edge (e.g. on spawn). Reset.
+        this._springCharge = 0;
+        this._isSpringCharging = false;
       }
     }
 

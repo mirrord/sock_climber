@@ -263,6 +263,13 @@ export class SpritePool {
         MAX_TILE_INSTANCES,
       );
       this._tileMesh.position.z = Z_LAYER.tile;
+      // Instances are manually culled to the visible row range in this method,
+      // but the InstancedMesh's bounding sphere is derived from the unit-plane
+      // geometry at the mesh origin (0, 0, 0).  Once the camera climbs far
+      // enough from the origin, Three.js frustum-culls the entire mesh and the
+      // walls vanish visually (physics is unaffected).  Disable frustum
+      // culling — per-instance culling above already keeps the draw bounded.
+      this._tileMesh.frustumCulled = false;
       scene.add(this._tileMesh);
     }
 

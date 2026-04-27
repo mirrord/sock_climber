@@ -20,7 +20,7 @@ function makeSnap(opts: {
   released?: Action[];
 } = {}): InputSnapshot {
   return {
-    axes: { moveX: opts.axes?.moveX ?? 0, springX: 0, springY: 0 },
+    axes: { moveX: opts.axes?.moveX ?? 0 },
     buttonsDown: new Set<Action>(opts.down ?? []),
     buttonsPressed: new Set<Action>(opts.pressed ?? []),
     buttonsReleased: new Set<Action>(opts.released ?? []),

@@ -146,16 +146,6 @@ export class Input {
     if (currentDown.has("MoveRight")) moveX += 1;
     if (currentDown.has("MoveLeft")) moveX -= 1;
 
-    let springX = gpResult?.axes.springX ?? 0;
-    let springY = gpResult?.axes.springY ?? 0;
-    // Override with digital spring keys if held
-    if (currentDown.has("SpringRight")) springX += 1;
-    if (currentDown.has("SpringLeft")) springX -= 1;
-    if (currentDown.has("SpringDown")) springY += 1;
-    if (currentDown.has("SpringUp")) springY -= 1;
-    springX = Math.max(-1, Math.min(1, springX));
-    springY = Math.max(-1, Math.min(1, springY));
-
     // --- Edge detection ---
     const pressed = new Set<Action>();
     const released = new Set<Action>();
@@ -170,7 +160,7 @@ export class Input {
     this._prevDown = new Set(currentDown);
 
     return Object.freeze({
-      axes: Object.freeze({ moveX, springX, springY }),
+      axes: Object.freeze({ moveX }),
       buttonsDown: currentDown,
       buttonsPressed: pressed,
       buttonsReleased: released,
