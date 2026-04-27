@@ -4,3 +4,6 @@ dist/
 *.local
 .github/copilot-instructions.md
 free assets/
+*/PLAN.md
+src/*/PLAN.md
+src/*/*/PLAN.md

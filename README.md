@@ -1,6 +1,6 @@
 # Sock Climber
 
-A precision platformer built on Three.js, focused on extremely responsive controls and tight timing.
+A precision platformer built with Three.js, focused on extremely responsive controls and tight timing.
 
 ## Vision
 
@@ -9,110 +9,91 @@ Sock Climber is a platformer where every millisecond of input matters. The game 
 - **Instant response** — zero-latency input pipeline, frame-perfect actions
 - **Tight timing** — precise jump windows, coyote time, input buffering
 - **Deterministic physics** — fixed-step simulation for consistent behavior
-- **Buttery rendering** — 60 FPS minimum with interpolated visuals
+- **Buttery rendering** — 60 FPS target with interpolated visuals
+
+## Stack
+
+| Concern | Tool |
+|---------|------|
+| Rendering | Three.js (orthographic camera) |
+| Language | TypeScript (strict) |
+| Build / dev server | Vite |
+| Tests | Vitest (jsdom environment) |
+| Linting / formatting | ESLint + Prettier |
 
 ## Getting Started
 
 ```bash
 npm install
-npm run dev     # start dev server at localhost:5173 (dev mode with editors)
-npm test        # run test suite
-npm run build   # production build (editors excluded)
+npm run dev          # dev server at http://localhost:5173
+npm test             # run full test suite (once)
+npm run test:watch   # re-run tests on file change
+npm run test:coverage  # coverage report
+npm run build        # production build (tsc + vite)
+npm run preview      # preview production build locally
+npm run lint         # ESLint
+npm run format       # Prettier (writes in place)
 ```
 
-## Modes
+## Controls
 
-| Mode | Command | Features |
-|------|---------|----------|
-| Dev | `npm run dev` | Full editor suite (Level Builder, Object Editor) visible in menu |
-| Production | `npm run build` | Editor screens excluded from bundle; menu shows Level Select + Settings only |
+| Action | Keyboard | Gamepad |
+|--------|----------|---------|
+| Move | A / D | Left stick X |
+| Crouch | S | Left stick down / B |
+| Jump | Space | A |
+| Dash | Shift | RB |
+| Spring direction | I / J / K / L | Right stick |
+| Attack | H | X |
+| Apply patch | Q | Y |
+| Pause | Esc | Start |
 
-The mode is driven by `import.meta.env.MODE` (Vite standard).
+Key bindings are rebindable in-game via the Settings menu and persisted to `localStorage`.
+
+## Features
+
+- **Player controller** — run, variable-height jump, coyote time (~6 frames), jump buffer (~6 frames), air control, wall slide & wall kick, directional spring, crouch, dash with i-frames
+- **Combat system** — frame-window attack data (`AttackTable`), hitbox resolution, aerial-crouch damp, invincibility frames
+- **Enemies, obstacles & buffs** — entity registries and factories; AI state machines
+- **Procedural level generation** — seeded chunk-based generator (Open / Tight profiles), Poisson-disk platform sampler, jump-arc reachability heuristic; identical seed → identical layout
+- **Upgrade system** — kill-driven gauge; patch picker presents 3 random upgrades from `PatchCatalog`; patches trade an empty HP container for a permanent stat buff
+- **Death plane** — monotonically advancing; speed bumps on segment crossings and patch applications
+- **Score** — tracks distance traversed and enemies killed; summary on death
+- **Full UI** — Title screen, HUD (HP, gauge, distance, buffs), Pause menu, Settings, Patch Picker, Game Over screen
+- **Audio** — pooled SFX bus + looping music manager; hooks fire from `EventBus` events (not per-frame polling)
+- **Render polish** — sprite pool, particle system (dust, spring puff), `DebugOverlay` toggled with `?debug=1`
 
 ## Project Structure
 
 ```
 src/
-  core/            # Game loop, clock, fixed-step runner (planned)
-  editor/
-    EditorApp.js   # Wires level editor, renderer, UI, play mode
-    EditorRenderer.js  # Three.js orthographic top-down view
-    EditorUI.js    # Toolbar: size, backgrounds, play, export/import, objects
-    LevelEditor.js # Level state: resize, background layers, mode toggle
-    ObjectEditorUI.js  # Slide-out panel: object create/edit/save (used in level builder)
-    PlayMode.js    # In-editor play: player physics, AABB collision, camera follow
-    editorConstants.js # Tile colors, grid color, tile/zoom sizes
-  input/           # Input sampling, buffering, action mapping (planned)
-  level/
-    Level.js       # Tile grid (Uint8Array), backgroundLayers[], resize, serialize
-    LevelStore.js  # In-memory name→serialized level map
-  objects/
-    Behavior.js         # Behavior data model; STANDARD_BEHAVIORS (move/die/idle/patrol/chase)
-    BehaviorTrigger.js  # Trigger data model; TRIGGER_TYPES
-    GameObject.js       # id, type, name, collisionGroup/Mask (bit flags), behaviors, triggers, properties
-    ObjectEditor.js     # Controller: create, load, save, library CRUD, edit current
-    templates.js        # 7 built-in templates (platform, wall, enemy, spawn_point, collectible, level_end, event_trigger)
-  physics/         # Collision detection, movement (planned)
-  player/          # Player controller state machine (planned)
-  rendering/       # Shared Three.js scene helpers (planned)
-  ui/
-    LevelBuilderScreen.js   # Screen that hosts EditorApp with save-level bar
-    LevelSelectScreen.js    # Lists saved levels; launch play or delete
-    MainMenuScreen.js       # Title screen; hides editor buttons in production
-    ObjectEditorScreen.js   # 3-panel object editor (left: props, center: viewport, right: list)
-    PlayScreen.js           # Loads level from store and runs PlayMode
-    ScreenManager.js        # Screen lifecycle: register, switchTo, back (history stack)
-    SettingsScreen.js       # Placeholder settings
-    menuStyles.js           # Shared CSS injected once for all menu screens
-  main.js          # Entry point: wires ScreenManager, screens, and devMode flag
-tests/             # Mirrors src/ structure
-assets/            # Models, textures, audio (placeholder)
-public/            # Static files served by Vite
-docs/
-  DESIGN.md        # Architecture decisions and planned mechanics
+├── core/       Loop, time, RNG, Vec2, EventBus, object pools
+├── input/      Keyboard + gamepad → immutable InputSnapshot; rebinding
+├── physics/    Swept AABB, spatial hash, TileWorld
+├── entities/   Player, Entity base, components; enemies/, obstacles/, buffs/
+├── systems/    CombatSystem, DeathPlaneSystem, UpgradeSystem, ScoreSystem, SpawnSystem
+├── level/      Chunk profiles, Generator, Poisson sampler, reachability
+├── render/     Renderer, GameCamera, SpritePool, ParticleSystem, DebugOverlay
+├── ui/         HUD, PatchPicker, Pause, Settings, Title, GameOver
+└── audio/      AudioBus, SfxRegistry, Music, AudioSystem
+tests/          Mirrors src/ structure; 433+ unit tests
+docs/           DESIGN.md (living architecture doc), PHYSICS.md, INPUT.md, LEVEL_GENERATION.md
 ```
 
-## Architecture
+## Development Conventions
 
-### Screen System
-`ScreenManager` manages a stack of screens. Each screen implements `enter()` and `exit()`. Screens are registered by name and navigated with `switchTo(name)` / `back()`. The main menu conditionally shows dev-only screens based on `devMode`.
+- **TDD** — failing test first, minimal code to green, then refactor.
+- All modules in `src/<name>/` have a corresponding `tests/<name>/` mirror.
+- No allocations in the per-frame `update(dt)` path; use pools.
+- Fixed-step physics (`dt = 1/120 s`); render interpolates with `alpha`.
+- All units SI: meters and seconds. 1 world unit = 1 m = 1 tile.
+- Input sampled once per frame into an immutable `InputSnapshot`.
+- `?debug=1` URL flag draws AABB outlines, contact normals, and velocity vectors.
 
-### Level Editor
-The level editor (`EditorApp`) provides:
-- **Orthographic Three.js viewport** — grid-aligned top-down view with zoom
-- **Resize tool** — change level dimensions (columns × rows) at any time, tiles are preserved where they fit
-- **Background layers panel** — add/remove image layers each with a 0–1 parallax factor
-- **Object placement** — via the slide-out object editor panel (press `O` or toolbar button)
-- **Play mode** — press `Tab` to run the level with the built-in player controller
-- **Export / Import** — JSON round-trip for level files
+## CI / Deployment
 
-### Object System
-Game objects are data records (`GameObject`) composed of:
-- **Collision groups / masks** — bit-flag based (PLAYER, ENVIRONMENT, ENEMY, COLLECTIBLE, TRIGGER, PROJECTILE)
-- **Behaviors** — named actions with optional animation and parameters
-- **Triggers** — `(triggerType, behaviorId)` pairs that fire behaviors on events (timer, proximity, collision, interact, stat change)
-- **Properties** — arbitrary key/value pairs
-
-The `ObjectEditor` controller manages a `current` object and a `library` of saved objects. `ObjectEditorUI` is the slide-out panel used in the level builder; `ObjectEditorScreen` is the standalone 3-panel editor (properties / viewport / list).
-
-### Level Data
-`Level` holds a `Uint8Array` tile grid (for performance) and a `backgroundLayers[]` array. The tile system is retained for collision geometry while objects carry gameplay logic. Levels serialize to JSON.
-
-### Physics (Play Mode)
-Fixed-step AABB collision against the tile grid. Player state: velocity, grounded flag. Input sampled via keyboard. Camera follows the player smoothly.
-
-### Dev / Deployment Split
-Editor code is conditionally `import()`'d in `main.js` only when `import.meta.env.MODE !== 'production'`. Vite tree-shakes the editor bundle in production builds.
-
-## Tech Stack
-
-| Layer | Choice |
-|-------|--------|
-| Rendering | Three.js |
-| Bundler | Vite |
-| Testing | Vitest |
-| Language | JavaScript (ES modules) |
+Tests run on every push to `main` via GitHub Actions; the build is deployed to GitHub Pages at `https://<owner>.github.io/sock_climber/`.
 
 ## License
 
-TBD
+MIT
