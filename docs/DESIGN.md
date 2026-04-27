@@ -1,144 +1,108 @@
-# Design Document
+# Architecture — Living Document
 
-## Core Pillars
+This file is updated at the end of every phase with decisions actually made (not just planned).
 
-1. **Responsiveness** — Input-to-screen in 1 frame. No smoothing or lerping on player input.
-2. **Precision** — Frame-perfect mechanics: coyote time, jump buffering, wall jumps.
-3. **Consistency** — Fixed physics step ensures identical behavior regardless of framerate.
+## Current state
+**Phase 0 complete.** Vite + TypeScript (strict) + Vitest + Three.js scaffolding in place.
+**Phase 1 complete.** Core engine and input module implemented and tested.
+**Phase 2 complete.** Physics module (AABB, swept collision, spatial hash) implemented and tested.
+**Phase 3 complete.** Player controller (run, jump, coyote, buffer, air control, wall kick, dash, spring, crouch, health/i-frames) implemented and tested.
+**Phase 4 complete.** Combat system (attack frame windows, hitbox resolution, aerial-crouch damp, i-frames) implemented and tested.
+**Phases 5a/5b/5c complete.** Enemies, obstacles, and temporary buffs implemented and tested (registries, factories, AI stubs).
+**Phase 6 complete.** Level generation (chunk profiles, Poisson-disk sampler, jump-arc reachability, Generator) implemented and tested.
+**Phase 7 complete.** Death plane, upgrade system, score, and spawn systems implemented and tested. Vertical slice playable via `npm run dev`. Score logged to console on death.
+**Phase 8 complete.** Full UI layer: HUD, PatchPicker, Pause menu, Settings (key rebinding), Title screen, and Game Over screen implemented and tested. Simulation pauses while PatchPicker or Pause menu is open. 390 unit tests green (`npm test`).
+**Phase 9 complete.** Audio module (AudioBus, SfxRegistry, Music, AudioSystem) implemented and tested. 433 unit tests green (`npm test`).
 
----
+## High-level architecture
+- **Game loop** drives a fixed-step `update(dt)` followed by an interpolated `render(alpha)`.
+- **Systems** operate over **entities** built from **components** (composition over inheritance).
+- **Input** is sampled into an immutable per-frame snapshot before `update`.
+- **Physics** is deterministic; render is decoupled.
+- **Rendering** uses Three.js with an orthographic camera; sprites are textured planes.
 
-## Implemented Systems
+## Module map
+| Module | Responsibility | Plan |
+|--------|----------------|------|
+| `core` | Loop, time, RNG, math pools | [../src/core/PLAN.md](../src/core/PLAN.md) |
+| `input` | Keyboard + gamepad sampling, rebinding | [../src/input/PLAN.md](../src/input/PLAN.md) |
+| `physics` | AABB bodies, swept collision, spatial hash | [../src/physics/PLAN.md](../src/physics/PLAN.md) |
+| `entities` | Player + entity base + components | [../src/entities/PLAN.md](../src/entities/PLAN.md) |
+| `systems` | Combat, death plane, upgrades, score | [../src/systems/PLAN.md](../src/systems/PLAN.md) |
+| `level` | Chunk-based procedural generator | [../src/level/PLAN.md](../src/level/PLAN.md) || `render` | Three.js scene/camera/sprites/particles | [../src/render/PLAN.md](../src/render/PLAN.md) |
+| `ui` | HUD, pause, settings, patch picker | [../src/ui/PLAN.md](../src/ui/PLAN.md) |
+| `audio` | SFX/music bus | [../src/audio/PLAN.md](../src/audio/PLAN.md) |
+## Data flow per frame
+```
+poll input ──► InputSnapshot
+                    │
+                    ▼
+           fixed-step accumulator
+                    │
+       ┌────────────┼────────────┐
+       ▼            ▼            ▼
+  MovementSys  CombatSys   DeathPlaneSys ... (consume snapshot + world)
+                    │
+                    ▼
+              physics step (swept AABB)
+                    │
+                    ▼
+              event bus (kills, hits, segment crosses)
+                    │
+                    ▼
+       UpgradeSys / ScoreSys / SpawnSys react
+                    │
+                    ▼
+              render(alpha) — interpolated
+```
 
-### Screen Manager (`src/ui/ScreenManager.js`)
-A lightweight screen lifecycle manager. Screens register by name and implement `enter()` / `exit()`. Navigation uses `switchTo(name, params?)` and `back()` (history stack). Screens are DOM-based — each manages its own root element, created on `enter()` and removed on `exit()`.
+## Decisions made (Phases 0–4)
 
-### Dev / Deployment Mode (`src/main.js`)
-Driven by `import.meta.env.MODE` (Vite standard). In development, `LevelBuilderScreen` and `ObjectEditorScreen` are dynamically imported and registered, and their menu buttons are shown. In a production build (`npm run build`) these imports are absent, so the editor code is tree-shaken from the bundle entirely.
+| Decision | Rationale |
+|----------|-----------|
+| `TileWorld.solidAt` returns `false` for OOB tiles | World opens upward; death plane handles falling off the bottom |
+| `Vec2Pool` with global `vec2Pool` instance | Zero allocations in hot path; tests verify no growth after warmup |
+| `EventBus` nulls handlers mid-emit, compacts after | O(1) unsubscribe, safe re-entrant emission |
+| Swept AABB uses slab method (Minkowski sum) | Handles tunnelling at any speed; integrates naturally with tile grid |
+| Adjacency probe after each step | Resting contact sets `onGround`/`onWallL/R` even at zero velocity |
+| `Input._simulateKeyDown/Up` internal API | Enables deterministic unit tests without a real DOM |
+| `driveLoop` helper for tests | Bypasses `requestAnimationFrame`; fully synchronous |
+| `Player.update(dt, snap)` called **before** `step(body, world, dt)` | Controller sets velocity intent; physics resolves collisions; flags from previous step are available for coyote/jump-buffer logic |
+| `body.gravity` mutated by Player each frame | Cleanly supports wall-slide gravity reduction and dash zero-gravity without extra indirection |
+| `coyoteTime` and `jumpBufferTime` both default to `6/60` s | Matches PLAN.md "~6 frames at 60 fps" spec; large enough to feel forgiving |
+| `groundAccel = airAccel = 1000 m/s²` | `1000 × (1/120) ≈ 8.33 ≥ maxSpeed (8)` → velocity reaches target in one physics step; "instant" feel |
+| `ATTACK_TABLE` keyed by string (`"Normal"`, `"AerialCrouch"`) | Extensible without enum churn; attack selection is a simple runtime string |
+| Hit-targets `Set<number>` per attack instance | O(1) membership test; prevents double-hits within one activation with no per-target state |
+| `Damageable` interface (not base class) | Enemies and obstacles in Phases 5a/5b only need to satisfy the interface |
+| `ChunkProfile.wallProfile(t)` returns `WallSlice` at normalised position | Pure function; easy to test and compose; no mutable state in profiles |
+| World Y=0 at spawn; negative = upward; death plane starts at large positive Y | Consistent with physics (+Y down) and LEVEL_GENERATION.md; death plane rising = Y decreasing |
+| `createGenerator` returns a closure with `advance(cameraY, deathPlaneY)` | Keeps all mutable generator state private; pure functional interface for tests |
+| Despawn condition: `chunkBottomY > deathPlaneY - GRACE_ROWS` | Ensures chunks are kept until the death plane has fully passed them plus a margin |
+| Sub-RNG cloned via `rng.clone()` per chunk | Each chunk's placement is independent; reproducing a single chunk doesn't require replaying the whole seed |
+| `poissonSample` uses integer occupancy grid | Efficient for small chunk sizes (≤ 20 tiles); avoids floating-point distance checks on hot path |
+| `hasReachablePredecessor` force-step: if no platforms placed, a centred stepping stone is inserted | Guarantees every chunk has at least one reachable entry point regardless of density settings |
+| `GameEvents` extended with `onPlayerDeath` and `onPatchApplied` | Minimal additions at phase boundary; both needed for system coordination |
+| `DeathPlaneSystem` speed is always additive, never reduced | Monotonic difficulty; multiplied per-frame by `deathPlaneSpeedMultiplier` (floored at 0.1) |
+| `ExtraHP` patch calls `gainContainer` only (no `consumeEmptyContainer`) | ExtraHP is a true max-HP increase; other patches trade an empty slot for a permanent stat buff |
+| Upgrade gauge: 25% per kill, picker opens at 100% with ≥1 empty container | Gating ensures the player must have taken damage to unlock upgrades (ROADMAP open question #3 resolved) |
+| `PatchCatalog` as pure data (`readonly PatchEntry[]`) | No class overhead; eligibility is a per-entry predicate; easy to extend in Phase 8 |
+| `onPause` / `onResume` events gate `update()` | Clean separation: toggle flag in loop, emit from both Pause menu and PatchPicker; no coupling between UI classes |
+| `PatchPicker` emits `onPause` on open, `onResume` on selection | Simulation reliably freezes during patch selection without the picker owning loop state |
+| `Title` shown on construction (not hidden) | First thing the player sees; `onGameStart` starts the loop |
+| `alive = false` until `onGameStart` | Loop is inert until the player explicitly starts a run |
+| `Settings.setKeyBinding` calls `saveBindings` internally | Single call site for persistence; no risk of forgetting to persist |
+| Open design question #2 resolved: DOM overlay, event-driven | Avoids in-canvas HUD complexity; CSS handles layout; zero per-frame DOM writes |
+| `SpawnSystem` included in Phase 7 (was Phase 6 scope) | Required for the vertical slice gate; bridges Generator into live entity list and fires `onSegmentCross` |
+| `SpawnSystem` segmentId is a monotonic counter | Consistent with `GameEvents.onSegmentCross: { segmentId: number }` type; each crossing is unique |
+| `AudioBus` owns two `GainNode` channels (sfx, music) + pre-allocated voice pool | Pool GainNodes created at construction; only lightweight `AudioBufferSourceNode` created per play — no chain allocations during gameplay |
+| `Player` takes optional `EventBus<GameEvents>` as third constructor parameter | Keeps all existing call sites unchanged (bus defaults to `null`); Player emits `onJump`/`onLand`/`onDash` when present |
+| Land detection: `grounded && !_wasGrounded` at top of `Player.update` | Reuses existing edge-detection pattern; fires before any locomotion state changes for that frame |
+| `CombatSystem` emits `onAttack` at the moment a new attack is started | Consistent with how `onHit`/`onKill` are already emitted from the same system |
+| `AudioSystem` subscribes to bus events, never polls per-frame | Matches PLAN.md goal; event handlers call `AudioBus.playSfx` → pool look-up is O(pool size) |
+| `Music` accepts `(ctx, channelGain)` directly instead of going through `AudioBus` | Enables independent unit testing of crossfade logic with a minimal mock; `AudioBus.getChannelNode("music")` bridges them at wiring time |
+| `SfxRegistry` is a plain `Map<SfxId, AudioBuffer>` | No class overhead; pre-decoded buffers are registered once at load time; look-up is O(1) |
 
-### Level Data (`src/level/Level.js`)
-- `tiles: Uint8Array` — row-major flat grid. Constants: `EMPTY=0, SOLID=1, SPAWN=2, HAZARD=3, GOAL=4`.
-- `backgroundLayers: Array<{url: string, parallax: number}>` — parallax factor 0 (fixed) to 1 (scrolls with camera). Persisted in JSON.
-- `resize(w, h)` — pads or clips the tile grid, preserving content that fits.
-- `toJSON()` / `fromJSON()` — plain-object round-trip.
-
-### Level Store (`src/level/LevelStore.js`)
-In-memory key/value store mapping level names to serialized JSON strings. Used by the screen system to pass levels from the builder to the play screen.
-
-### Level Editor (`src/editor/`)
-
-**`LevelEditor.js`** — Controller (no DOM). Methods:
-- `resize(w, h)` — delegates to `Level.resize`
-- `addBackgroundLayer(url, parallax)` / `removeBackgroundLayer(i)` / `updateBackgroundLayer(i, url, parallax)`
-- `toggleMode()` — `'edit'` ↔ `'play'`
-- `clearLevel()`, `exportJSON()`, `importJSON(str)`
-
-**`EditorRenderer.js`** — Three.js orthographic top-down renderer. Tile meshes use `MeshBasicMaterial` per tile type. Grid lines are a `THREE.Group` of `LineSegments`. Supports zoom (`zoomCamera`) and hover indicator.
-
-**`EditorUI.js`** — Fixed toolbar (top-left). Controls: width/height number inputs + Apply (resize), Backgrounds button, Play/Edit toggle, Export/Import, Objects toggle, mode label.
-
-**`EditorApp.js`** — Wires renderer, editor, UI, object editor panel, and background panel. Runs a `requestAnimationFrame` loop. Keyboard: `Tab` = play toggle, `O` = object panel.
-
-**`PlayMode.js`** — In-editor player: keyboard WASD/Space, gravity, AABB tile collision, fixed-step physics, smooth camera follow.
-
-### Object System (`src/objects/`)
-
-**`GameObject`** — Core data record:
-- `id` — auto-assigned (`obj_N`)
-- `type`, `name`
-- `collisionGroup` / `collisionMask` — bit flags: `NONE=0, PLAYER=1, ENVIRONMENT=2, ENEMY=4, COLLECTIBLE=8, TRIGGER=16, PROJECTILE=32`
-- `behaviors[]` — `Behavior` instances
-- `triggers[]` — `BehaviorTrigger` instances
-- `properties{}` — arbitrary key/value
-- `clone()`, `toJSON()`, `fromJSON()`
-
-**`Behavior`** — `{ id, name, animation?, params{} }`. Standard behaviors: `move`, `die`, `idle`, `patrol`, `chase`. `createBehavior(id)` clones from the standard set.
-
-**`BehaviorTrigger`** — `{ type, behaviorId, params{} }`. Trigger types: `timer`, `proximity`, `stat_change`, `on_collide`, `on_interact`.
-
-**`templates.js`** — 7 presets:
-
-| Template | Collision group | Default behaviors |
-|----------|----------------|-------------------|
-| `platform` | ENVIRONMENT | — |
-| `wall` | ENVIRONMENT | — |
-| `enemy` | ENEMY | patrol |
-| `spawn_point` | TRIGGER | idle |
-| `collectible` | COLLECTIBLE | idle |
-| `level_end` | TRIGGER | idle |
-| `event_trigger` | TRIGGER | — |
-
-**`ObjectEditor`** — Controller with `current: GameObject` and `library: GameObject[]`. Methods: `createFromTemplate`, `createBlank`, `load`, `save`, `exportJSON`, `importJSON`, `saveToLibrary`, `loadFromLibrary`, `removeFromLibrary`, `setName`, `setCollisionGroup/Mask`, `addBehavior`, `removeBehavior`, `addTrigger`, `removeTrigger`, `setProperty`.
-
-### Object Editor UIs
-
-**`ObjectEditorUI`** (`src/editor/ObjectEditorUI.js`) — Slide-out panel (right side, 340 px). Used inside the Level Builder. Sections: template bar, library, object fields, collision groups/mask, behaviors, triggers, properties, actions (save to library, export, import). Has a ✕ Close button that hides panel and clears `current`.
-
-**`ObjectEditorScreen`** (`src/ui/ObjectEditorScreen.js`) — Standalone 3-panel screen:
-- **Left** (300 px): all editable properties + actions
-- **Center** (flex): animation viewport placeholder
-- **Right** (240 px): library list with New Object button, template quick-create dropdown, per-item select/delete. Unsaved objects highlighted with a gold left border.
-
----
-
-## Planned / In Progress
-
-### Player Mechanics
-
-**`PlayerController`** (`src/player/PlayerController.js`) — Pure-physics controller (no Three.js). Call `step(inputSnapshot, dt)` once per fixed tick. All numeric parameters are tunable via constructor config.
-
-**`PlayerState`** (`src/player/PlayerState.js`) — `STATE` constants + pure `deriveState(flags)` function. States: `idle`, `running`, `jumping`, `falling`, `crouching`, `wallSlide`.
-
-| Behaviour | Config flags | Tuning params |
-|-----------|-------------|---------------|
-| **Crouch** | `enableCrouch` | `crouchHeightScale` (default 0.5) |
-| **Wall slide** | `enableWallSlide` | `wallSlideGravityScale` (default 0.5) |
-| **Wall kick** | `enableWallKick` | `wallKickVX`, `wallKickVY` (default 6, 12) |
-| **Dash jump** | `enableDashJump` | `dashJumpSpeedScale` (default 2.0) |
-| **Falling** | `enableFalling` | `maxFallSpeed` (default −20 m/s) |
-
-- **Crouch**: grounded-only; hitbox height shrinks to `playerH × crouchHeightScale`, width stays constant.
-- **Wall slide**: while airborne and adjacent to a solid wall, effective gravity is `gravity × wallSlideGravityScale`. Activates from the frame *after* first wall contact.
-- **Wall kick**: while airborne and adjacent to a wall, a fresh jump press launches the player away from the wall at `wallKickVX` horizontally and `wallKickVY` vertically. Jump-held guard prevents multiple kicks per press.
-- **Dash jump**: holding dash at the moment of a ground jump sets `_dashJumping = true`; horizontal speed is `moveSpeed × dashJumpSpeedScale` for the entire airborne phase. Resets on landing.
-- **Falling**: when `enableFalling` is `true` (default), `vy` is clamped to `maxFallSpeed` (terminal velocity) each step and the controller reports `STATE.FALLING` when airborne with `vy ≤ 0`. When `false`, no cap is applied and the state stays `STATE.JUMPING` throughout the airborne arc. `PlayMode` maps `STATE.FALLING` to the `'fall'` behavior id for animation lookup.
-
-Wall adjacency is detected via `_updateWallContact()` at the end of each step (proximity-based, not velocity-based), so the player does not need to hold a direction to maintain wall contact.
-
-- [ ] Ground movement (acceleration, deceleration)
-- [ ] Variable-height jump (hold = higher)
-- [ ] Coyote time (grace frames after leaving edge)
-- [ ] Jump buffering (press jump slightly before landing)
-- [ ] Dash (single-use, resets on ground)
-- [ ] Moving platforms
-
-### Input System
-- [ ] Gamepad support
-- [ ] Action mapping (abstract actions, not raw keys)
-- [ ] Per-frame immutable input snapshot
-- [ ] Input buffering queue
-
-### Camera
-- [ ] Smooth follow with deadzone
-- [ ] Look-ahead in movement direction
-- [ ] Camera zones / region snapping
-
-### Object Placement in Level Editor
-- [ ] Place `GameObject` instances at world positions in the editor viewport
-- [ ] Serialize placed instances into the level JSON
-
-### Rendering
-- [ ] Background layer rendering with parallax scroll in play mode
-- [ ] Sprite / animation support for game objects
-- [ ] Object animation preview in `ObjectEditorScreen` center panel
-
----
-
-## Performance Targets
-
-| Metric | Target |
-|--------|--------|
-| FPS | 60+ stable |
-| Input latency | ≤1 frame |
-| Physics step | 1/120s fixed |
-| GC pauses | 0 during gameplay |
+## Performance budget
+- 60 fps minimum, target 16.6 ms frame budget.
+- Zero allocations in `update()` after warmup; verified by a dev-mode allocation tracker around the loop step.
+- Physics step `dt = 1/120` s, two steps per render frame at 60 fps.

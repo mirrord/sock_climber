@@ -1,17 +1,125 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <script async src="https://vibej.am/2026/widget.js"></script>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Sock Climber</title>
-  <style>
-    * { margin: 0; padding: 0; }
-    html, body { overflow: hidden; width: 100%; height: 100%; }
-    canvas { display: block; }
-  </style>
-</head>
-<body>
-  <script type="module" src="/src/main.js"></script>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script async src="https://vibej.am/2026/widget.js"></script>
+    <title>Sock Climber</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body { overflow: hidden; background: #000; }
+      canvas { display: block; }
+
+      /* ── UI layer ─────────────────────────────────────────────────────── */
+      .hidden { display: none !important; }
+
+      /* Full-screen overlay panels */
+      #title, #pause, #settings, #game-over {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.75rem;
+        background: rgba(0, 0, 0, 0.78);
+        color: #f0f0f0;
+        font-family: sans-serif;
+        z-index: 10;
+      }
+
+      /* HUD — top-left corner, never blocks clicks on the game */
+      #hud {
+        position: fixed;
+        top: 1rem;
+        left: 1rem;
+        color: #f0f0f0;
+        font-family: monospace;
+        font-size: 0.9rem;
+        z-index: 10;
+        pointer-events: none;
+      }
+
+      button {
+        cursor: pointer;
+        padding: 0.45rem 1.1rem;
+        font-size: 1rem;
+        border: 1px solid #888;
+        background: #222;
+        color: #f0f0f0;
+        border-radius: 4px;
+      }
+      button:hover { background: #444; }
+
+      /* ── Title screen ─────────────────────────────────────────────────── */
+      #title h1 {
+        font-size: 3rem;
+        letter-spacing: 0.08em;
+      }
+      .title-subtitle {
+        opacity: 0.7;
+        margin-bottom: 1rem;
+        font-style: italic;
+      }
+
+      /* ── Settings overlay ─────────────────────────────────────────────── */
+      #settings {
+        justify-content: flex-start;
+        padding: 2rem;
+        overflow-y: auto;
+      }
+      #settings h2 { margin-bottom: 0.5rem; }
+      .settings-section {
+        width: min(540px, 100%);
+        margin-bottom: 1.25rem;
+        padding: 0.75rem 1rem;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid #333;
+        border-radius: 6px;
+      }
+      .settings-section h3 {
+        margin-bottom: 0.5rem;
+        font-size: 1.05rem;
+        color: #ffd66e;
+      }
+      .audio-row {
+        display: grid;
+        grid-template-columns: 5rem 1fr 3rem auto;
+        gap: 0.5rem;
+        align-items: center;
+        margin: 0.25rem 0;
+        font-family: monospace;
+      }
+      .audio-mute-wrap {
+        display: inline-flex;
+        gap: 0.3rem;
+        align-items: center;
+        cursor: pointer;
+        font-size: 0.85rem;
+      }
+      .binding-table, .gamepad-button-table, .gamepad-axis-table {
+        display: flex;
+        flex-direction: column;
+        gap: 0.15rem;
+        font-family: monospace;
+        font-size: 0.9rem;
+      }
+      .binding-row, .gamepad-button-row, .gamepad-axis-row {
+        cursor: pointer;
+        padding: 0.2rem 0.4rem;
+        border-radius: 3px;
+      }
+      .binding-row:hover,
+      .gamepad-button-row:hover,
+      .gamepad-axis-row:hover { background: rgba(255, 255, 255, 0.08); }
+      .reset-section {
+        margin-top: 0.5rem;
+        font-size: 0.8rem;
+        padding: 0.25rem 0.6rem;
+      }
+    </style>
+  </head>
+  <body>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
 </html>
