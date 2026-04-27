@@ -250,11 +250,18 @@ export function createGenerator(opts: GeneratorOptions): Generator {
       const slice = profile.wallProfile(t);
       const worldTy = chunkOriginY + row;
 
-      // Left wall tiles.
+      // Always place solid tiles at the world boundaries so the player can
+      // never escape sideways, regardless of how narrow/wide the profile
+      // corridor is or whether the chunk is narrower than the world.
+      tiles.push({ tx: 0, ty: worldTy, solid: true });
+      tiles.push({ tx: WORLD_WIDTH - 1, ty: worldTy, solid: true });
+
+      // Profile-defined interior wall tiles.  These may coincide with the
+      // world-boundary tiles above for full-width chunks (harmless duplicate
+      // setTile calls are idempotent in TileWorld).
       for (let x = 0; x < slice.left; x++) {
         tiles.push({ tx: chunkOriginX + x, ty: worldTy, solid: true });
       }
-      // Right wall tiles.
       for (let x = slice.right; x < chunkW; x++) {
         tiles.push({ tx: chunkOriginX + x, ty: worldTy, solid: true });
       }

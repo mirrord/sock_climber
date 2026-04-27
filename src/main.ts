@@ -46,14 +46,46 @@ const WORLD_WIDTH_TILES = 12;
 const WORLD_HEIGHT_TILES = 4000; // large enough to never overflow
 const TILE_SIZE = 1; // 1 world unit = 1 m = 1 tile
 
+/**
+ * Lower bound of addressable tile-Y in the world.
+ *
+ * The player spawns at world y = 0 and climbs toward negative Y (Y+ = down).
+ * The tile world therefore needs to address a large negative-Y range so the
+ * upward play area (walls, procedural chunks) can be stored. We reserve a
+ * small buffer below the spawn floor for the floor row and any underflow.
+ */
+const WORLD_Y_MIN = -(WORLD_HEIGHT_TILES - 8);
+
 // ─── Systems ──────────────────────────────────────────────────────────────
 
 const bus = createEventBus<GameEvents>();
 const rng = createRNG(Date.now());
-const world = new TileWorld(WORLD_WIDTH_TILES, WORLD_HEIGHT_TILES);
+const world = new TileWorld(WORLD_WIDTH_TILES, WORLD_HEIGHT_TILES, WORLD_Y_MIN);
 
-// Seed a solid floor at y=2 (just below spawn at y=0).
-world.fillRect(0, 2, WORLD_WIDTH_TILES, 1, true);
+/**
+ * Seed the static play-area boundary into the tile world:
+ *   - A solid floor row spanning the full play width at y = 2 (just below
+ *     the player's spawn at y = 0).
+ *   - Full-height solid wall columns at the leftmost and rightmost tiles
+ *     extending UPWARD from the floor (Y+ = down, so upward = negative Y).
+ *   - No ceiling — the player must climb upward freely.
+ *
+ * This guarantees the player can never fall (or be knocked) into empty
+ * space outside the play area, regardless of what the procedural
+ * generator places.
+ */
+function seedWorldBoundary(): void {
+  // Full-width floor.
+  world.fillRect(0, 2, WORLD_WIDTH_TILES, 1, true);
+  // Side walls: span from the floor row (ty = 2) upward to the top of the
+  // addressable range (ty = WORLD_Y_MIN). No ceiling above WORLD_Y_MIN.
+  const wallTopY = WORLD_Y_MIN;
+  const wallHeight = 3 - wallTopY; // covers ty in [WORLD_Y_MIN, 2]
+  world.fillRect(0, wallTopY, 1, wallHeight, true);
+  world.fillRect(WORLD_WIDTH_TILES - 1, wallTopY, 1, wallHeight, true);
+}
+
+seedWorldBoundary();
 
 const player = new Player({ x: WORLD_WIDTH_TILES / 2, y: 0 });
 
@@ -117,9 +149,9 @@ bus.on("onSpringRelease", () => {
 });
 
 function resetGame(): void {
-  // Reset world tiles and re-seed the starting floor.
+  // Reset world tiles and re-seed the bounded play area.
   world.clear();
-  world.fillRect(0, 2, WORLD_WIDTH_TILES, 1, true);
+  seedWorldBoundary();
 
   // Fresh procedural generator with a new seed.
   generator = createGenerator({ seed: rng.int(0, 0x7fffffff), cameraY: 0, worldWidth: WORLD_WIDTH_TILES });

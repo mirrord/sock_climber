@@ -4,6 +4,10 @@
  *   min = (tx, ty), max = (tx+1, ty+1)
  *
  * Y increases downward to match physics (+Y = down gravity).
+ *
+ * The addressable Y range is `[yMin, yMin + height)`. `yMin` defaults to 0
+ * for backward compatibility but can be set negative so the world extends
+ * upward (for climbing-style levels where the player ascends into negative Y).
  */
 export class TileWorld {
   private readonly _solid: Uint8Array;
@@ -12,19 +16,27 @@ export class TileWorld {
   readonly width: number;
   /** Height in tiles. */
   readonly height: number;
+  /** Inclusive lower bound of the addressable tile-Y range. */
+  readonly yMin: number;
 
-  constructor(width: number, height: number) {
+  constructor(width: number, height: number, yMin = 0) {
     this.width = width;
     this.height = height;
+    this.yMin = yMin;
     this._solid = new Uint8Array(width * height);
   }
 
   private _idx(tx: number, ty: number): number {
-    return ty * this.width + tx;
+    return (ty - this.yMin) * this.width + tx;
   }
 
   private _inBounds(tx: number, ty: number): boolean {
-    return tx >= 0 && tx < this.width && ty >= 0 && ty < this.height;
+    return (
+      tx >= 0 &&
+      tx < this.width &&
+      ty >= this.yMin &&
+      ty < this.yMin + this.height
+    );
   }
 
   /**
