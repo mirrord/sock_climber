@@ -214,7 +214,14 @@ export class SpritePool {
     }
     mesh.position.x = x;
     mesh.position.y = -y; // Y-flip
-    mesh.scale.set(hw * 2, hh * 2, 1);
+    // Enemies face the direction they're moving; obstacles & buffs do not flip.
+    let scaleX = hw * 2;
+    if (spawned.kind === "enemy") {
+      const vx = (spawned.entity as unknown as { body: { velocity: { x: number } } })
+        .body.velocity.x;
+      if (vx < 0) scaleX = -scaleX;
+    }
+    mesh.scale.set(scaleX, hh * 2, 1);
   }
 
   /** @internal */

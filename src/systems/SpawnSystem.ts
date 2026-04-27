@@ -62,6 +62,23 @@ export class SpawnSystem {
   }
 
   /**
+   * Remove a single live entity by id (used by the game loop to cull
+   * defeated enemies and consumed/expired buffs without waiting for the
+   * generator's death-plane despawn pass).
+   *
+   * @returns `true` if an entity was removed, `false` if no match.
+   */
+  removeById(id: number): boolean {
+    for (let i = this._liveEntities.length - 1; i >= 0; i--) {
+      if (this._liveEntities[i]!.entity.id === id) {
+        this._liveEntities.splice(i, 1);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
    * Clear all live entities, reset the segment counter, and swap in a new
    * generator for the next run.
    */

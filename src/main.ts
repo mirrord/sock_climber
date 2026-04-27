@@ -23,9 +23,17 @@ import { HUD, PatchPicker, Pause, Settings, Title, GameOver } from "./ui/index.j
 import { Renderer, GameCamera, SpritePool, ParticleSystem, DebugOverlay } from "./render/index.js";
 import {
   AudioBus,
+  AudioSystem,
+  Music,
+  SfxRegistry,
   applyAudioSettings,
   loadAudioSettings,
 } from "./audio/index.js";
+import type { SfxId } from "./audio/index.js";
+import type { Enemy } from "./entities/enemies/Enemy.js";
+import type { Obstacle } from "./entities/obstacles/Obstacle.js";
+import type { Buff } from "./entities/buffs/Buff.js";
+import type { Gum } from "./entities/obstacles/Gum.js";
 
 // ─── Three.js scene ───────────────────────────────────────────────────────
 
@@ -87,7 +95,7 @@ function seedWorldBoundary(): void {
 
 seedWorldBoundary();
 
-const player = new Player({ x: WORLD_WIDTH_TILES / 2, y: 0 });
+const player = new Player({ x: WORLD_WIDTH_TILES / 2, y: 0 }, {}, bus);
 
 /**
  * Inclusive tile rectangle around the player's spawn position that the
@@ -123,6 +131,71 @@ const audioCtx: AudioContext | undefined =
 const audioBus = audioCtx !== undefined ? new AudioBus({ context: audioCtx }) : new AudioBus();
 const audioSettings = loadAudioSettings();
 applyAudioSettings(audioBus, audioSettings);
+
+// Sfx registry + system: subscribe to GameEvents, look up buffers by id.
+const sfxRegistry = new SfxRegistry();
+const audioSystem = new AudioSystem(bus, audioBus, sfxRegistry);
+void audioSystem; // retained reference; subscriptions live for the page session
+
+// Music manager: looped playback + crossfade. Idle until a track is registered.
+const music = new Music(audioCtx ?? null, audioBus.getChannelNode("music"));
+
+/**
+ * Synthesize a tiny click for any SFX id that has no real asset.  Keeps the
+ * audio pipeline exercised end-to-end while the assets folder is empty.
+ * Returns null when no AudioContext is available (silent mode / tests).
+ */
+function synthClick(id: SfxId): AudioBuffer | null {
+  if (audioCtx === undefined) return null;
+  const sampleRate = audioCtx.sampleRate;
+  const durationSec = id === "playerDeath" ? 0.4 : id === "jump" ? 0.08 : 0.05;
+  const length = Math.max(1, Math.floor(sampleRate * durationSec));
+  const buf = audioCtx.createBuffer(1, length, sampleRate);
+  const data = buf.getChannelData(0);
+  // Frequency table per id keeps each event audibly distinct.
+  const freq: Record<SfxId, number> = {
+    jump: 660,
+    land: 180,
+    dash: 880,
+    attack: 440,
+    hit: 220,
+    kill: 330,
+    patchApplied: 988,
+    pickup: 1320,
+    segmentCross: 523,
+    playerDeath: 110,
+  };
+  const f = freq[id];
+  for (let i = 0; i < length; i++) {
+    const t = i / sampleRate;
+    // Exponential decay envelope so it sounds like a blip, not a tone.
+    const env = Math.exp(-t * 18);
+    data[i] = Math.sin(2 * Math.PI * f * t) * env * 0.3;
+  }
+  return buf;
+}
+
+const SFX_IDS: readonly SfxId[] = [
+  "jump", "land", "dash", "attack", "hit", "kill",
+  "patchApplied", "pickup", "segmentCross", "playerDeath",
+];
+for (const id of SFX_IDS) {
+  const buf = synthClick(id);
+  if (buf !== null) sfxRegistry.register(id, buf);
+}
+
+/**
+ * Browsers suspend AudioContext until a user gesture.  Resume on the first
+ * `onGameStart` (which is wired to a button click handler in Title).
+ */
+let audioResumed = false;
+function maybeResumeAudio(): void {
+  if (audioResumed) return;
+  audioResumed = true;
+  if (audioCtx !== undefined && audioCtx.state === "suspended") {
+    void audioCtx.resume();
+  }
+}
 
 let generator = createGenerator({
   seed: rng.int(0, 0x7fffffff),
@@ -171,6 +244,7 @@ let alive = false; // starts false — loop only runs after onGameStart
 let paused = false;
 
 bus.on("onGameStart", () => {
+  maybeResumeAudio();
   resetGame();
   alive = true;
   paused = false;
@@ -191,7 +265,31 @@ bus.on("onLand", () => {
 });
 bus.on("onSpringRelease", () => {
   particles.emit("springPuff", player.body.position.x, player.body.position.y);
+});bus.on("onJump", () => {
+  particles.emit("dust", player.body.position.x, player.body.position.y);
 });
+bus.on("onDash", () => {
+  particles.emit("dust", player.body.position.x, player.body.position.y);
+});
+// ─── Active-buff edge tracking ───────────────────────────────────────
+
+/**
+ * Map of currently-active buff entity ids → the buff modKey used in the
+ * onBuffApplied/onBuffExpired event payloads.  Lets us emit edge events
+ * without modifying the Buff base class to take a bus reference.
+ */
+const activeBuffs = new Map<number, string>();
+/** Reusable scratch list for ids whose buff is no longer present. */
+const _expiredBuffIds: number[] = [];
+/** Reusable scratch set for buff ids ticked this frame (no per-frame alloc). */
+const _seenBuffIds = new Set<number>();
+
+function resetActiveBuffs(): void {
+  for (const modKey of activeBuffs.values()) {
+    bus.emit("onBuffExpired", { buffId: modKey });
+  }
+  activeBuffs.clear();
+}
 
 function resetGame(): void {
   // Reset world tiles and re-seed the bounded play area.
@@ -217,6 +315,18 @@ function resetGame(): void {
   player.body.position.x = WORLD_WIDTH_TILES / 2;
   player.body.position.y = 0;
 
+  // Re-prime the interpolation source so the first render frame after a
+  // reset doesn't lerp from the previous run's last position.
+  prevPlayerX = player.body.position.x;
+  prevPlayerY = player.body.position.y;
+
+  // Refresh HUD-driven state.  HUD subscribes to these events; if no producer
+  // re-fires them on reset the HP bar and gauge would carry stale values.
+  resetActiveBuffs();
+  player.emitHpSnapshot();
+  bus.emit("onGaugeChanged", { fill: 0 });
+  bus.emit("onDistanceChanged", { distance: 0 });
+
   // Discard any buffered input so nothing leaks into the first gameplay frame.
   input.flush();
 }
@@ -231,12 +341,11 @@ function onQuit(): void {
 }
 
 function onRestart(): void {
-  // Hide game-over screen (done by GameOver internally via show/hide pattern)
+  // Full reset — not just a reposition. Without this the world tile state,
+  // generator, score, and active buffs all carry over from the previous run.
+  resetGame();
   alive = true;
   paused = false;
-  // Reset player position to spawn.
-  player.body.position.x = WORLD_WIDTH_TILES / 2;
-  player.body.position.y = 0;
 }
 
 // ─── Game loop ────────────────────────────────────────────────────────────
@@ -283,6 +392,68 @@ const loop = createLoop({
     // 3. Physics step.
     step(player.body, world, dt);
 
+    // 3b. Tick non-player entities (enemies, obstacles, buffs) and resolve
+    //     contact damage / pickups against the player.  The generator owns
+    //     spawn/despawn lifecycle; we only cull entities that the gameplay
+    //     loop just defeated or consumed.
+    const live = spawnSystem.liveEntities;
+    const px = player.body.position.x;
+    const py = player.body.position.y;
+    _seenBuffIds.clear();
+
+    for (let i = 0; i < live.length; i++) {
+      const se = live[i]!;
+      if (se.kind === "enemy") {
+        const enemy = se.entity as Enemy;
+        enemy.update(dt, px, py);
+        step(enemy.body, world, dt);
+        if (enemy.isAlive) {
+          enemy.applyContactDamage(player);
+        }
+      } else if (se.kind === "obstacle") {
+        const obstacle = se.entity as Obstacle;
+        obstacle.update(dt);
+        // Gum is a stat-mod trigger; everything else is contact damage.
+        if (se.tag === "Gum") {
+          (obstacle as Gum).processPlayer(player);
+        } else {
+          obstacle.applyContactDamage(player);
+        }
+      } else {
+        const buff = se.entity as Buff;
+        const wasActive = activeBuffs.has(buff.id);
+        buff.update(dt);
+        const collected = buff.tryCollect(player);
+        if (buff.isActive) {
+          _seenBuffIds.add(buff.id);
+          if (!wasActive) {
+            activeBuffs.set(buff.id, buff.modKey);
+            bus.emit("onBuffApplied", { buffId: buff.modKey, duration: buff.duration });
+            if (collected) {
+              bus.emit("onPickup", { itemId: buff.modKey });
+            }
+          }
+        }
+      }
+    }
+
+    // Cull dead enemies and expired buffs.  Use a scratch array to avoid
+    // mutating the live list while iterating it above.
+    _expiredBuffIds.length = 0;
+    for (const [id, modKey] of activeBuffs) {
+      if (!_seenBuffIds.has(id)) {
+        _expiredBuffIds.push(id);
+        bus.emit("onBuffExpired", { buffId: modKey });
+      }
+    }
+    for (const id of _expiredBuffIds) activeBuffs.delete(id);
+    for (let i = live.length - 1; i >= 0; i--) {
+      const se = live[i]!;
+      if (se.kind === "enemy" && !(se.entity as Enemy).isAlive) {
+        spawnSystem.removeById(se.entity.id);
+      }
+    }
+
     // 4. Death plane — uses player's deathPlaneSpeedMultiplier stat.
     deathPlaneSystem.update(dt, player.body, player.effectiveStats.deathPlaneSpeedMultiplier);
 
@@ -297,8 +468,9 @@ const loop = createLoop({
     // 7. Score — track highest position reached.
     scoreSystem.update(player.body.position.y);
 
-    // 8. Advance particles.
+    // 8. Advance particles & music crossfades.
     particles.update(dt);
+    music.update(dt);
 
     prevPlayerX = player.body.position.x;
     prevPlayerY = player.body.position.y;

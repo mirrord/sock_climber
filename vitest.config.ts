@@ -2,7 +2,6 @@ import { defineConfig } from "vitest/config";
 import { resolve } from "path";
 
 export default defineConfig({
-  base: '/sock_climber/',
   resolve: {
     alias: {
       "@core": resolve(__dirname, "src/core"),

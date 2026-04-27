@@ -39,10 +39,10 @@ jobs:
 
       - name: Run Tests
         run: npm test -- --reporter=junit --outputFile=test-results.xml
-        continue-on-error: true
 
       - name: Publish Test Report
         uses: dorny/test-reporter@v1
+        if: always()
         with:
           name: Unit Tests
           path: test-results.xml

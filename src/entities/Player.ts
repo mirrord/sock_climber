@@ -83,6 +83,8 @@ export class Player implements Entity {
 
   // ─── Audio event bus (optional) ──────────────────────────────────────────
   private readonly _bus: EventBus<GameEvents> | null;
+  /** Set true the frame `onPlayerDeath` is emitted; cleared on `spawn()`. */
+  private _deathEmitted = false;
 
   constructor(
     position: { x: number; y: number },
@@ -99,6 +101,16 @@ export class Player implements Entity {
       gravity: this.stats.gravity,
     });
     this._health = createHealth(this.stats.maxHealth, this.stats.iFrameDuration);
+  }
+
+  /** Emit onHpChanged with the current container/HP snapshot. No-op without a bus. */
+  private _emitHpChanged(): void {
+    if (this._bus === null) return;
+    this._bus.emit("onHpChanged", {
+      current: this._health.current,
+      max: this._health.containers,
+      empty: this._health.containers - this._health.current,
+    });
   }
 
   // ─── Stat mods ────────────────────────────────────────────────────────────
@@ -153,6 +165,7 @@ export class Player implements Entity {
     this._statMods.clear();
     this._statModsDirty = true;
     this._health = createHealth(this.stats.maxHealth, this.stats.iFrameDuration);
+    this._deathEmitted = false;
     this._locomotion = "Airborne";
     this._isCrouching = false;
     this._isDashing = false;
@@ -513,6 +526,11 @@ export class Player implements Entity {
     this.body.velocity.x = knockbackX;
     this.body.velocity.y = knockbackY;
     this._health.iFrameTimer = this._health.iFrameDuration;
+    this._emitHpChanged();
+    if (this._health.current <= 0 && !this._deathEmitted) {
+      this._deathEmitted = true;
+      this._bus?.emit("onPlayerDeath", { reason: "hp" });
+    }
     return true;
   }
 
@@ -582,6 +600,7 @@ export class Player implements Entity {
   consumeEmptyContainer(): boolean {
     if (this._health.containers <= this._health.current) return false;
     this._health.containers--;
+    this._emitHpChanged();
     return true;
   }
 
@@ -592,6 +611,12 @@ export class Player implements Entity {
   gainContainer(): void {
     this._health.containers++;
     this._health.current++;
+    this._emitHpChanged();
+  }
+
+  /** Manually re-emit `onHpChanged` (used by main.ts on game start / reset). */
+  emitHpSnapshot(): void {
+    this._emitHpChanged();
   }
 
   get wallKickLockTimer(): number {
