@@ -1,5 +1,6 @@
 import { createBody } from "../physics/Body.js";
 import type { Body } from "../physics/Body.js";
+import type { TileWorld } from "../physics/TileWorld.js";
 import type { InputSnapshot } from "../input/InputSnapshot.js";
 import { EMPTY_SNAPSHOT } from "../input/InputSnapshot.js";
 import { nextEntityId } from "./Entity.js";
@@ -54,7 +55,12 @@ export class Player implements Entity {
   // ─── Dash velocity ───────────────────────────────────────────────────────
   /** Horizontal velocity held during a dash in m/s. */
   private _dashVX = 0;
-
+  /**
+   * True while the player is airborne after performing a dash-jump or
+   * dash-wall-kick. Suppresses air-acceleration so the dash-derived
+   * horizontal momentum carries until the player lands or contacts a wall.
+   */
+  private _dashMomentumLock = false;
   // ─── Stat mod system ─────────────────────────────────────────────────────
   /** Active temporary stat modifiers, keyed by source id. Values are additive deltas. */
   private readonly _statMods = new Map<string, Partial<PlayerStats>>();
@@ -160,6 +166,7 @@ export class Player implements Entity {
     this._wallKickLockTimer = 0;
     this._crouchHoldTimer = 0;
     this._dashVX = 0;
+    this._dashMomentumLock = false;
     this._springCharge = 0;
     this._springDirX = 0;
     this._springDirY = -1;
@@ -182,10 +189,13 @@ export class Player implements Entity {
    * Apply controller logic for one fixed timestep.
    * Must be called **before** `step(body, world, dt)`.
    *
-   * @param dt   - Fixed step size in seconds (1/120 recommended).
-   * @param snap - Immutable input snapshot for this step.
+   * @param dt    - Fixed step size in seconds (1/120 recommended).
+   * @param snap  - Immutable input snapshot for this step.
+   * @param world - Optional tile world used for headroom checks (e.g. so the
+   *                player cannot stand up into a ceiling). When omitted the
+   *                stand-up always succeeds (used by unit tests).
    */
-  update(dt: number, snap: InputSnapshot = EMPTY_SNAPSHOT): void {
+  update(dt: number, snap: InputSnapshot = EMPTY_SNAPSHOT, world?: TileWorld): void {
     const s = this.effectiveStats;
     const grounded = this.body.flags.onGround;
     const onWallL = this.body.flags.onWallL;
@@ -218,11 +228,21 @@ export class Player implements Entity {
       this._airDashesUsed = 0;
       this._justJumped = false;
       this._coyoteTimer = 0;
+      this._dashMomentumLock = false;
     } else if ((onWallL || onWallR) && this.body.velocity.y >= 0) {
       // Wall slide: airborne, touching a wall, moving downward (or still).
       this._locomotion = "WallSliding";
     } else {
       this._locomotion = "Airborne";
+    }
+
+    // Touching any wall refunds the air-dash budget (per design: dashes are
+    // restored on contact with a wall or floor). This runs in addition to
+    // the grounded reset above to also cover the airborne wall-cling case.
+    // Wall contact also clears the dash-jump momentum lock.
+    if (onWallL || onWallR) {
+      this._airDashesUsed = 0;
+      this._dashMomentumLock = false;
     }
 
     // ─── Jump buffer ──────────────────────────────────────────────────────
@@ -231,34 +251,81 @@ export class Player implements Entity {
     }
 
     // ─── Jump resolution ──────────────────────────────────────────────────
-    if (!this._isDashing && this._jumpBufferTimer > 0) {
+    // Per-frame flag: set when a jump fires this frame. Used to suppress a
+    // same-frame dash trigger so Dash+Jump pressed together resolves to a
+    // dash-jump (jump wins; no dash starts).
+    let jumpedThisFrame = false;
+    if (this._jumpBufferTimer > 0) {
       const onGround = this._locomotion === "Grounded";
       const hasCoyote = this._coyoteTimer > 0;
       const canWallKick = this._locomotion === "WallSliding";
       const canAirJump =
         this._locomotion !== "Grounded" && this._airJumpsUsed < s.maxAirJumps;
 
+      // Held Dash button enables dash-jump / dash-wall-kick variants — the
+      // jump retains the horizontal speed of a dash regardless of whether
+      // the player is currently mid-dash.
+      const dashHeld = snap.buttonsDown.has("Dash");
+      const dashSpeed = s.dashDistance / s.dashDuration;
+      const dashJumpDir = (): 1 | -1 =>
+        this._isDashing
+          ? ((Math.sign(this._dashVX) || this._facing) as 1 | -1)
+          : snap.axes.moveX !== 0
+            ? (Math.sign(snap.axes.moveX) as 1 | -1)
+            : this._facing;
+
       if (onGround || hasCoyote) {
         this.body.velocity.y = s.jumpVelocity;
+        if (dashHeld) {
+          this.body.velocity.x = dashJumpDir() * dashSpeed;
+          // Persist dash momentum until the player lands or contacts a wall.
+          this._dashMomentumLock = true;
+        }
         this._jumpBufferTimer = 0;
         this._coyoteTimer = 0;
         this._justJumped = true;
         this._locomotion = "Airborne";
+        jumpedThisFrame = true;
         this._bus?.emit("onJump", {});
       } else if (canWallKick) {
-        // Kick away from the wall.
+        // Kick away from the wall. Dash-held → kick at dash speed.
         const kickDirX: 1 | -1 = onWallL ? 1 : -1;
-        this.body.velocity.x = kickDirX * s.wallKickVX;
+        const horizSpeed = dashHeld ? dashSpeed : s.wallKickVX;
+        this.body.velocity.x = kickDirX * horizSpeed;
         this.body.velocity.y = s.wallKickVY;
         this._jumpBufferTimer = 0;
         this._wallKickLockTimer = s.wallKickLockDuration;
+        if (dashHeld) {
+          // Dash-wall-kick: persist horizontal momentum across the air
+          // until landing or next wall contact.
+          this._dashMomentumLock = true;
+        }
         this._locomotion = "Airborne";
+        jumpedThisFrame = true;
         this._bus?.emit("onJump", {});
       } else if (canAirJump) {
         this.body.velocity.y = s.jumpVelocity;
+        if (dashHeld) {
+          this.body.velocity.x = dashJumpDir() * dashSpeed;
+          this._dashMomentumLock = true;
+        }
         this._jumpBufferTimer = 0;
         this._airJumpsUsed++;
+        jumpedThisFrame = true;
         this._bus?.emit("onJump", {});
+      }
+
+      // ─── Jump-cancel an active dash ─────────────────────────────────
+      // If a jump fired while a dash was in progress, end the dash early.
+      // Refund the air-dash budget (but not the cooldown) so jump-canceling
+      // mid-air does not punish the player.
+      if (jumpedThisFrame && this._isDashing) {
+        const wasAirborne = !onGround;
+        this._isDashing = false;
+        this._dashTimer = 0;
+        if (wasAirborne && this._airDashesUsed > 0) {
+          this._airDashesUsed--;
+        }
       }
     }
 
@@ -278,8 +345,11 @@ export class Player implements Entity {
         this.body.velocity.x = this._dashVX;
         this.body.velocity.y = 0;
       }
-    } else if (snap.buttonsPressed.has("Dash") && this._dashCooldownTimer <= 0) {
+    } else if (!jumpedThisFrame && snap.buttonsPressed.has("Dash")) {
       const onGround = this._locomotion === "Grounded";
+      // Ground dashes are unlimited (no cooldown). Air dashes are limited
+      // only by the maxAirDashes budget, which is refunded on wall/floor
+      // contact (see locomotion block above).
       const canDash = onGround || this._airDashesUsed < s.maxAirDashes;
 
       if (canDash) {
@@ -288,7 +358,6 @@ export class Player implements Entity {
         const speed = s.dashDistance / s.dashDuration;
         this._dashVX = dirX * speed;
         this._dashTimer = s.dashDuration;
-        this._dashCooldownTimer = s.dashCooldown;
         this._isDashing = true;
         this.body.velocity.x = this._dashVX;
         this.body.velocity.y = 0;
@@ -338,7 +407,11 @@ export class Player implements Entity {
     }
 
     // ─── Horizontal movement ──────────────────────────────────────────────
-    if (!this._isDashing && this._wallKickLockTimer <= 0) {
+    if (
+      !this._isDashing &&
+      !this._dashMomentumLock &&
+      this._wallKickLockTimer <= 0
+    ) {
       const accel = this._locomotion === "Grounded" ? s.groundAccel : s.airAccel;
       const targetVX = snap.axes.moveX * s.maxSpeed;
       const diff = targetVX - this.body.velocity.x;
@@ -366,10 +439,42 @@ export class Player implements Entity {
     } else {
       this._crouchHoldTimer = 0;
       if (this._isCrouching) {
-        this._isCrouching = false;
         const delta = s.standHalfH - s.crouchHalfH;
-        this.body.position.y -= delta;
-        this.body.halfExtents.y = s.standHalfH;
+        // Headroom check: do NOT expand the hitbox up into solid tiles or
+        // we will softlock the player against the ceiling. If a world was
+        // provided and the strip above the current crouch top contains any
+        // solid tile within the body's horizontal footprint, remain crouched
+        // until the player moves out from under the ceiling.
+        let blocked = false;
+        if (world !== undefined) {
+          const halfW = this.body.halfExtents.x;
+          const minX = this.body.position.x - halfW;
+          const maxX = this.body.position.x + halfW;
+          const currentTopY = this.body.position.y - s.crouchHalfH;
+          // After uncrouching, position shifts up by `delta` and the new top
+          // is at (oldPos - delta) - standHalfH = currentTopY - 2*delta.
+          const newTopY = currentTopY - 2 * delta;
+          const txMin = Math.floor(minX);
+          // Use a tiny epsilon so we don't probe an extra cell when maxX
+          // sits exactly on a tile boundary.
+          const txMax = Math.floor(maxX - 1e-6);
+          const tyMin = Math.floor(newTopY);
+          // The strip we need clear is [newTopY, currentTopY).
+          const tyMax = Math.floor(currentTopY - 1e-6);
+          for (let ty = tyMin; ty <= tyMax && !blocked; ty++) {
+            for (let tx = txMin; tx <= txMax; tx++) {
+              if (world.solidAt(tx, ty)) {
+                blocked = true;
+                break;
+              }
+            }
+          }
+        }
+        if (!blocked) {
+          this._isCrouching = false;
+          this.body.position.y -= delta;
+          this.body.halfExtents.y = s.standHalfH;
+        }
       }
     }
 

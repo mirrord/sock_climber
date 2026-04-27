@@ -254,7 +254,15 @@ const loop = createLoop({
 
     // While the settings overlay is open, gameplay is fully suspended and
     // no input (including the Pause toggle) is allowed to affect play.
-    if (settingsOpen) return;
+    // The Pause action acts as a "back" button that closes the overlay,
+    // except while the user is mid-rebind (in which case the press is being
+    // captured as a new binding and must not also close the menu).
+    if (settingsOpen) {
+      if (snap.buttonsPressed.has("Pause") && !settings.isListening) {
+        settings.hide();
+      }
+      return;
+    }
 
     // Pause toggle — edge-detect the Pause action before alive/paused guards.
     if (snap.buttonsPressed.has("Pause")) {
@@ -264,7 +272,7 @@ const loop = createLoop({
     if (!alive || paused) return;
 
     // 1. Player controller.
-    player.update(dt, snap);
+    player.update(dt, snap, world);
 
     // 2. Combat: resolve player attacks against live enemy targets.
     const enemies = spawnSystem.liveEntities

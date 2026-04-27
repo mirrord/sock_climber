@@ -303,6 +303,15 @@ export class Settings {
   }
 
   /**
+   * True while the user is in any rebind listen mode. Callers (e.g. the
+   * main loop) should not interpret a Pause press as "close settings"
+   * during this time, so the press can be captured as a new binding.
+   */
+  get isListening(): boolean {
+    return this._listening !== null;
+  }
+
+  /**
    * Currently focused control element (for tests / introspection).
    * Returns `null` if there are no focusables.
    */

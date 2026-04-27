@@ -520,6 +520,10 @@ export function createGenerator(opts: GeneratorOptions): Generator {
         const key = `${tx},${ty}`;
         if (usedSpawnCells.has(key)) continue;
         if (inSpawnSafeZone(tx, ty)) continue;
+        // Reject cells that overlap a solid tile (e.g. a wall column that
+        // narrows directly above this platform tile). Spawning inside a
+        // wall traps the entity and can softlock combat / collection.
+        if (isSolid(tx, ty)) continue;
         spawnTx = tx;
         spawnTy = ty;
         spawnKey = key;

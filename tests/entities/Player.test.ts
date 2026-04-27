@@ -580,20 +580,21 @@ describe("Player — dash", () => {
     expect(player.isDashing).toBe(false);
   });
 
-  it("cannot dash again until cooldown expires", () => {
+  it("ground dash has no cooldown — can be chained back-to-back", () => {
     const player = new Player({ x: 5, y: 5 });
     player.body.flags.onGround = true;
     player.update(DT, makeSnap({ pressed: ["Dash"], axes: { moveX: 1 } }));
+    expect(player.isDashing).toBe(true);
 
-    // End dash.
-    let stepsNeeded = Math.ceil(DEFAULT_PLAYER_STATS.dashDuration / DT) + 2;
+    // End the first dash.
+    const stepsNeeded = Math.ceil(DEFAULT_PLAYER_STATS.dashDuration / DT) + 2;
     for (let i = 0; i < stepsNeeded; i++) player.update(DT, EMPTY_SNAPSHOT);
     expect(player.isDashing).toBe(false);
-    expect(player.dashCooldownTimer).toBeGreaterThan(0);
+    expect(player.dashCooldownTimer).toBe(0);
 
-    // Immediately try to dash again — should not start.
+    // Immediately re-press Dash on the next frame — should fire again.
     player.update(DT, makeSnap({ pressed: ["Dash"], axes: { moveX: 1 } }));
-    expect(player.isDashing).toBe(false);
+    expect(player.isDashing).toBe(true);
   });
 
   it("air dash counter never exceeds maxAirDashes", () => {
@@ -613,6 +614,234 @@ describe("Player — dash", () => {
     player.update(DT, makeSnap({ pressed: ["Dash"], axes: { moveX: 1 } }));
     expect(player.airDashesUsed).toBe(cap); // unchanged
     expect(player.isDashing).toBe(false);
+  });
+});
+
+// ─── Dash interactions: jump-cancel, dash-jump, dash-wall-kick ────────────────
+
+describe("Player — dash interactions", () => {
+  const dashSpeed = DEFAULT_PLAYER_STATS.dashDistance / DEFAULT_PLAYER_STATS.dashDuration;
+
+  it("Jump pressed mid-dash cancels the dash and fires a jump", () => {
+    const player = new Player({ x: 5, y: 5 });
+    player.body.flags.onGround = true;
+    // Start dash from ground.
+    player.update(DT, makeSnap({ pressed: ["Dash"], axes: { moveX: 1 } }));
+    expect(player.isDashing).toBe(true);
+    const vxAtDashStart = player.body.velocity.x;
+
+    // Mid-dash, still grounded, press Jump (Dash NOT held).
+    player.update(DT, makeSnap({ pressed: ["Jump"] }));
+
+    expect(player.isDashing).toBe(false);
+    expect(player.body.velocity.y).toBeCloseTo(DEFAULT_PLAYER_STATS.jumpVelocity, 3);
+    // vx is not zeroed; it remains well above maxSpeed and is allowed to
+    // decay naturally via air-accel after the cancel.
+    expect(player.body.velocity.x).toBeGreaterThan(DEFAULT_PLAYER_STATS.maxSpeed);
+    expect(player.body.velocity.x).toBeLessThanOrEqual(vxAtDashStart);
+  });
+
+  it("jump-canceling an air-dash refunds the air-dash budget", () => {
+    // Need an air-jump available so the cancel can actually fire a jump.
+    const player = new Player(
+      { x: 5, y: 5 },
+      { maxAirDashes: 1, maxAirJumps: 1, dashCooldown: 0 },
+    );
+    player.body.flags.onGround = false;
+    player.update(DT, makeSnap({ pressed: ["Dash"], axes: { moveX: 1 } }));
+    expect(player.isDashing).toBe(true);
+    expect(player.airDashesUsed).toBe(1);
+
+    // Jump-cancel mid-dash via air-jump.
+    player.update(DT, makeSnap({ pressed: ["Jump"] }));
+    expect(player.isDashing).toBe(false);
+    expect(player.airDashesUsed).toBe(0);
+  });
+
+  it("jump-cancel does NOT refund the dash cooldown", () => {
+    const player = new Player({ x: 5, y: 5 });
+    player.body.flags.onGround = true;
+    player.update(DT, makeSnap({ pressed: ["Dash"], axes: { moveX: 1 } }));
+    player.update(DT, makeSnap({ pressed: ["Jump"] }));
+    expect(player.isDashing).toBe(false);
+    // Dash cooldown is no longer applied at all (ground dash is unlimited),
+    // so the timer simply stays at 0. The cancel does not introduce one.
+    expect(player.dashCooldownTimer).toBe(0);
+  });
+
+  it("touching a wall refunds the air-dash budget", () => {
+    const player = new Player({ x: 5, y: 5 }, { maxAirDashes: 1 });
+    player.body.flags.onGround = false;
+    player.update(DT, makeSnap({ pressed: ["Dash"], axes: { moveX: 1 } }));
+    expect(player.airDashesUsed).toBe(1);
+
+    // End dash.
+    const stepsNeeded = Math.ceil(DEFAULT_PLAYER_STATS.dashDuration / DT) + 2;
+    for (let i = 0; i < stepsNeeded; i++) player.update(DT, EMPTY_SNAPSHOT);
+
+    // Touch a wall — should refund the air-dash count.
+    player.body.flags.onWallR = true;
+    player.update(DT, EMPTY_SNAPSHOT);
+    expect(player.airDashesUsed).toBe(0);
+
+    // Leave the wall and dash again in air — should succeed.
+    player.body.flags.onWallR = false;
+    player.update(DT, makeSnap({ pressed: ["Dash"], axes: { moveX: -1 } }));
+    expect(player.isDashing).toBe(true);
+    expect(player.airDashesUsed).toBe(1);
+  });
+
+  it("Dash held + Jump from ground produces a dash-jump (vx ≈ dashSpeed)", () => {
+    const player = new Player({ x: 5, y: 5 });
+    player.body.flags.onGround = true;
+    player.update(
+      DT,
+      makeSnap({ pressed: ["Jump"], down: ["Dash", "Jump"], axes: { moveX: 1 } }),
+    );
+    expect(player.body.velocity.y).toBeCloseTo(DEFAULT_PLAYER_STATS.jumpVelocity, 3);
+    expect(player.body.velocity.x).toBeCloseTo(dashSpeed, 3);
+    expect(player.isDashing).toBe(false); // jump-only, no dash entered
+  });
+
+  it("dash-jump direction matches current dash when canceling mid-dash", () => {
+    const player = new Player({ x: 5, y: 5 });
+    player.body.flags.onGround = true;
+    // Dash leftward.
+    player.update(DT, makeSnap({ pressed: ["Dash"], axes: { moveX: -1 } }));
+    expect(player.body.velocity.x).toBeLessThan(0);
+
+    // Mid-dash dash-jump with Dash held but moveX = 0; should keep leftward dir.
+    player.update(DT, makeSnap({ pressed: ["Jump"], down: ["Dash", "Jump"] }));
+    expect(player.body.velocity.x).toBeCloseTo(-dashSpeed, 3);
+  });
+
+  it("dash-jump uses facing when no moveX and not currently dashing", () => {
+    const player = new Player({ x: 5, y: 5 });
+    player.body.flags.onGround = true;
+    // Establish facing right by moving right one frame (no jump).
+    player.update(DT, makeSnap({ axes: { moveX: 1 } }));
+    // Dash-jump with no moveX input.
+    player.update(DT, makeSnap({ pressed: ["Jump"], down: ["Dash", "Jump"] }));
+    expect(player.body.velocity.x).toBeCloseTo(dashSpeed, 3);
+  });
+
+  it("Dash held + wall kick sends player off the wall at dash speed", () => {
+    const player = new Player({ x: 5, y: 5 });
+    player.body.flags.onGround = false;
+    player.body.flags.onWallL = true;
+    player.body.velocity.y = 1; // wall-sliding (downward)
+    // Establish wall-slide locomotion.
+    player.update(DT, makeSnap());
+    expect(player.locomotion).toBe("WallSliding");
+
+    // Wall kick with Dash held.
+    player.update(DT, makeSnap({ pressed: ["Jump"], down: ["Dash", "Jump"] }));
+    expect(player.body.velocity.x).toBeCloseTo(dashSpeed, 3); // kick away from L wall
+    expect(player.body.velocity.y).toBeCloseTo(DEFAULT_PLAYER_STATS.wallKickVY, 3);
+    expect(player.wallKickLockTimer).toBeGreaterThan(0);
+  });
+
+  it("wall kick without Dash held uses the normal wallKickVX magnitude", () => {
+    const player = new Player({ x: 5, y: 5 });
+    player.body.flags.onGround = false;
+    player.body.flags.onWallL = true;
+    player.body.velocity.y = 1;
+    player.update(DT, makeSnap());
+    expect(player.locomotion).toBe("WallSliding");
+
+    player.update(DT, makeSnap({ pressed: ["Jump"] }));
+    expect(player.body.velocity.x).toBeCloseTo(DEFAULT_PLAYER_STATS.wallKickVX, 3);
+  });
+
+  it("same-frame Dash+Jump press resolves as dash-jump (no dash starts)", () => {
+    const player = new Player({ x: 5, y: 5 });
+    player.body.flags.onGround = true;
+    player.update(
+      DT,
+      makeSnap({
+        pressed: ["Dash", "Jump"],
+        down: ["Dash", "Jump"],
+        axes: { moveX: 1 },
+      }),
+    );
+    expect(player.isDashing).toBe(false);
+    expect(player.body.velocity.y).toBeCloseTo(DEFAULT_PLAYER_STATS.jumpVelocity, 3);
+    expect(player.body.velocity.x).toBeCloseTo(dashSpeed, 3);
+  });
+
+  it("dash-jump momentum persists in the air (no air-accel decay)", () => {
+    const player = new Player({ x: 5, y: 5 });
+    player.body.flags.onGround = true;
+    // Dash-jump rightward.
+    player.update(
+      DT,
+      makeSnap({ pressed: ["Jump"], down: ["Dash", "Jump"], axes: { moveX: 1 } }),
+    );
+    expect(player.body.velocity.x).toBeCloseTo(dashSpeed, 3);
+
+    // Airborne: hold opposite direction. Momentum should NOT decay because
+    // dash-jump locks horizontal authority until landing/wall contact.
+    player.body.flags.onGround = false;
+    for (let i = 0; i < 60; i++) {
+      player.update(DT, makeSnap({ axes: { moveX: -1 } }));
+      expect(player.body.velocity.x).toBeCloseTo(dashSpeed, 3);
+    }
+  });
+
+  it("dash-wall-kick momentum persists in the air", () => {
+    const player = new Player({ x: 5, y: 5 });
+    player.body.flags.onGround = false;
+    player.body.flags.onWallL = true;
+    player.body.velocity.y = 1;
+    player.update(DT, makeSnap());
+    expect(player.locomotion).toBe("WallSliding");
+
+    player.update(DT, makeSnap({ pressed: ["Jump"], down: ["Dash", "Jump"] }));
+    expect(player.body.velocity.x).toBeCloseTo(dashSpeed, 3);
+
+    // Leave wall, advance airborne with no input. After the wallKickLock
+    // expires, the dash-momentum-lock should keep vx pinned at dashSpeed.
+    player.body.flags.onWallL = false;
+    for (let i = 0; i < 60; i++) {
+      player.update(DT, makeSnap({ axes: { moveX: -1 } }));
+      expect(player.body.velocity.x).toBeCloseTo(dashSpeed, 3);
+    }
+  });
+
+  it("plain air-dash momentum still decays after the dash ends", () => {
+    const player = new Player({ x: 5, y: 5 }, { maxAirDashes: 1 });
+    player.body.flags.onGround = false;
+    player.update(DT, makeSnap({ pressed: ["Dash"], axes: { moveX: 1 } }));
+    expect(player.isDashing).toBe(true);
+
+    // End dash naturally (no jump).
+    const stepsNeeded = Math.ceil(DEFAULT_PLAYER_STATS.dashDuration / DT) + 1;
+    for (let i = 0; i < stepsNeeded; i++) player.update(DT, EMPTY_SNAPSHOT);
+    expect(player.isDashing).toBe(false);
+    const vxAtEnd = player.body.velocity.x;
+
+    // With no input held, air-accel should decay vx toward 0.
+    for (let i = 0; i < 30; i++) player.update(DT, EMPTY_SNAPSHOT);
+    expect(player.body.velocity.x).toBeLessThan(vxAtEnd);
+  });
+
+  it("landing clears the dash-jump momentum lock (normal control resumes)", () => {
+    const player = new Player({ x: 5, y: 5 });
+    player.body.flags.onGround = true;
+    player.update(
+      DT,
+      makeSnap({ pressed: ["Jump"], down: ["Dash", "Jump"], axes: { moveX: 1 } }),
+    );
+    expect(player.body.velocity.x).toBeCloseTo(dashSpeed, 3);
+
+    // Land.
+    player.body.flags.onGround = true;
+    player.update(DT, makeSnap({ axes: { moveX: -1 } }));
+    // Now hold left for a bit — vx should decay/reverse via ground-accel.
+    for (let i = 0; i < 30; i++) {
+      player.update(DT, makeSnap({ axes: { moveX: -1 } }));
+    }
+    expect(player.body.velocity.x).toBeLessThan(0);
   });
 });
 
