@@ -84,8 +84,8 @@ const scoreSystem = new ScoreSystem(bus);
 const settings = new Settings(input, audioBus, audioSettings);
 const hud = new HUD(bus);
 const patchPicker = new PatchPicker(bus, upgradeSystem, player);
-const pause = new Pause(bus, onQuit, () => settings.show());
-const title = new Title(bus, () => settings.show());
+const pause = new Pause(bus, onQuit, () => { pause.hide(); settings.show(() => pause.show()); });
+const title = new Title(bus, () => { title.hide(); settings.show(() => title.show()); });
 const gameOver = new GameOver(bus, scoreSystem, onRestart);
 
 // ─── Game state ───────────────────────────────────────────────────────────

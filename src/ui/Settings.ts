@@ -41,6 +41,9 @@ export class Settings {
   private readonly _audioBus: AudioBus;
   private readonly _audioSettings: AudioSettings;
 
+  /** Callback invoked when the overlay is closed; cleared after each call. */
+  private _onClose: (() => void) | null = null;
+
   private readonly _bindingTable: HTMLElement;
   private readonly _gpButtonTable: HTMLElement;
   private readonly _gpAxisTable: HTMLElement;
@@ -166,7 +169,8 @@ export class Settings {
   }
 
   /** Show the overlay and render the current state. */
-  show(): void {
+  show(onClose?: () => void): void {
+    this._onClose = onClose ?? null;
     this._renderAll();
     setVisible(this._overlay, true);
     this._scheduleGamepadPoll();
@@ -180,6 +184,9 @@ export class Settings {
       cancelAnimationFrame(this._rafHandle);
       this._rafHandle = null;
     }
+    const cb = this._onClose;
+    this._onClose = null;
+    cb?.();
   }
 
   /** Remove all event listeners and detach the overlay. */
