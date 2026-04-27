@@ -107,6 +107,18 @@ export interface GeneratorOptions {
   openBias?: number;
   /** Width of the world in tiles. Chunks are centred within this. Defaults to 12. */
   worldWidth?: number;
+  /**
+   * Inclusive rectangular region (in world tile coords) where the generator must
+   * not place any solid tiles or entity spawns. Used to keep the player's spawn
+   * area clear so the player cannot start inside a platform or wall protrusion.
+   * If omitted, no region is reserved.
+   */
+  spawnSafeZone?: {
+    minTx: number;
+    maxTx: number;
+    minTy: number;
+    maxTy: number;
+  };
   /** Registries override (for testing). */
   registries?: GeneratorRegistries;
 }
@@ -180,6 +192,74 @@ export function createGenerator(opts: GeneratorOptions): Generator {
   const GRACE_ROWS = opts.graceRows ?? 8;
   const OPEN_BIAS = opts.openBias ?? 0.6;
   const WORLD_WIDTH = opts.worldWidth ?? 12;
+  const SPAWN_SAFE_ZONE = opts.spawnSafeZone;
+
+  /** True if (tx, ty) lies inside the configured spawn safe zone. */
+  function inSpawnSafeZone(tx: number, ty: number): boolean {
+    const z = SPAWN_SAFE_ZONE;
+    if (!z) return false;
+    return tx >= z.minTx && tx <= z.maxTx && ty >= z.minTy && ty <= z.maxTy;
+  }
+
+  // Track every solid tile placed by the generator across all chunks. Used to
+  // detect diagonal "corner-adjacent" pinches that the player cannot pass
+  // through. Keyed by `${tx},${ty}`.
+  const placedSolid = new Set<string>();
+  const tileKey = (tx: number, ty: number): string => `${tx},${ty}`;
+  const isSolid = (tx: number, ty: number): boolean =>
+    placedSolid.has(tileKey(tx, ty));
+
+  /**
+   * Returns true if placing a solid at (tx, ty) would create a diagonal
+   * pinch with an existing solid — i.e. an existing solid sits diagonally
+   * adjacent and both cardinal cells between them are open. Such a
+   * configuration blocks the player from passing through the gap.
+   */
+  function wouldCreatePinch(tx: number, ty: number): boolean {
+    const diagonals: ReadonlyArray<readonly [number, number]> = [
+      [-1, -1],
+      [1, -1],
+      [-1, 1],
+      [1, 1],
+    ];
+    for (const [dx, dy] of diagonals) {
+      if (
+        isSolid(tx + dx, ty + dy) &&
+        !isSolid(tx + dx, ty) &&
+        !isSolid(tx, ty + dy)
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Unconditionally record a solid tile (used for world-boundary walls which
+   * must always be present). Skips re-emitting an already-placed tile.
+   */
+  function placeSolidUnchecked(tx: number, ty: number, out: PlacedTile[]): void {
+    if (inSpawnSafeZone(tx, ty)) return;
+    const k = tileKey(tx, ty);
+    if (placedSolid.has(k)) return;
+    placedSolid.add(k);
+    out.push({ tx, ty, solid: true });
+  }
+
+  /**
+   * Attempt to record a solid tile, refusing the placement if it would land
+   * inside the spawn safe zone or create a diagonal pinch with an existing
+   * solid. Returns true on success.
+   */
+  function tryPlaceSolid(tx: number, ty: number, out: PlacedTile[]): boolean {
+    if (inSpawnSafeZone(tx, ty)) return false;
+    const k = tileKey(tx, ty);
+    if (placedSolid.has(k)) return true;
+    if (wouldCreatePinch(tx, ty)) return false;
+    placedSolid.add(k);
+    out.push({ tx, ty, solid: true });
+    return true;
+  }
 
   const playerStats: PlayerStats = {
     ...DEFAULT_PLAYER_STATS,
@@ -253,17 +333,19 @@ export function createGenerator(opts: GeneratorOptions): Generator {
       // Always place solid tiles at the world boundaries so the player can
       // never escape sideways, regardless of how narrow/wide the profile
       // corridor is or whether the chunk is narrower than the world.
-      tiles.push({ tx: 0, ty: worldTy, solid: true });
-      tiles.push({ tx: WORLD_WIDTH - 1, ty: worldTy, solid: true });
+      // World-boundary walls are vertically continuous, so they never form
+      // diagonal pinches with themselves; place unconditionally.
+      placeSolidUnchecked(0, worldTy, tiles);
+      placeSolidUnchecked(WORLD_WIDTH - 1, worldTy, tiles);
 
-      // Profile-defined interior wall tiles.  These may coincide with the
-      // world-boundary tiles above for full-width chunks (harmless duplicate
-      // setTile calls are idempotent in TileWorld).
+      // Profile-defined interior wall tiles. Skip placements that would
+      // create a diagonal corner pinch with an existing solid tile (which
+      // would block the player from progressing).
       for (let x = 0; x < slice.left; x++) {
-        tiles.push({ tx: chunkOriginX + x, ty: worldTy, solid: true });
+        tryPlaceSolid(chunkOriginX + x, worldTy, tiles);
       }
       for (let x = slice.right; x < chunkW; x++) {
-        tiles.push({ tx: chunkOriginX + x, ty: worldTy, solid: true });
+        tryPlaceSolid(chunkOriginX + x, worldTy, tiles);
       }
     }
 
@@ -324,11 +406,24 @@ export function createGenerator(opts: GeneratorOptions): Generator {
         }
       }
 
+      // Reject the entire platform if any of its tiles would land in the
+      // spawn safe zone or create a diagonal pinch — partial platforms are
+      // not useful to the reachability tracker.
+      let blocked = false;
+      for (let x = 0; x < platformW; x++) {
+        const ttx = worldTx + x;
+        if (inSpawnSafeZone(ttx, worldTy) || wouldCreatePinch(ttx, worldTy)) {
+          blocked = true;
+          break;
+        }
+      }
+      if (blocked) continue;
+
       usedRows.add(platformRow);
       platformCandidates.push(candidate);
 
       for (let x = 0; x < platformW; x++) {
-        tiles.push({ tx: worldTx + x, ty: worldTy, solid: true });
+        tryPlaceSolid(worldTx + x, worldTy, tiles);
       }
     }
 
@@ -344,14 +439,26 @@ export function createGenerator(opts: GeneratorOptions): Generator {
         const startX = corridorLeft + Math.floor((corridorW - platformW) / 2);
         const worldTy = chunkOriginY + Math.floor(chunkLen / 2);
         const worldTx = chunkOriginX + startX;
-        const forced: PlatformCandidate = {
-          tx: worldTx,
-          ty: worldTy,
-          width: platformW,
-        };
-        platformCandidates.push(forced);
+        // Only force the stepping stone if it doesn't conflict with the spawn
+        // safe zone or create a pinch.
+        let blocked = false;
         for (let x = 0; x < platformW; x++) {
-          tiles.push({ tx: worldTx + x, ty: worldTy, solid: true });
+          const ttx = worldTx + x;
+          if (inSpawnSafeZone(ttx, worldTy) || wouldCreatePinch(ttx, worldTy)) {
+            blocked = true;
+            break;
+          }
+        }
+        if (!blocked) {
+          const forced: PlatformCandidate = {
+            tx: worldTx,
+            ty: worldTy,
+            width: platformW,
+          };
+          platformCandidates.push(forced);
+          for (let x = 0; x < platformW; x++) {
+            tryPlaceSolid(worldTx + x, worldTy, tiles);
+          }
         }
       }
     }
@@ -375,6 +482,11 @@ export function createGenerator(opts: GeneratorOptions): Generator {
       eligibleTags[j] = tmp;
     }
 
+    // Track which (tx, ty) spawn cells are already occupied within this chunk
+    // so two entities never spawn on top of one another.
+    const usedSpawnCells = new Set<string>();
+    const SPAWN_PICK_ATTEMPTS = 8;
+
     // For each eligible tag, try to place on a platform.
     for (const tag of eligibleTags) {
       if (budget.enemies <= 0 && budget.obstacles <= 0 && budget.buffs <= 0)
@@ -395,12 +507,28 @@ export function createGenerator(opts: GeneratorOptions): Generator {
         continue;
       }
 
-      // Pick a platform.
-      const platform = chunkRng.pick(platformCandidates);
+      // Pick a platform + tile-x, retrying a few times if the chosen cell is
+      // already occupied or falls in the spawn safe zone.
+      let spawnTx = 0;
+      let spawnTy = 0;
+      let spawnKey = "";
+      let foundCell = false;
+      for (let attempt = 0; attempt < SPAWN_PICK_ATTEMPTS; attempt++) {
+        const platform = chunkRng.pick(platformCandidates);
+        const tx = platform.tx + chunkRng.int(0, platform.width - 1);
+        const ty = platform.ty - 1;
+        const key = `${tx},${ty}`;
+        if (usedSpawnCells.has(key)) continue;
+        if (inSpawnSafeZone(tx, ty)) continue;
+        spawnTx = tx;
+        spawnTy = ty;
+        spawnKey = key;
+        foundCell = true;
+        break;
+      }
+      if (!foundCell) continue;
+      usedSpawnCells.add(spawnKey);
 
-      // Spawn on top of the platform (ty - 1 = tile above the surface).
-      const spawnTx = platform.tx + chunkRng.int(0, platform.width - 1);
-      const spawnTy = platform.ty - 1;
       const position = {
         x: spawnTx + 0.5,
         y: spawnTy + 0.5,

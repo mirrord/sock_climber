@@ -89,6 +89,26 @@ seedWorldBoundary();
 
 const player = new Player({ x: WORLD_WIDTH_TILES / 2, y: 0 });
 
+/**
+ * Inclusive tile rectangle around the player's spawn position that the
+ * procedural generator must keep clear. Sized to cover the player's body
+ * AABB plus a one-tile margin in every direction so the player can never
+ * spawn embedded in a wall or platform tile.
+ */
+const PLAYER_SPAWN_SAFE_ZONE = (() => {
+  const cx = WORLD_WIDTH_TILES / 2;
+  const cy = 0;
+  const halfW = player.body.halfExtents.x;
+  const halfH = player.body.halfExtents.y;
+  const margin = 1;
+  return {
+    minTx: Math.floor(cx - halfW) - margin,
+    maxTx: Math.floor(cx + halfW - 1e-6) + margin,
+    minTy: Math.floor(cy - halfH) - margin,
+    maxTy: Math.floor(cy + halfH - 1e-6) + margin,
+  };
+})();
+
 const input = new Input(loadBindings());
 input.attach(window);
 
@@ -104,7 +124,12 @@ const audioBus = audioCtx !== undefined ? new AudioBus({ context: audioCtx }) : 
 const audioSettings = loadAudioSettings();
 applyAudioSettings(audioBus, audioSettings);
 
-let generator = createGenerator({ seed: rng.int(0, 0x7fffffff), cameraY: 0, worldWidth: WORLD_WIDTH_TILES });
+let generator = createGenerator({
+  seed: rng.int(0, 0x7fffffff),
+  cameraY: 0,
+  worldWidth: WORLD_WIDTH_TILES,
+  spawnSafeZone: PLAYER_SPAWN_SAFE_ZONE,
+});
 const spawnSystem = new SpawnSystem(generator, world, bus);
 const combatSystem = new CombatSystem(bus);
 const deathPlaneSystem = new DeathPlaneSystem(bus, { startY: WORLD_HEIGHT_TILES / 4 });
@@ -174,7 +199,12 @@ function resetGame(): void {
   seedWorldBoundary();
 
   // Fresh procedural generator with a new seed.
-  generator = createGenerator({ seed: rng.int(0, 0x7fffffff), cameraY: 0, worldWidth: WORLD_WIDTH_TILES });
+  generator = createGenerator({
+    seed: rng.int(0, 0x7fffffff),
+    cameraY: 0,
+    worldWidth: WORLD_WIDTH_TILES,
+    spawnSafeZone: PLAYER_SPAWN_SAFE_ZONE,
+  });
 
   // Reset all systems, providing the new generator to SpawnSystem.
   spawnSystem.reset(generator);

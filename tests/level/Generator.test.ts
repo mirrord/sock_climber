@@ -198,3 +198,100 @@ describe("Generator — reachability", () => {
     expect(gen.chunks.length).toBeGreaterThan(0);
   });
 });
+
+describe("Generator — spawn safe zone", () => {
+  it("never places a solid tile inside the configured spawn safe zone", () => {
+    const safe = { minTx: 4, maxTx: 7, minTy: -2, maxTy: 1 };
+    // Try a wide range of seeds to exercise many random profiles.
+    for (let seed = 1; seed <= 25; seed++) {
+      const gen = createGenerator({
+        seed,
+        cameraY: -60,
+        worldWidth: 12,
+        spawnSafeZone: safe,
+      });
+      const result = gen.advance(-60, 9999);
+      for (const t of result.newTiles) {
+        if (!t.solid) continue;
+        const inside =
+          t.tx >= safe.minTx &&
+          t.tx <= safe.maxTx &&
+          t.ty >= safe.minTy &&
+          t.ty <= safe.maxTy;
+        expect(inside, `seed ${seed}: solid tile at (${t.tx}, ${t.ty}) is inside the spawn safe zone`).toBe(false);
+      }
+    }
+  });
+
+  it("never spawns an entity inside the configured spawn safe zone", () => {
+    const safe = { minTx: 4, maxTx: 7, minTy: -2, maxTy: 1 };
+    for (let seed = 1; seed <= 25; seed++) {
+      const gen = createGenerator({
+        seed,
+        cameraY: -60,
+        worldWidth: 12,
+        spawnSafeZone: safe,
+      });
+      const result = gen.advance(-60, 9999);
+      for (const e of result.newEntities) {
+        const tx = Math.floor(e.position.x);
+        const ty = Math.floor(e.position.y);
+        const inside =
+          tx >= safe.minTx &&
+          tx <= safe.maxTx &&
+          ty >= safe.minTy &&
+          ty <= safe.maxTy;
+        expect(inside, `seed ${seed}: entity at (${tx}, ${ty}) is inside the spawn safe zone`).toBe(false);
+      }
+    }
+  });
+});
+
+describe("Generator — no diagonal corner pinches", () => {
+  it("never places two solids in a corner-adjacent (pinch) configuration", () => {
+    for (let seed = 1; seed <= 25; seed++) {
+      const gen = createGenerator({ seed, cameraY: -120, worldWidth: 12 });
+      const result = gen.advance(-120, 9999);
+      const solids = new Set<string>();
+      for (const t of result.newTiles) {
+        if (t.solid) solids.add(`${t.tx},${t.ty}`);
+      }
+      const has = (x: number, y: number) => solids.has(`${x},${y}`);
+      for (const t of result.newTiles) {
+        if (!t.solid) continue;
+        for (const [dx, dy] of [
+          [-1, -1],
+          [1, -1],
+          [-1, 1],
+          [1, 1],
+        ] as const) {
+          if (
+            has(t.tx + dx, t.ty + dy) &&
+            !has(t.tx + dx, t.ty) &&
+            !has(t.tx, t.ty + dy)
+          ) {
+            throw new Error(
+              `seed ${seed}: diagonal pinch between (${t.tx},${t.ty}) and (${t.tx + dx},${t.ty + dy})`,
+            );
+          }
+        }
+      }
+    }
+  });
+});
+
+describe("Generator — entities never stack", () => {
+  it("no two entities share the same spawn tile", () => {
+    for (let seed = 1; seed <= 25; seed++) {
+      const gen = createGenerator({ seed, cameraY: -120, worldWidth: 12 });
+      const result = gen.advance(-120, 9999);
+      const seen = new Map<string, string>();
+      for (const e of result.newEntities) {
+        const key = `${Math.floor(e.position.x)},${Math.floor(e.position.y)}`;
+        const prior = seen.get(key);
+        expect(prior, `seed ${seed}: ${prior} and ${e.tag} both spawned at ${key}`).toBeUndefined();
+        seen.set(key, e.tag);
+      }
+    }
+  });
+});
