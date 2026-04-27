@@ -60,6 +60,10 @@ export class Settings {
   private readonly _keyListener: (e: KeyboardEvent) => void;
   private _rafHandle: number | null = null;
 
+  /** Gamepad nav state — separate from the rebind-capture state. */
+  private _gpNavPrevButtons = new Set<number>();
+  private _gpNavAxisTriggered = false;
+
   constructor(
     input: Input,
     audioBus: AudioBus,
@@ -184,6 +188,8 @@ export class Settings {
       cancelAnimationFrame(this._rafHandle);
       this._rafHandle = null;
     }
+    this._gpNavPrevButtons.clear();
+    this._gpNavAxisTriggered = false;
     const cb = this._onClose;
     this._onClose = null;
     cb?.();
@@ -242,13 +248,63 @@ export class Settings {
 
   private _scheduleGamepadPoll(): void {
     if (typeof requestAnimationFrame !== "function") return;
+    this._gpNavPrevButtons.clear();
+    this._gpNavAxisTriggered = false;
     const tick = (): void => {
       this.tickGamepadCapture();
+      this._tickGamepadNav();
       if (!this._overlay.classList.contains("hidden")) {
         this._rafHandle = requestAnimationFrame(tick);
       }
     };
     this._rafHandle = requestAnimationFrame(tick);
+  }
+
+  /**
+   * Gamepad navigation tick: B/Start closes Settings; D-pad/left-stick
+   * scrolls the overlay when not in rebind-capture listen mode.
+   */
+  private _tickGamepadNav(): void {
+    let gp: Gamepad | null = null;
+    try {
+      const pads = navigator.getGamepads();
+      for (const pad of pads) {
+        if (pad !== null && pad.connected) { gp = pad; break; }
+      }
+    } catch { return; }
+    if (gp === null) { this._gpNavPrevButtons.clear(); return; }
+
+    const pressed = new Set<number>();
+    for (let i = 0; i < gp.buttons.length; i++) {
+      if (gp.buttons[i]?.pressed) pressed.add(i);
+    }
+
+    const justPressed = (btn: number): boolean =>
+      pressed.has(btn) && !this._gpNavPrevButtons.has(btn);
+
+    // B (1) or Start (9) → close (only when not actively capturing a rebind).
+    if (this._listening === null && (justPressed(1) || justPressed(9))) {
+      this._gpNavPrevButtons = pressed;
+      this.hide();
+      return;
+    }
+
+    // D-pad / left-stick Y → scroll when not in listen mode.
+    if (this._listening === null) {
+      const SCROLL_PX = 80;
+      if (justPressed(13)) this._overlay.scrollTop += SCROLL_PX;  // D-pad down
+      if (justPressed(12)) this._overlay.scrollTop -= SCROLL_PX;  // D-pad up
+
+      const stickY = gp.axes[1] ?? 0;
+      if (Math.abs(stickY) < 0.5) {
+        this._gpNavAxisTriggered = false;
+      } else if (!this._gpNavAxisTriggered) {
+        this._gpNavAxisTriggered = true;
+        this._overlay.scrollTop += stickY > 0 ? SCROLL_PX : -SCROLL_PX;
+      }
+    }
+
+    this._gpNavPrevButtons = pressed;
   }
 
   private _cancelListen(): void {

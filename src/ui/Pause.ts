@@ -111,7 +111,7 @@ export class Pause {
 
   private _updateArrows(): void {
     for (let i = 0; i < this._arrows.length; i++) {
-      setVisible(this._arrows[i], i === this._focusIndex);
+      setVisible(this._arrows[i]!, i === this._focusIndex);
     }
   }
 
@@ -122,7 +122,21 @@ export class Pause {
 
   private _startGamepadNav(): void {
     if (this._gpRaf !== null) return; // already running
+    // Seed prevButtons with whatever is currently held so the button that
+    // triggered the pause (e.g. Start) is not treated as a fresh press on
+    // the first nav tick, which would immediately confirm/resume.
     this._gpPrevButtons.clear();
+    try {
+      const pads = navigator.getGamepads();
+      for (const pad of pads) {
+        if (pad !== null && pad.connected) {
+          for (let i = 0; i < pad.buttons.length; i++) {
+            if (pad.buttons[i]?.pressed) this._gpPrevButtons.add(i);
+          }
+          break;
+        }
+      }
+    } catch { /* ignore — no gamepad access */ }
     this._gpAxisTriggered = false;
     const tick = (): void => {
       this._tickGamepadNav();
@@ -165,7 +179,7 @@ export class Pause {
     if (justPressed(13)) this._moveFocus(+1); // D-pad down
     if (justPressed(12)) this._moveFocus(-1); // D-pad up
     if (justPressed(0) || justPressed(9)) {   // A or Start → confirm
-      this._buttons[this._focusIndex].click();
+      this._buttons[this._focusIndex]!.click();
     }
 
     // Left-stick Y — trigger once per deflection, require re-center.

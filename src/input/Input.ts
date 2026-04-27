@@ -179,6 +179,23 @@ export class Input {
   }
 
   /**
+   * Sync internal edge-detection state to the current physical input without
+   * generating any "just pressed" events.  Call this immediately after
+   * un-pausing so that buttons held during the pause menu interaction are not
+   * re-detected as fresh presses on the first gameplay frame.
+   */
+  flush(): void {
+    const kbDown = new Set<Action>();
+    for (const code of this._rawKeys) {
+      const action = this._bindings.keyboard[code];
+      if (action !== undefined) kbDown.add(action);
+    }
+    const gpResult = this._gamepad.poll();
+    const gpDown = gpResult?.buttonsDown ?? new Set<Action>();
+    this._prevDown = new Set<Action>([...kbDown, ...gpDown]);
+  }
+
+  /**
    * Injects a raw key-down event (for testing without a real DOM).
    * @internal
    */

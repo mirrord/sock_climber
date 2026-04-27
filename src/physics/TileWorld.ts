@@ -57,4 +57,9 @@ export class TileWorld {
       }
     }
   }
+
+  /** Clear all tiles (set every cell to non-solid). */
+  clear(): void {
+    this._solid.fill(0);
+  }
 }

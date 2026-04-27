@@ -92,6 +92,15 @@ export class UpgradeSystem {
     return this._currentOffer;
   }
 
+  /** Reset gauge, offer, and applied-patch history for a new run. */
+  reset(): void {
+    this._gauge = 0;
+    this._isPickerOpen = false;
+    this._currentOffer = null;
+    this._appliedPatchIds.clear();
+    this._bus.emit("onGaugeChanged", { fill: 0 });
+  }
+
   /** Sample 3 distinct eligible patches without replacement using `_rng`. */
   private _sampleOffer(player: Player): PatchEntry[] {
     const eligible = PATCH_CATALOG.filter((p) =>

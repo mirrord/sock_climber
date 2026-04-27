@@ -11,7 +11,7 @@ import type { TileWorld } from "../physics/TileWorld.js";
  * `onSegmentCross` on the event bus when a segment boundary is crossed.
  */
 export class SpawnSystem {
-  private readonly _gen: Generator;
+  private _gen: Generator;
   private readonly _world: TileWorld;
   private readonly _bus: EventBus<GameEvents>;
   private readonly _liveEntities: SpawnedEntity[] = [];
@@ -59,5 +59,15 @@ export class SpawnSystem {
   /** All currently live entities managed by this system. */
   get liveEntities(): readonly SpawnedEntity[] {
     return this._liveEntities;
+  }
+
+  /**
+   * Clear all live entities, reset the segment counter, and swap in a new
+   * generator for the next run.
+   */
+  reset(gen: Generator): void {
+    this._liveEntities.length = 0;
+    this._segmentId = 0;
+    this._gen = gen;
   }
 }

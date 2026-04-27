@@ -72,6 +72,11 @@ export class HUD {
     setVisible(this._root, true);
   }
 
+  /** Hide the HUD. */
+  hide(): void {
+    setVisible(this._root, false);
+  }
+
   /** Unsubscribe all listeners and remove the HUD root from the DOM. */
   destroy(): void {
     for (const unsub of this._unsubs) unsub();

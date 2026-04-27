@@ -61,4 +61,12 @@ export class ScoreSystem {
       deathReason: this._deathReason,
     };
   }
+
+  /** Reset all counters for a new run. */
+  reset(): void {
+    this._maxDistance = 0;
+    this._lastEmittedDistance = -1;
+    this._enemiesKilled = 0;
+    this._deathReason = "";
+  }
 }

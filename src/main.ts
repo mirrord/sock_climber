@@ -72,7 +72,7 @@ const audioBus = audioCtx !== undefined ? new AudioBus({ context: audioCtx }) : 
 const audioSettings = loadAudioSettings();
 applyAudioSettings(audioBus, audioSettings);
 
-const generator = createGenerator({ seed: rng.int(0, 0x7fffffff), cameraY: 0, worldWidth: WORLD_WIDTH_TILES });
+let generator = createGenerator({ seed: rng.int(0, 0x7fffffff), cameraY: 0, worldWidth: WORLD_WIDTH_TILES });
 const spawnSystem = new SpawnSystem(generator, world, bus);
 const combatSystem = new CombatSystem(bus);
 const deathPlaneSystem = new DeathPlaneSystem(bus, { startY: WORLD_HEIGHT_TILES / 4 });
@@ -94,13 +94,14 @@ let alive = false; // starts false — loop only runs after onGameStart
 let paused = false;
 
 bus.on("onGameStart", () => {
+  resetGame();
   alive = true;
   paused = false;
   hud.show();
 });
 
 bus.on("onPause", () => { paused = true; });
-bus.on("onResume", () => { paused = false; });
+bus.on("onResume", () => { paused = false; input.flush(); });
 
 bus.on("onPlayerDeath", () => {
   alive = false;
@@ -115,9 +116,35 @@ bus.on("onSpringRelease", () => {
   particles.emit("springPuff", player.body.position.x, player.body.position.y);
 });
 
+function resetGame(): void {
+  // Reset world tiles and re-seed the starting floor.
+  world.clear();
+  world.fillRect(0, 2, WORLD_WIDTH_TILES, 1, true);
+
+  // Fresh procedural generator with a new seed.
+  generator = createGenerator({ seed: rng.int(0, 0x7fffffff), cameraY: 0, worldWidth: WORLD_WIDTH_TILES });
+
+  // Reset all systems, providing the new generator to SpawnSystem.
+  spawnSystem.reset(generator);
+  scoreSystem.reset();
+  deathPlaneSystem.reset({ startY: WORLD_HEIGHT_TILES / 4 });
+  upgradeSystem.reset();
+
+  // Respawn player at origin.
+  player.spawn();
+  player.body.position.x = WORLD_WIDTH_TILES / 2;
+  player.body.position.y = 0;
+
+  // Discard any buffered input so nothing leaks into the first gameplay frame.
+  input.flush();
+}
+
 function onQuit(): void {
   alive = false;
   paused = false;
+  pause.hide();
+  hud.hide();
+  renderer.clearCanvas();
   title.show();
 }
 

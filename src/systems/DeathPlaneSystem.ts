@@ -74,4 +74,11 @@ export class DeathPlaneSystem {
   get speed(): number {
     return this._speed;
   }
+
+  /** Reset plane position and speed to their initial values for a new run. */
+  reset(opts: DeathPlaneOptions = {}): void {
+    this._planeY = opts.startY ?? 20;
+    this._speed = opts.baseSpeed ?? 1.5;
+    this._dead = false;
+  }
 }
