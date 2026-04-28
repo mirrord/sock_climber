@@ -32,13 +32,23 @@ describe("GameCamera", () => {
     expect(cam.worldY).toBeGreaterThan(before);
   });
 
-  it("clamps bottom edge to deathPlaneY", () => {
+  it("clamps bottom edge to deathPlaneY (with 5m intrusion margin)", () => {
     const cam = new GameCamera(16 / 9);
     // HALF_H = 10, camWorldY = 0 → bottomY = 10.
-    // deathPlaneY = 5 → bottomY (10) > deathPlaneY (5) → clamp.
-    // Expected camWorldY = deathPlaneY - HALF_H = 5 - 10 = -5.
-    cam.follow(0, 0, 5);
+    // The death plane is permitted to climb 5m above the camera bottom
+    // before forcing the camera up, so the clamp condition is
+    // bottomY - 5 > deathPlaneY. With deathPlaneY = 0, bottomY (10) - 5 (5)
+    // > 0 → clamp. Expected camWorldY = deathPlaneY - HALF_H + 5 = -5.
+    cam.follow(0, 0, 0);
     expect(cam.worldY).toBe(-5);
+  });
+
+  it("does not clamp while death plane is within the 5m intrusion band", () => {
+    const cam = new GameCamera(16 / 9);
+    // bottomY = 10. deathPlaneY = 6 sits 4m above bottom — inside the
+    // 5m allowance, so the camera should not be pushed.
+    cam.follow(0, 0, 6);
+    expect(cam.worldY).toBe(0);
   });
 
   it("does not clamp when bottom edge is above death plane", () => {

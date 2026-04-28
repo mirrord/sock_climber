@@ -14,6 +14,14 @@ const LERP = 0.1;
 const DEADZONE_Y = 1.5;
 
 /**
+ * How far (world units / metres) the death plane is allowed to climb above
+ * the bottom of the camera view before it begins to push the camera upward.
+ * This intrusion margin gives the eventual death-plane animation room to be
+ * partially visible on screen instead of being clamped flush to the bottom.
+ */
+const DEATH_PLANE_INTRUSION = 5;
+
+/**
  * GameCamera — orthographic camera with smooth follow, vertical deadzone, and
  * death-plane clamp.
  *
@@ -74,11 +82,13 @@ export class GameCamera {
       this._camWorldY += (dy - Math.sign(dy) * DEADZONE_Y) * LERP;
     }
 
-    // Clamp: the bottom edge of the view (worldY + HALF_H) must not exceed
-    // the death plane — we never want to hide it off the bottom of the screen.
+    // Clamp: the death plane is allowed to intrude `DEATH_PLANE_INTRUSION`
+    // metres above the bottom of the view before it forces the camera to
+    // chase it upward. This leaves room for the death-plane animation to be
+    // partially visible on screen instead of being pinned flush to the edge.
     const bottomY = this._camWorldY + HALF_H;
-    if (bottomY > deathPlaneY) {
-      this._camWorldY = deathPlaneY - HALF_H;
+    if (bottomY - DEATH_PLANE_INTRUSION > deathPlaneY) {
+      this._camWorldY = deathPlaneY - HALF_H + DEATH_PLANE_INTRUSION;
     }
 
     // Apply: world Y+ = down → Three.js Y+ = up.
