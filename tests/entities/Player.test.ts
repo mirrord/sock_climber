@@ -753,9 +753,9 @@ describe("Player — dash interactions", () => {
     player.update(DT, makeSnap({ pressed: ["Jump"], down: ["Dash", "Jump"] }));
     expect(player.body.velocity.x).toBeCloseTo(dashSpeed, 3); // kick away from L wall
     expect(player.body.velocity.y).toBeCloseTo(DEFAULT_PLAYER_STATS.wallKickVY, 3);
-    // Dash wall kick gets a longer input lock to enforce committed momentum.
+    // Wall kick gets a brief input lock to enforce momentum away from the wall.
     expect(player.wallKickLockTimer).toBeCloseTo(
-      DEFAULT_PLAYER_STATS.wallKickLockDuration * 2.5,
+      DEFAULT_PLAYER_STATS.wallKickLockDuration,
       5,
     );
   });
@@ -839,7 +839,7 @@ describe("Player — dash interactions", () => {
 
     // Tick past the dash wall-kick lock window with no input.
     player.body.flags.onWallL = false;
-    const ticks = Math.ceil((DEFAULT_PLAYER_STATS.wallKickLockDuration * 2.5) / DT) + 1;
+    const ticks = Math.ceil(DEFAULT_PLAYER_STATS.wallKickLockDuration / DT) + 1;
     for (let i = 0; i < ticks; i++) {
       player.update(DT, makeSnap());
     }
