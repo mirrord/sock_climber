@@ -23,6 +23,7 @@ export class PatchPicker {
   private readonly _modal: HTMLElement;
   private readonly _buttons: [HTMLButtonElement, HTMLButtonElement, HTMLButtonElement];
   private readonly _arrows: [HTMLSpanElement, HTMLSpanElement, HTMLSpanElement];
+  private readonly _labels: [HTMLSpanElement, HTMLSpanElement, HTMLSpanElement];
   private readonly _unsubs: Unsubscribe[] = [];
   private _upgradeSystem: UpgradeSystem;
   private _player: Player;
@@ -50,12 +51,14 @@ export class PatchPicker {
     const options = el("div", ["patch-options"]);
 
     const arrows: HTMLSpanElement[] = [];
+    const labels: HTMLSpanElement[] = [];
     this._buttons = [
-      this._makeButton(0, arrows),
-      this._makeButton(1, arrows),
-      this._makeButton(2, arrows),
+      this._makeButton(0, arrows, labels),
+      this._makeButton(1, arrows, labels),
+      this._makeButton(2, arrows, labels),
     ];
     this._arrows = arrows as [HTMLSpanElement, HTMLSpanElement, HTMLSpanElement];
+    this._labels = labels as [HTMLSpanElement, HTMLSpanElement, HTMLSpanElement];
     for (const btn of this._buttons) options.appendChild(btn);
 
     this._modal.appendChild(heading);
@@ -77,7 +80,7 @@ export class PatchPicker {
             continue;
           }
           btn.dataset.patchId = entry.id;
-          setText(btn, `${entry.name}: ${entry.description}`);
+          setText(this._labels[i]!, `${entry.name}: ${entry.description}`);
           setVisible(btn, true);
         }
 
@@ -103,12 +106,18 @@ export class PatchPicker {
 
   // ─── Private ─────────────────────────────────────────────────────────────
 
-  private _makeButton(index: 0 | 1 | 2, arrows: HTMLSpanElement[]): HTMLButtonElement {
+  private _makeButton(index: 0 | 1 | 2, arrows: HTMLSpanElement[], labels: HTMLSpanElement[]): HTMLButtonElement {
     const btn = el("button", ["patch-btn"]);
     const arrow = el("span", ["menu-arrow", "hidden"]);
     setText(arrow, "▶ ");
     btn.appendChild(arrow);
     arrows.push(arrow);
+    // Use a separate label span so per-offer text updates do not wipe the
+    // arrow indicator (setText on the button itself would replace all
+    // children via textContent).
+    const label = el("span", ["patch-label"]);
+    btn.appendChild(label);
+    labels.push(label);
     btn.addEventListener("click", () => {
       this._upgradeSystem.selectPatch(index, this._player);
       setVisible(this._modal, false);

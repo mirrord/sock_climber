@@ -312,16 +312,19 @@ export class Player implements Entity {
         this._bus?.emit("onJump", {});
       } else if (canWallKick) {
         // Kick away from the wall. Dash-held → kick at dash speed.
-        // No input-lockout — the player may move horizontally immediately,
-        // but the wall-kick momentum flag preserves the kick's speed
-        // magnitude until landing or new wall contact (see horizontal
-        // movement block).
+        // A brief input-lockout enforces real momentum away from the wall
+        // before the player can reverse into it. Dash variant locks for
+        // longer so the dash wall-kick imparts more committed momentum.
+        // After the lock expires the wall-kick momentum flag preserves
+        // the kick's speed magnitude across direction changes (see
+        // horizontal movement block).
         const kickDirX: 1 | -1 = onWallL ? 1 : -1;
         const horizSpeed = dashHeld ? dashSpeed : s.wallKickVX;
         this.body.velocity.x = kickDirX * horizSpeed;
         this.body.velocity.y = s.wallKickVY;
         this._jumpBufferTimer = 0;
         this._wallKickMomentum = true;
+        this._wallKickLockTimer = s.wallKickLockDuration;
         this._facing = kickDirX;
         this._locomotion = "Airborne";
         jumpedThisFrame = true;
@@ -438,10 +441,14 @@ export class Player implements Entity {
     } else if (this._dashMomentumLock) {
       // Dash-jump: full horizontal authority lock until landing/wall.
     } else if (this._wallKickMomentum) {
-      // Wall-kick (with or without dash): the player may move horizontally
-      // immediately, but the kick's speed magnitude is preserved across
-      // direction changes. With no input the current velocity is held.
-      if (snap.axes.moveX !== 0) {
+      // Wall-kick (with or without dash): during the input lockout the
+      // kicked velocity is preserved verbatim — no horizontal authority —
+      // so the player travels meaningfully away from the wall before being
+      // able to reverse course. After the lock expires the player may move
+      // horizontally immediately, but the kick's speed magnitude is
+      // preserved across direction changes. With no input the current
+      // velocity is held.
+      if (this._wallKickLockTimer <= 0 && snap.axes.moveX !== 0) {
         const sign: 1 | -1 = snap.axes.moveX > 0 ? 1 : -1;
         const mag = Math.abs(this.body.velocity.x);
         this.body.velocity.x = sign * mag;
