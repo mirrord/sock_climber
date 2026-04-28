@@ -314,9 +314,17 @@ const DEATH_PLANE_START_Y = 3;
 const deathPlaneSystem = new DeathPlaneSystem(bus, { startY: DEATH_PLANE_START_Y });
 
 /**
- * Latched once the camera first moves upward from spawn (worldY < 0). The
- * death plane is held stationary at the bottom of the level until then so
- * the player has a beat to find their footing before the rise begins.
+ * Height in metres the player must climb above their spawn before the
+ * death plane begins to ascend. Y+ = down, so the activation threshold is
+ * `player.body.position.y <= -DEATH_PLANE_ACTIVATION_HEIGHT`.
+ */
+const DEATH_PLANE_ACTIVATION_HEIGHT = 20;
+
+/**
+ * Latched once the player first climbs `DEATH_PLANE_ACTIVATION_HEIGHT`
+ * metres above spawn. The death plane is held stationary at the bottom of
+ * the level until then so the player has a beat to find their footing
+ * before the rise begins.
  */
 let deathPlaneActivated = false;
 const upgradeSystem = new UpgradeSystem(bus, rng);
@@ -587,10 +595,10 @@ const loop = createLoop({
     }
 
     // 4. Death plane — uses player's deathPlaneSpeedMultiplier stat.
-    //    Held stationary at the bottom of the level until the camera first
-    //    moves upward (player has climbed past the vertical deadzone). Once
+    //    Held stationary at the bottom of the level until the player has
+    //    climbed `DEATH_PLANE_ACTIVATION_HEIGHT` metres above spawn. Once
     //    activated it stays active for the remainder of the run.
-    if (!deathPlaneActivated && camera.worldY < 0) {
+    if (!deathPlaneActivated && player.body.position.y <= -DEATH_PLANE_ACTIVATION_HEIGHT) {
       deathPlaneActivated = true;
     }
     if (deathPlaneActivated) {
