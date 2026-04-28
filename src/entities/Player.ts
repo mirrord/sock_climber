@@ -316,6 +316,7 @@ export class Player implements Entity {
         this._locomotion = "Airborne";
         jumpedThisFrame = true;
         this._bus?.emit("onJump", {});
+        this._bus?.emit("onWallKick", {});
       } else if (canAirJump) {
         this.body.velocity.y = s.jumpVelocity;
         if (dashHeld) {
@@ -339,6 +340,7 @@ export class Player implements Entity {
         if (wasAirborne && this._airDashesUsed > 0) {
           this._airDashesUsed--;
         }
+        this._bus?.emit("onDashEnd", {});
       }
     }
 
@@ -353,6 +355,7 @@ export class Player implements Entity {
       if (this._dashTimer <= 0) {
         this._isDashing = false;
         this._dashTimer = 0;
+        this._bus?.emit("onDashEnd", {});
       } else {
         // Hold dash velocity; override any gravity-driven changes.
         this.body.velocity.x = this._dashVX;
@@ -527,6 +530,7 @@ export class Player implements Entity {
     this.body.velocity.y = knockbackY;
     this._health.iFrameTimer = this._health.iFrameDuration;
     this._emitHpChanged();
+    this._bus?.emit("onPlayerHurt", { damage });
     if (this._health.current <= 0 && !this._deathEmitted) {
       this._deathEmitted = true;
       this._bus?.emit("onPlayerDeath", { reason: "hp" });

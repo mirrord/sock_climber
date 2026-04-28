@@ -261,6 +261,64 @@ export function createGenerator(opts: GeneratorOptions): Generator {
     return true;
   }
 
+  /**
+   * Read the half-extents of a spawned entity, regardless of whether it
+   * exposes them via a physics `body` (Enemy / Obstacle) or as bare
+   * `halfW` / `halfH` fields (Buff).
+   */
+  function getEntityHalfExtents(
+    entity: Enemy | Obstacle | Buff,
+  ): { x: number; y: number } {
+    if ("body" in entity) {
+      return {
+        x: entity.body.halfExtents.x,
+        y: entity.body.halfExtents.y,
+      };
+    }
+    return { x: entity.halfW, y: entity.halfH };
+  }
+
+  /** Re-set an entity's world-space position after construction. */
+  function setEntityPosition(
+    entity: Enemy | Obstacle | Buff,
+    x: number,
+    y: number,
+  ): void {
+    if ("body" in entity) {
+      entity.body.position.x = x;
+      entity.body.position.y = y;
+    } else {
+      entity.position.x = x;
+      entity.position.y = y;
+    }
+  }
+
+  /**
+   * Returns true if an axis-aligned box centred at (cx, cy) with the given
+   * half-extents would overlap any solid tile already placed by the
+   * generator. A small epsilon is used so that an entity whose edge merely
+   * touches a tile boundary (e.g. resting flush on top of a platform) does
+   * not count as overlap.
+   */
+  function aabbOverlapsSolid(
+    cx: number,
+    cy: number,
+    halfW: number,
+    halfH: number,
+  ): boolean {
+    const EPS = 1e-3;
+    const minTx = Math.floor(cx - halfW + EPS);
+    const maxTx = Math.floor(cx + halfW - EPS);
+    const minTy = Math.floor(cy - halfH + EPS);
+    const maxTy = Math.floor(cy + halfH - EPS);
+    for (let ty = minTy; ty <= maxTy; ty++) {
+      for (let tx = minTx; tx <= maxTx; tx++) {
+        if (isSolid(tx, ty)) return true;
+      }
+    }
+    return false;
+  }
+
   const playerStats: PlayerStats = {
     ...DEFAULT_PLAYER_STATS,
     ...opts.playerStats,
@@ -508,11 +566,12 @@ export function createGenerator(opts: GeneratorOptions): Generator {
       }
 
       // Pick a platform + tile-x, retrying a few times if the chosen cell is
-      // already occupied or falls in the spawn safe zone.
-      let spawnTx = 0;
-      let spawnTy = 0;
-      let spawnKey = "";
-      let foundCell = false;
+      // already occupied, falls in the spawn safe zone, or would cause the
+      // entity body to overlap a solid tile (wall or platform). Tall or wide
+      // entities (e.g. Lighter halfH=0.6, Gum halfW=0.8) can clip into the
+      // platform underneath them or into walls flanking the spawn cell, so
+      // we test the entity's full AABB rather than just the centre tile.
+      let placed: SpawnedEntity | null = null;
       for (let attempt = 0; attempt < SPAWN_PICK_ATTEMPTS; attempt++) {
         const platform = chunkRng.pick(platformCandidates);
         const tx = platform.tx + chunkRng.int(0, platform.width - 1);
@@ -524,36 +583,61 @@ export function createGenerator(opts: GeneratorOptions): Generator {
         // narrows directly above this platform tile). Spawning inside a
         // wall traps the entity and can softlock combat / collection.
         if (isSolid(tx, ty)) continue;
-        spawnTx = tx;
-        spawnTy = ty;
-        spawnKey = key;
-        foundCell = true;
+
+        // Tentative spawn position — centre of the cell above the platform.
+        // Construct the entity here so we can read its actual body extents
+        // before committing; large entities will be repositioned and
+        // collision-checked below.
+        const tentativePos = { x: tx + 0.5, y: ty + 0.5 };
+        let entity: Enemy | Obstacle | Buff | null = null;
+        if (category === "enemy" && isEnemyTag(tag)) {
+          entity = enemyRegistry[tag].factory(tentativePos);
+        } else if (category === "obstacle" && isObstacleTag(tag)) {
+          entity = obstacleRegistry[tag].factory(tentativePos);
+        } else if (category === "buff" && isBuffTag(tag)) {
+          entity = buffRegistry[tag].factory(tentativePos);
+        }
+        if (!entity) continue;
+
+        const half = getEntityHalfExtents(entity);
+        // Snap the entity so its bottom edge rests exactly on the platform
+        // top (worldY = platform.ty). This avoids clipping into the platform
+        // for entities taller than one tile (halfH > 0.5).
+        const finalX = tx + 0.5;
+        const finalY = platform.ty - half.y;
+        // The chunk above this one has not been generated yet, so its
+        // wall/platform tiles aren't tracked in `placedSolid`. Reject any
+        // spawn whose AABB would protrude into rows above this chunk's top
+        // (worldTy < chunkOriginY) — otherwise the next chunk's wall could
+        // be placed inside the entity's body.
+        const EPS = 1e-3;
+        const aabbMinTy = Math.floor(finalY - half.y + EPS);
+        if (aabbMinTy < chunkOriginY) continue;
+        if (aabbOverlapsSolid(finalX, finalY, half.x, half.y)) {
+          // Entity body would intersect a wall or platform tile; discard
+          // this attempt and try a different cell. The entity object is
+          // dropped (its id is wasted but never observed elsewhere).
+          continue;
+        }
+
+        setEntityPosition(entity, finalX, finalY);
+        usedSpawnCells.add(key);
+        placed = {
+          kind: category,
+          tag,
+          position: { x: finalX, y: finalY },
+          entity,
+        };
         break;
       }
-      if (!foundCell) continue;
-      usedSpawnCells.add(spawnKey);
 
-      const position = {
-        x: spawnTx + 0.5,
-        y: spawnTy + 0.5,
-      };
+      if (!placed) continue;
 
-      let entity: Enemy | Obstacle | Buff | null = null;
+      if (placed.kind === "enemy") budget.enemies--;
+      else if (placed.kind === "obstacle") budget.obstacles--;
+      else budget.buffs--;
 
-      if (category === "enemy" && isEnemyTag(tag)) {
-        entity = enemyRegistry[tag].factory(position);
-        budget.enemies--;
-      } else if (category === "obstacle" && isObstacleTag(tag)) {
-        entity = obstacleRegistry[tag].factory(position);
-        budget.obstacles--;
-      } else if (category === "buff" && isBuffTag(tag)) {
-        entity = buffRegistry[tag].factory(position);
-        budget.buffs--;
-      }
-
-      if (entity) {
-        entities.push({ kind: category, tag, position, entity });
-      }
+      entities.push(placed);
     }
 
     const chunk: GeneratedChunk = {

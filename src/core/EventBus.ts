@@ -107,6 +107,12 @@ export type GameEvents = {
   onLand: Record<string, never>;
   /** Emitted by Player when a dash starts. */
   onDash: Record<string, never>;
+  /** Emitted by Player when an active dash ends (timer expired or jump-cancelled). */
+  onDashEnd: Record<string, never>;
+  /** Emitted by Player when a wall-kick (jump off a wall) fires. */
+  onWallKick: Record<string, never>;
+  /** Emitted by Player when damage was actually applied (i-frames did not block). */
+  onPlayerHurt: { damage: number };
   /** Emitted by CombatSystem when an attack starts. */
   onAttack: Record<string, never>;
   /** Emitted by Player when a spring charge is released (impulse applied). */
@@ -124,6 +130,8 @@ export type GameEvents = {
   onBuffApplied: { buffId: string; duration: number };
   /** Emitted by Player buff system when a temporary buff expires. */
   onBuffExpired: { buffId: string };
+  /** Emitted on the frame the player first overlaps a Gum trigger volume. */
+  onGumEnter: Record<string, never>;
   /** Emitted by ScoreSystem when the climbed distance increases by ≥ 1 m. */
   onDistanceChanged: { distance: number };
   /** Emitted by Title screen when the player starts a new run. */

@@ -1,6 +1,16 @@
 /** Audio channel identifier. */
 export type AudioChannel = "sfx" | "music" | "master";
 
+/**
+ * Handle to a SFX voice currently playing through the AudioBus.
+ * Call {@link stop} to interrupt the sound early. Calling stop after the
+ * sound has already ended (or been stolen by another playSfx) is a safe
+ * no-op.
+ */
+export interface SfxHandle {
+  stop(): void;
+}
+
 /** Options for creating an AudioBus. */
 export interface AudioBusOptions {
   /** AudioContext to use. If omitted, audio is silently suppressed. */
@@ -129,10 +139,14 @@ export class AudioBus {
   /**
    * Play an AudioBuffer on the SFX channel using a pooled voice.
    * If all voices are busy the oldest voice is stolen.
-   * No-op when in silent mode or when the sfx channel is muted.
+   * No-op (returns `null`) when in silent mode or when the sfx channel is muted.
+   *
+   * @returns A handle whose `stop()` interrupts the sound early. Calling
+   *          `stop()` after the voice has been re-used by another playSfx
+   *          is a safe no-op.
    */
-  playSfx(buffer: AudioBuffer): void {
-    if (this._ctx === null || this._muted.sfx) return;
+  playSfx(buffer: AudioBuffer): SfxHandle | null {
+    if (this._ctx === null || this._muted.sfx) return null;
 
     // Find an idle voice; fall back to the first (oldest) slot.
     let voice: Voice = this._pool[0]!;
@@ -164,6 +178,20 @@ export class AudioBus {
     };
     src.start();
     voice.source = src;
+
+    return {
+      stop(): void {
+        if (voice.source === src) {
+          try {
+            src.stop();
+          } catch {
+            // already stopped
+          }
+          src.disconnect();
+          voice.source = null;
+        }
+      },
+    };
   }
 
   // ─── Lifecycle ────────────────────────────────────────────────────────────

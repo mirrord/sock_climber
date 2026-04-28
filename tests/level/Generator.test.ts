@@ -295,3 +295,45 @@ describe("Generator — entities never stack", () => {
     }
   });
 });
+
+describe("Generator — entities never overlap solid tiles", () => {
+  it("no entity AABB intersects a wall or platform tile", () => {
+    const EPS = 1e-3;
+    for (let seed = 1; seed <= 50; seed++) {
+      const gen = createGenerator({ seed, cameraY: -200, worldWidth: 12 });
+      const result = gen.advance(-200, 9999);
+
+      const solids = new Set<string>();
+      for (const t of result.newTiles) {
+        if (t.solid) solids.add(`${t.tx},${t.ty}`);
+      }
+
+      for (const e of result.newEntities) {
+        // Determine the entity's half-extents (bodies live on `body`, buffs
+        // expose `halfW`/`halfH` directly).
+        const ent = e.entity as unknown as {
+          body?: { halfExtents: { x: number; y: number } };
+          halfW?: number;
+          halfH?: number;
+        };
+        const halfW = ent.body ? ent.body.halfExtents.x : ent.halfW!;
+        const halfH = ent.body ? ent.body.halfExtents.y : ent.halfH!;
+        const cx = e.position.x;
+        const cy = e.position.y;
+        const minTx = Math.floor(cx - halfW + EPS);
+        const maxTx = Math.floor(cx + halfW - EPS);
+        const minTy = Math.floor(cy - halfH + EPS);
+        const maxTy = Math.floor(cy + halfH - EPS);
+        for (let ty = minTy; ty <= maxTy; ty++) {
+          for (let tx = minTx; tx <= maxTx; tx++) {
+            expect(
+              solids.has(`${tx},${ty}`),
+              `seed ${seed}: ${e.tag} AABB at (${cx.toFixed(2)},${cy.toFixed(2)}) ` +
+                `half=(${halfW},${halfH}) overlaps solid tile (${tx},${ty})`,
+            ).toBe(false);
+          }
+        }
+      }
+    }
+  });
+});

@@ -141,60 +141,157 @@ void audioSystem; // retained reference; subscriptions live for the page session
 const music = new Music(audioCtx ?? null, audioBus.getChannelNode("music"));
 
 /**
- * Synthesize a tiny click for any SFX id that has no real asset.  Keeps the
- * audio pipeline exercised end-to-end while the assets folder is empty.
- * Returns null when no AudioContext is available (silent mode / tests).
+ * Map of SfxId → public asset filename in `public/assets/sounds/`. Each file
+ * is fetched + decoded once at startup and registered with the SfxRegistry.
+ * Ids without an entry here remain unregistered and silently no-op when their
+ * event fires.
  */
-function synthClick(id: SfxId): AudioBuffer | null {
-  if (audioCtx === undefined) return null;
-  const sampleRate = audioCtx.sampleRate;
-  const durationSec = id === "playerDeath" ? 0.4 : id === "jump" ? 0.08 : 0.05;
-  const length = Math.max(1, Math.floor(sampleRate * durationSec));
-  const buf = audioCtx.createBuffer(1, length, sampleRate);
-  const data = buf.getChannelData(0);
-  // Frequency table per id keeps each event audibly distinct.
-  const freq: Record<SfxId, number> = {
-    jump: 660,
-    land: 180,
-    dash: 880,
-    attack: 440,
-    hit: 220,
-    kill: 330,
-    patchApplied: 988,
-    pickup: 1320,
-    segmentCross: 523,
-    playerDeath: 110,
-  };
-  const f = freq[id];
-  for (let i = 0; i < length; i++) {
-    const t = i / sampleRate;
-    // Exponential decay envelope so it sounds like a blip, not a tone.
-    const env = Math.exp(-t * 18);
-    data[i] = Math.sin(2 * Math.PI * f * t) * env * 0.3;
-  }
-  return buf;
+const SFX_ASSETS: Partial<Record<SfxId, string>> = {
+  levelStart: "coinfall.mp3",
+  dash: "dash.mp3",
+  playerHurt: "oof.mp3",
+  hit: "pwtu.mp3",
+  springRelease: "sproioioing.mp3",
+  land: "tka.mp3",
+  wallKick: "tick.mp3",
+  attack: "whih.mp3",
+  buffApplied: "wahaa.mp3",
+  gumEnter: "squelch.mp3",
+};
+
+/**
+ * Asynchronously fetch + decode each SFX file and register it with the
+ * SfxRegistry. Failures are logged but non-fatal — a missing or corrupt file
+ * just leaves that id unregistered (silent at play time).
+ */
+async function loadSfxAssets(): Promise<void> {
+  if (audioCtx === undefined) return;
+  const base = import.meta.env.BASE_URL;
+  await Promise.all(
+    (Object.entries(SFX_ASSETS) as [SfxId, string][]).map(async ([id, file]) => {
+      try {
+        const res = await fetch(`${base}assets/sounds/${file}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.arrayBuffer();
+        const buffer = await audioCtx.decodeAudioData(data);
+        sfxRegistry.register(id, buffer);
+      } catch (err) {
+        console.warn(`[audio] failed to load SFX '${id}' (${file}):`, err);
+      }
+    }),
+  );
 }
 
-const SFX_IDS: readonly SfxId[] = [
-  "jump", "land", "dash", "attack", "hit", "kill",
-  "patchApplied", "pickup", "segmentCross", "playerDeath",
-];
-for (const id of SFX_IDS) {
-  const buf = synthClick(id);
-  if (buf !== null) sfxRegistry.register(id, buf);
+void loadSfxAssets();
+
+// ─── Music tracks ─────────────────────────────────────────────────────────
+
+/** Logical music id → public asset filename in `public/assets/music/`. */
+const MUSIC_ASSETS = {
+  title: "The Perfect Pair.mp3",
+  gameOver: "winning.mp3",
+  gameplay1: "Laundry Stomp.mp3",
+  gameplay2: "Zipper Whistlestomp.mp3",
+  gameplay3: "Found Object Folk.mp3",
+} as const;
+type MusicId = keyof typeof MUSIC_ASSETS;
+/** Subset of MusicIds randomly chosen from at level start. */
+const GAMEPLAY_MUSIC_IDS: readonly MusicId[] = ["gameplay1", "gameplay2", "gameplay3"];
+
+/** Decoded music buffers, keyed by MusicId. Populated asynchronously. */
+const musicBuffers = new Map<MusicId, AudioBuffer>();
+/** Crossfade duration (seconds) used for all music transitions. */
+const MUSIC_CROSSFADE_SEC = 0.6;
+/** Currently-playing music id, or null when nothing is queued/playing. */
+let currentMusicId: MusicId | null = null;
+
+/**
+ * Asynchronously fetch + decode each music track and stash it in
+ * `musicBuffers`. Once the title track is decoded, start playing it. If a
+ * later request to play a track happens before its buffer is decoded, the
+ * request is honoured as soon as the decode finishes (`tryPlayMusic` is
+ * idempotent).
+ */
+async function loadMusicAssets(): Promise<void> {
+  if (audioCtx === undefined) return;
+  const base = import.meta.env.BASE_URL;
+  await Promise.all(
+    (Object.entries(MUSIC_ASSETS) as [MusicId, string][]).map(async ([id, file]) => {
+      try {
+        const res = await fetch(`${base}assets/music/${encodeURIComponent(file)}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.arrayBuffer();
+        const buffer = await audioCtx.decodeAudioData(data);
+        musicBuffers.set(id, buffer);
+        // If this is the track we are currently *waiting* on, start it.
+        if (currentMusicId === id) {
+          music.play(buffer, MUSIC_CROSSFADE_SEC);
+        }
+      } catch (err) {
+        console.warn(`[audio] failed to load music '${id}' (${file}):`, err);
+      }
+    }),
+  );
 }
 
 /**
- * Browsers suspend AudioContext until a user gesture.  Resume on the first
- * `onGameStart` (which is wired to a button click handler in Title).
+ * Switch music to the given track. If the buffer is not yet decoded, the id
+ * is recorded so {@link loadMusicAssets} can start it once decoding finishes.
+ * No-op when the requested track is already playing.
+ */
+function playMusic(id: MusicId): void {
+  if (currentMusicId === id) return;
+  currentMusicId = id;
+  const buffer = musicBuffers.get(id);
+  if (buffer !== undefined) {
+    music.play(buffer, MUSIC_CROSSFADE_SEC);
+  }
+  // Otherwise: the load callback will start it once the decode completes.
+}
+
+void loadMusicAssets();
+// Title screen is shown immediately on page load — queue its music too.
+playMusic("title");
+
+/**
+ * Browsers suspend AudioContext until a user gesture. Resuming on
+ * `onGameStart` alone is too late for the title screen — by then we are
+ * already crossfading away to gameplay music. Listen for the first
+ * pointer/key event globally so the title song begins as soon as the user
+ * touches the page, and re-issue the active music selection so it actually
+ * starts (sources `start()`-ed while suspended do not retroactively play
+ * once the context resumes).
  */
 let audioResumed = false;
 function maybeResumeAudio(): void {
   if (audioResumed) return;
   audioResumed = true;
-  if (audioCtx !== undefined && audioCtx.state === "suspended") {
-    void audioCtx.resume();
+  if (audioCtx === undefined) return;
+  const restart = (): void => {
+    if (currentMusicId === null) return;
+    const buffer = musicBuffers.get(currentMusicId);
+    if (buffer !== undefined) {
+      // Restart from a clean state — `play(buffer, 0)` stops any source that
+      // was scheduled while suspended (and which the browser will not play
+      // back) and starts a fresh, audible source.
+      music.play(buffer, 0);
+    }
+  };
+  if (audioCtx.state === "suspended") {
+    void audioCtx.resume().then(restart, restart);
+  } else {
+    restart();
   }
+}
+
+if (typeof window !== "undefined") {
+  const onFirstGesture = (): void => {
+    maybeResumeAudio();
+    window.removeEventListener("pointerdown", onFirstGesture);
+    window.removeEventListener("keydown", onFirstGesture);
+  };
+  window.addEventListener("pointerdown", onFirstGesture);
+  window.addEventListener("keydown", onFirstGesture);
 }
 
 let generator = createGenerator({
@@ -249,6 +346,9 @@ bus.on("onGameStart", () => {
   alive = true;
   paused = false;
   hud.show();
+  // Pick a random gameplay track for this run.
+  const idx = rng.int(0, GAMEPLAY_MUSIC_IDS.length - 1);
+  playMusic(GAMEPLAY_MUSIC_IDS[idx]!);
 });
 
 bus.on("onPause", () => { paused = true; });
@@ -256,6 +356,7 @@ bus.on("onResume", () => { paused = false; input.flush(); });
 
 bus.on("onPlayerDeath", () => {
   alive = false;
+  playMusic("gameOver");
 });
 
 // ─── Particle triggers ────────────────────────────────────────────────────
@@ -338,6 +439,7 @@ function onQuit(): void {
   hud.hide();
   renderer.clearCanvas();
   title.show();
+  playMusic("title");
 }
 
 function onRestart(): void {
@@ -346,6 +448,9 @@ function onRestart(): void {
   resetGame();
   alive = true;
   paused = false;
+  // Pick a fresh random gameplay track for this run.
+  const idx = rng.int(0, GAMEPLAY_MUSIC_IDS.length - 1);
+  playMusic(GAMEPLAY_MUSIC_IDS[idx]!);
 }
 
 // ─── Game loop ────────────────────────────────────────────────────────────
@@ -377,6 +482,11 @@ const loop = createLoop({
     if (snap.buttonsPressed.has("Pause")) {
       bus.emit(paused ? "onResume" : "onPause", {});
     }
+
+    // Music crossfades must advance even when no run is in progress so
+    // transitions to/from the title and game-over tracks complete. Kept
+    // outside the alive/paused guard for the same reason.
+    music.update(dt);
 
     if (!alive || paused) return;
 
@@ -415,7 +525,12 @@ const loop = createLoop({
         obstacle.update(dt);
         // Gum is a stat-mod trigger; everything else is contact damage.
         if (se.tag === "Gum") {
-          (obstacle as Gum).processPlayer(player);
+          const gum = obstacle as Gum;
+          const wasInside = gum.isPlayerInside;
+          gum.processPlayer(player);
+          if (!wasInside && gum.isPlayerInside) {
+            bus.emit("onGumEnter", {});
+          }
         } else {
           obstacle.applyContactDamage(player);
         }
@@ -468,9 +583,10 @@ const loop = createLoop({
     // 7. Score — track highest position reached.
     scoreSystem.update(player.body.position.y);
 
-    // 8. Advance particles & music crossfades.
+    // 8. Advance particles. Music crossfades are advanced above the
+    //    alive/paused guard so transitions to/from title and game-over
+    //    music continue to play.
     particles.update(dt);
-    music.update(dt);
 
     prevPlayerX = player.body.position.x;
     prevPlayerY = player.body.position.y;

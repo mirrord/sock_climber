@@ -12,7 +12,13 @@ export type SfxId =
   | "patchApplied"
   | "pickup"
   | "segmentCross"
-  | "playerDeath";
+  | "playerDeath"
+  | "levelStart"
+  | "wallKick"
+  | "playerHurt"
+  | "springRelease"
+  | "buffApplied"
+  | "gumEnter";
 
 /**
  * SfxRegistry — maps {@link SfxId} to a pre-decoded `AudioBuffer`.

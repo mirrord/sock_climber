@@ -1,4 +1,4 @@
-export type { AudioChannel, AudioBusOptions } from "./AudioBus.js";
+export type { AudioChannel, AudioBusOptions, SfxHandle } from "./AudioBus.js";
 export { AudioBus } from "./AudioBus.js";
 
 export type { AudioSettings } from "./AudioSettings.js";
