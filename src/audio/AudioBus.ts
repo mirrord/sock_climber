@@ -71,7 +71,7 @@ export class AudioBus {
       sfxGain.connect(masterGain);
 
       const musicGain = ctx.createGain();
-      musicGain.gain.value = 1;
+      musicGain.gain.value = 0.5;
       musicGain.connect(masterGain);
 
       this._channelGains = { sfx: sfxGain, music: musicGain, master: masterGain };
@@ -220,6 +220,12 @@ export class AudioBus {
   private _applyGain(channel: AudioChannel): void {
     const node = this._channelGains[channel];
     if (node === null) return;
-    node.gain.value = this._muted[channel] ? 0 : this._volumes[channel];
+    if (this._muted[channel]) {
+      node.gain.value = 0;
+      return;
+    }
+    // Music is scaled to half so a 100% slider plays at half loudness.
+    const scale = channel === "music" ? 0.5 : 1;
+    node.gain.value = this._volumes[channel] * scale;
   }
 }

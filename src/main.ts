@@ -48,6 +48,21 @@ const spritePool = new SpritePool();
 const particles = new ParticleSystem(scene);
 const debugOverlay = new DebugOverlay();
 
+// ─── Texture loading ──────────────────────────────────────────────────────
+// Load the laundry-pile image used as the rising death plane.  Once decoded,
+// the SpritePool resizes its plane mesh to span the play area while keeping
+// the texture's aspect ratio, so the image's vertical midpoint sits exactly
+// on the actual death-plane boundary.
+const _textureLoader = new THREE.TextureLoader();
+_textureLoader.load("assets/objects/laundry pile.png", (tex) => {
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.generateMipmaps = false;
+  // WORLD_WIDTH_TILES is declared below; capture by name at call time.
+  spritePool.setDeathPlaneTexture(tex, WORLD_WIDTH_TILES, WORLD_WIDTH_TILES / 2);
+});
+
 // ─── World constants ──────────────────────────────────────────────────────
 
 const WORLD_WIDTH_TILES = 12;

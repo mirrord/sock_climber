@@ -111,8 +111,18 @@ export class SpritePool {
   private readonly _mats = new Map<string, THREE.MeshBasicMaterial>();
 
   // ─── Death plane geometry ─────────────────────────────────────────────────
-  private readonly _planeMat = new THREE.MeshBasicMaterial({ color: 0xff2222 });
-  private readonly _planeGeo = new THREE.PlaneGeometry(100, 0.1);
+  // Default placeholder: thin red bar spanning the visible world. Replaced
+  // with the laundry-pile texture (and matching dimensions) once the image
+  // is loaded via `setDeathPlaneTexture`.
+  private _planeMat: THREE.MeshBasicMaterial = new THREE.MeshBasicMaterial({
+    color: 0xff2222,
+  });
+  private _planeGeo: THREE.PlaneGeometry = new THREE.PlaneGeometry(100, 0.1);
+  /** World X at which the death-plane mesh is centred (set by `setDeathPlaneTexture`). */
+  private _planeCenterX = 0;
+  /** Vertical offset added to the mesh so the death line sits where requested.
+   *  Default 0 = mesh centred on `planeY` (image's vertical midpoint = the death line). */
+  private _planeYOffset = 0;
 
   // ─── Material helpers ─────────────────────────────────────────────────────
 
@@ -245,9 +255,50 @@ export class SpritePool {
     if (!this._planeMesh) {
       this._planeMesh = new THREE.Mesh(this._planeGeo, this._planeMat);
       this._planeMesh.position.z = Z_LAYER.deathPlane;
+      this._planeMesh.position.x = this._planeCenterX;
       scene.add(this._planeMesh);
     }
-    this._planeMesh.position.y = -planeY; // Y-flip
+    // The mesh centre maps to `planeY` (Y-flip), so the image's vertical
+    // midpoint sits exactly on the death line.
+    this._planeMesh.position.y = -planeY + this._planeYOffset;
+  }
+
+  /**
+   * Apply the death-plane texture and resize the mesh to span `worldWidth`,
+   * preserving the texture's aspect ratio.  The mesh is centred horizontally
+   * at `centerX` and vertically on `planeY` so that the image's vertical
+   * midpoint coincides with the actual death-plane boundary.
+   *
+   * Safe to call before the first `syncDeathPlane`.
+   *
+   * @param texture    - Loaded Three.js texture (must have `image` populated).
+   * @param worldWidth - Desired mesh width in world units.
+   * @param centerX    - World X at which to centre the mesh.
+   */
+  setDeathPlaneTexture(texture: THREE.Texture, worldWidth: number, centerX: number): void {
+    const img = texture.image as { width: number; height: number } | undefined;
+    const aspect = img && img.width > 0 && img.height > 0 ? img.width / img.height : 1;
+    const planeHeight = worldWidth / aspect;
+
+    // Replace geometry sized to the world width × proportional height.
+    this._planeGeo.dispose();
+    this._planeGeo = new THREE.PlaneGeometry(worldWidth, planeHeight);
+
+    // Replace material with a transparent textured one (PNG has alpha).
+    this._planeMat.dispose();
+    this._planeMat = new THREE.MeshBasicMaterial({
+      map: texture,
+      transparent: true,
+      depthWrite: false,
+    });
+
+    this._planeCenterX = centerX;
+
+    if (this._planeMesh) {
+      this._planeMesh.geometry = this._planeGeo;
+      this._planeMesh.material = this._planeMat;
+      this._planeMesh.position.x = centerX;
+    }
   }
 
   // ─── Tiles ────────────────────────────────────────────────────────────────
