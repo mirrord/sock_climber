@@ -302,7 +302,23 @@ let generator = createGenerator({
 });
 const spawnSystem = new SpawnSystem(generator, world, bus);
 const combatSystem = new CombatSystem(bus);
-const deathPlaneSystem = new DeathPlaneSystem(bus, { startY: WORLD_HEIGHT_TILES / 4 });
+/**
+ * Initial death-plane Y in world units. Sits just below the floor row
+ * (floor occupies tiles y=2..3, so y=3 is its bottom edge), placing the plane
+ * at the bottom of the playable level. It does not begin ascending until the
+ * player has climbed high enough to start moving the camera (see
+ * `deathPlaneActivated` below).
+ */
+const DEATH_PLANE_START_Y = 3;
+
+const deathPlaneSystem = new DeathPlaneSystem(bus, { startY: DEATH_PLANE_START_Y });
+
+/**
+ * Latched once the camera first moves upward from spawn (worldY < 0). The
+ * death plane is held stationary at the bottom of the level until then so
+ * the player has a beat to find their footing before the rise begins.
+ */
+let deathPlaneActivated = false;
 const upgradeSystem = new UpgradeSystem(bus, rng);
 const scoreSystem = new ScoreSystem(bus);
 
@@ -408,7 +424,8 @@ function resetGame(): void {
   // Reset all systems, providing the new generator to SpawnSystem.
   spawnSystem.reset(generator);
   scoreSystem.reset();
-  deathPlaneSystem.reset({ startY: WORLD_HEIGHT_TILES / 4 });
+  deathPlaneSystem.reset({ startY: DEATH_PLANE_START_Y });
+  deathPlaneActivated = false;
   upgradeSystem.reset();
 
   // Respawn player at origin.
@@ -570,7 +587,15 @@ const loop = createLoop({
     }
 
     // 4. Death plane — uses player's deathPlaneSpeedMultiplier stat.
-    deathPlaneSystem.update(dt, player.body, player.effectiveStats.deathPlaneSpeedMultiplier);
+    //    Held stationary at the bottom of the level until the camera first
+    //    moves upward (player has climbed past the vertical deadzone). Once
+    //    activated it stays active for the remainder of the run.
+    if (!deathPlaneActivated && camera.worldY < 0) {
+      deathPlaneActivated = true;
+    }
+    if (deathPlaneActivated) {
+      deathPlaneSystem.update(dt, player.body, player.effectiveStats.deathPlaneSpeedMultiplier);
+    }
 
     // 5. Level generation — advance ahead of camera.
     const cameraTileY = Math.floor(camera.worldY / TILE_SIZE);
