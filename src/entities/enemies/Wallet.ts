@@ -13,10 +13,12 @@ export type WalletState = "Patrol" | "Charge";
  *              (or until hitting a wall), then returns to `Patrol`.
  */
 export class Wallet extends Enemy {
-  static readonly PATROL_SPEED = 2; // m/s
-  static readonly CHARGE_SPEED = 8; // m/s
+  static readonly PATROL_SPEED = 1.5; // m/s
+  static readonly CHARGE_SPEED = 6; // m/s
   static readonly DETECTION_RANGE = 6; // meters
   static readonly CHARGE_DURATION = 1.5; // seconds
+  /** Terminal fall speed in m/s. Caps gravity-driven downward velocity. */
+  static readonly MAX_FALL_SPEED = 12;
 
   private _state: WalletState = "Patrol";
   private _patrolDir: 1 | -1 = 1;
@@ -67,6 +69,11 @@ export class Wallet extends Enemy {
           this.body.velocity.x = dir * Wallet.CHARGE_SPEED;
         }
         break;
+    }
+
+    // Cap downward fall speed.
+    if (this.body.velocity.y > Wallet.MAX_FALL_SPEED) {
+      this.body.velocity.y = Wallet.MAX_FALL_SPEED;
     }
   }
 }

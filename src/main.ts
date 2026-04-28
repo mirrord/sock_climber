@@ -421,6 +421,14 @@ bus.on("onSpringRelease", () => {
 bus.on("onDash", () => {
   particles.emit("dust", player.body.position.x, player.body.position.y);
 });
+
+// ─── Hit-flash visual feedback ────────────────────────────────────────
+bus.on("onHit", ({ entityId }) => {
+  spritePool.triggerHitFlash(entityId);
+});
+bus.on("onPlayerHurt", () => {
+  spritePool.triggerPlayerHitFlash();
+});
 // ─── Active-buff edge tracking ───────────────────────────────────────
 
 /**
@@ -510,6 +518,8 @@ function onRestart(): void {
 const clock = createRealClock();
 let prevPlayerX = 0;
 let prevPlayerY = 0;
+/** Wall-clock timestamp (ms) of the previous render frame; null on first call. */
+let lastRenderMs: number | null = null;
 
 const loop = createLoop({
   clock,
@@ -682,10 +692,16 @@ const loop = createLoop({
     // Camera must be updated first — GameCamera.worldY is read for tile culling.
     camera.follow(renderX, renderY, deathPlaneSystem.planeY);
 
+    // Advance hit-flash timers (independent of fixed-step gameplay).
+    const nowMs = clock.now();
+    const renderDt = lastRenderMs === null ? 0 : Math.max(0, (nowMs - lastRenderMs) / 1000);
+    lastRenderMs = nowMs;
+    spritePool.tick(renderDt);
+
     // Sync entity meshes.
     spritePool.syncPlayer(player, scene, renderX, renderY);
     spritePool.syncAll(spawnSystem.liveEntities, scene);
-    spritePool.syncDeathPlane(deathPlaneSystem.planeY, scene);
+    spritePool.syncDeathPlane(deathPlaneSystem.planeY, scene, !deathPlaneActivated);
     spritePool.syncTiles(world, scene, camera.worldY);
 
     // Debug AABB wireframes (only when ?debug=1).

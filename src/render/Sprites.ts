@@ -64,6 +64,11 @@ interface HasBody {
   };
 }
 
+/** Structural type for any entity exposing an i-frame timer (player or enemies). */
+interface HasIFrames {
+  readonly iFrameTimer: number;
+}
+
 interface BuffLike {
   readonly id: number;
   readonly position: Readonly<{ x: number; y: number }>;
@@ -109,7 +114,16 @@ export class SpritePool {
 
   // ─── Material cache (one MeshBasicMaterial per tag/key) ───────────────────
   private readonly _mats = new Map<string, THREE.MeshBasicMaterial>();
-
+  // ─── Hit-flash + i-frame blink state ───────────────────────────────
+  /** Bright white material swapped in for the flash duration on a hit. */
+  private readonly _flashMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  /** Per-entity remaining hit-flash time in seconds. */
+  private readonly _hitFlashTimers = new Map<number, number>();
+  private _playerHitFlashTimer = 0;
+  /** Duration of the hit-flash overlay in seconds. */
+  private static readonly HIT_FLASH_DURATION = 0.1;
+  /** Blink toggles per second while i-frames are active (full on/off cycles). */
+  private static readonly BLINK_RATE_HZ = 12;
   // ─── Death plane geometry ─────────────────────────────────────────────────
   // Default placeholder: thin red bar spanning the visible world. Replaced
   // with the laundry-pile texture (and matching dimensions) once the image
@@ -123,6 +137,46 @@ export class SpritePool {
   /** Vertical offset added to the mesh so the death line sits where requested.
    *  Default 0 = mesh centred on `planeY` (image's vertical midpoint = the death line). */
   private _planeYOffset = 0;
+
+  // ─── Hit-flash / blink API ───────────────────────────────────────────
+
+  /**
+   * Trigger a brief white flash on the mesh associated with `entityId`.
+   * Called by the gameplay layer in response to `onHit`.
+   */
+  triggerHitFlash(entityId: number): void {
+    this._hitFlashTimers.set(entityId, SpritePool.HIT_FLASH_DURATION);
+  }
+
+  /** Trigger a brief white flash on the player mesh. */
+  triggerPlayerHitFlash(): void {
+    this._playerHitFlashTimer = SpritePool.HIT_FLASH_DURATION;
+  }
+
+  /**
+   * Advance hit-flash timers by `dt` seconds. Call once per render frame.
+   * Stale entries (entityId no longer in `_meshes`) are pruned implicitly
+   * by the regular sync cycle.
+   */
+  tick(dt: number): void {
+    if (this._playerHitFlashTimer > 0) {
+      this._playerHitFlashTimer = Math.max(0, this._playerHitFlashTimer - dt);
+    }
+    if (this._hitFlashTimers.size === 0) return;
+    for (const [id, t] of this._hitFlashTimers) {
+      const next = t - dt;
+      if (next <= 0) this._hitFlashTimers.delete(id);
+      else this._hitFlashTimers.set(id, next);
+    }
+  }
+
+  /** Helper: blink mesh visibility based on `iFrameTimer` (true = visible). */
+  private _blinkVisible(iFrameTimer: number): boolean {
+    if (iFrameTimer <= 0) return true;
+    // Toggle every (1 / (2 * BLINK_RATE_HZ)) seconds. Hide on odd half-cycles.
+    const phase = Math.floor(iFrameTimer * SpritePool.BLINK_RATE_HZ * 2);
+    return (phase & 1) === 0;
+  }
 
   // ─── Material helpers ─────────────────────────────────────────────────────
 
@@ -178,6 +232,13 @@ export class SpritePool {
     this._playerMesh.position.x = renderX;
     this._playerMesh.position.y = -renderY; // Y-flip
     this._playerMesh.scale.set(player.facing * hw * 2, hh * 2, 1);
+
+    // Hit-flash overlay swaps in a white material; restore tag material when done.
+    const flashing = this._playerHitFlashTimer > 0;
+    const baseMat = this._matFor("Player");
+    this._playerMesh.material = flashing ? this._flashMat : baseMat;
+    // I-frame blink: hide on odd phases.
+    this._playerMesh.visible = this._blinkVisible(player.iFrameTimer);
   }
 
   // ─── Entity sync (enemies / obstacles / buffs) ────────────────────────────
@@ -232,6 +293,15 @@ export class SpritePool {
       if (vx < 0) scaleX = -scaleX;
     }
     mesh.scale.set(scaleX, hh * 2, 1);
+
+    // Hit flash + i-frame blink (enemies only).
+    if (spawned.kind === "enemy") {
+      const flashing = (this._hitFlashTimers.get(id) ?? 0) > 0;
+      const baseMat = this._matFor(spawned.tag as string);
+      mesh.material = flashing ? this._flashMat : baseMat;
+      const iFrameTimer = (spawned.entity as unknown as HasIFrames).iFrameTimer;
+      mesh.visible = this._blinkVisible(iFrameTimer);
+    }
   }
 
   /** @internal */
@@ -248,10 +318,13 @@ export class SpritePool {
   /**
    * Update (or create) the death-plane mesh.
    *
-   * @param planeY - Current death-plane world Y (Y+ = down).
-   * @param scene  - Three.js scene.
+   * @param planeY    - Current death-plane world Y (Y+ = down).
+   * @param scene     - Three.js scene.
+   * @param rumbling  - When true, jitter the mesh slightly horizontally and
+   *                    vertically to indicate the plane is about to start
+   *                    moving. Set to false once the plane is in motion.
    */
-  syncDeathPlane(planeY: number, scene: THREE.Scene): void {
+  syncDeathPlane(planeY: number, scene: THREE.Scene, rumbling = false): void {
     if (!this._planeMesh) {
       this._planeMesh = new THREE.Mesh(this._planeGeo, this._planeMat);
       this._planeMesh.position.z = Z_LAYER.deathPlane;
@@ -260,7 +333,17 @@ export class SpritePool {
     }
     // The mesh centre maps to `planeY` (Y-flip), so the image's vertical
     // midpoint sits exactly on the death line.
-    this._planeMesh.position.y = -planeY + this._planeYOffset;
+    let xOffset = 0;
+    let yOffset = 0;
+    if (rumbling) {
+      // Small randomized jitter — amplitude in world units. Two independent
+      // axes give a noisy shake. No allocation, no time dependency.
+      const AMP = 0.08;
+      xOffset = (Math.random() - 0.5) * 2 * AMP;
+      yOffset = (Math.random() - 0.5) * 2 * AMP;
+    }
+    this._planeMesh.position.x = this._planeCenterX + xOffset;
+    this._planeMesh.position.y = -planeY + this._planeYOffset + yOffset;
   }
 
   /**

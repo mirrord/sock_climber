@@ -34,6 +34,9 @@ interface AttackState {
  * which already enforces i-frames; callers pass damage through there.
  */
 export class CombatSystem {
+  /** Horizontal recoil speed (m/s) applied to the player on a landed hit. */
+  static readonly PLAYER_RECOIL_VX = 2;
+
   private readonly _bus: EventBus<GameEvents>;
   private _attack: AttackState | null = null;
 
@@ -99,6 +102,10 @@ export class CombatSystem {
           const hit = target.takeDamage(data.damage, kbX, data.knockbackY);
           if (hit) {
             this._attack.hitTargets.add(target.id);
+            // Apply a small horizontal recoil to the player, opposite the
+            // attack direction. Subtle by design — gives weight to hits
+            // without disrupting platforming flow.
+            player.body.velocity.x -= facing * CombatSystem.PLAYER_RECOIL_VX;
             this._bus.emit("onHit", { entityId: target.id, damage: data.damage });
             if (target.hp <= 0) {
               this._bus.emit("onKill", { entityId: target.id });

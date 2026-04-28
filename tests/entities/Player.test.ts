@@ -329,7 +329,7 @@ describe("Player — wall kick", () => {
     expect(player.body.velocity.x).toBeCloseTo(DEFAULT_PLAYER_STATS.wallKickVX, 5);
   });
 
-  it("horizontal input is locked for wallKickLockDuration after the kick", () => {
+  it("horizontal input is NOT locked after the kick (cooldown removed)", () => {
     const player = new Player({ x: 5, y: 5 });
     player.body.flags.onGround = false;
     player.body.flags.onWallR = true;
@@ -338,11 +338,16 @@ describe("Player — wall kick", () => {
     player.update(DT, makeSnap({ pressed: ["Jump"] }));
 
     const kickVX = player.body.velocity.x;
-    expect(player.wallKickLockTimer).toBeGreaterThan(0);
+    expect(player.wallKickLockTimer).toBe(0);
 
-    // Try to override with horizontal input — lock must block it.
+    // Player has now kicked off the wall — simulate physics moving them
+    // away by clearing the wall flag.
+    player.body.flags.onWallR = false;
+
+    // Opposing horizontal input flips direction immediately while preserving
+    // the kick's speed magnitude (wall-kick momentum).
     player.update(DT, makeSnap({ axes: { moveX: 1 } }));
-    expect(player.body.velocity.x).toBeCloseTo(kickVX, 5);
+    expect(player.body.velocity.x).toBeCloseTo(Math.abs(kickVX), 5);
   });
 
   it("wall kick + physics integration: player bounces off wall", () => {
@@ -738,7 +743,8 @@ describe("Player — dash interactions", () => {
     player.update(DT, makeSnap({ pressed: ["Jump"], down: ["Dash", "Jump"] }));
     expect(player.body.velocity.x).toBeCloseTo(dashSpeed, 3); // kick away from L wall
     expect(player.body.velocity.y).toBeCloseTo(DEFAULT_PLAYER_STATS.wallKickVY, 3);
-    expect(player.wallKickLockTimer).toBeGreaterThan(0);
+    // No input-lock cooldown after wall kicks.
+    expect(player.wallKickLockTimer).toBe(0);
   });
 
   it("wall kick without Dash held uses the normal wallKickVX magnitude", () => {
@@ -788,7 +794,7 @@ describe("Player — dash interactions", () => {
     }
   });
 
-  it("dash-wall-kick momentum persists in the air", () => {
+  it("dash-wall-kick momentum is retained in the air with no horizontal input", () => {
     const player = new Player({ x: 5, y: 5 });
     player.body.flags.onGround = false;
     player.body.flags.onWallL = true;
@@ -799,13 +805,29 @@ describe("Player — dash interactions", () => {
     player.update(DT, makeSnap({ pressed: ["Jump"], down: ["Dash", "Jump"] }));
     expect(player.body.velocity.x).toBeCloseTo(dashSpeed, 3);
 
-    // Leave wall, advance airborne with no input. After the wallKickLock
-    // expires, the dash-momentum-lock should keep vx pinned at dashSpeed.
+    // Leave wall, advance airborne with no horizontal input — wall-kick
+    // momentum holds the dash-derived speed indefinitely until landing.
     player.body.flags.onWallL = false;
     for (let i = 0; i < 60; i++) {
-      player.update(DT, makeSnap({ axes: { moveX: -1 } }));
+      player.update(DT, makeSnap());
       expect(player.body.velocity.x).toBeCloseTo(dashSpeed, 3);
     }
+  });
+
+  it("dash-wall-kick allows immediate horizontal direction flip while retaining magnitude", () => {
+    const player = new Player({ x: 5, y: 5 });
+    player.body.flags.onGround = false;
+    player.body.flags.onWallL = true;
+    player.body.velocity.y = 1;
+    player.update(DT, makeSnap());
+
+    player.update(DT, makeSnap({ pressed: ["Jump"], down: ["Dash", "Jump"] }));
+    expect(player.body.velocity.x).toBeCloseTo(dashSpeed, 3);
+
+    // Press opposite direction — velocity flips, magnitude preserved.
+    player.body.flags.onWallL = false;
+    player.update(DT, makeSnap({ axes: { moveX: -1 } }));
+    expect(player.body.velocity.x).toBeCloseTo(-dashSpeed, 3);
   });
 
   it("plain air-dash momentum still decays after the dash ends", () => {

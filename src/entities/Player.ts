@@ -56,11 +56,18 @@ export class Player implements Entity {
   /** Horizontal velocity held during a dash in m/s. */
   private _dashVX = 0;
   /**
-   * True while the player is airborne after performing a dash-jump or
-   * dash-wall-kick. Suppresses air-acceleration so the dash-derived
-   * horizontal momentum carries until the player lands or contacts a wall.
+   * True while the player is airborne after performing a dash-jump.
+   * Suppresses air-acceleration so the dash-derived horizontal momentum
+   * carries until the player lands or contacts a wall.
    */
   private _dashMomentumLock = false;
+  /**
+   * True while the player is airborne after performing any wall kick (with
+   * or without dash held). Horizontal input retains the kick's speed
+   * magnitude but may flip direction at any time. Cleared on landing or
+   * fresh wall contact.
+   */
+  private _wallKickMomentum = false;
   // ─── Stat mod system ─────────────────────────────────────────────────────
   /** Active temporary stat modifiers, keyed by source id. Values are additive deltas. */
   private readonly _statMods = new Map<string, Partial<PlayerStats>>();
@@ -180,6 +187,7 @@ export class Player implements Entity {
     this._crouchHoldTimer = 0;
     this._dashVX = 0;
     this._dashMomentumLock = false;
+    this._wallKickMomentum = false;
     this._springCharge = 0;
     this._springDirX = 0;
     this._springDirY = -1;
@@ -242,6 +250,7 @@ export class Player implements Entity {
       this._justJumped = false;
       this._coyoteTimer = 0;
       this._dashMomentumLock = false;
+      this._wallKickMomentum = false;
     } else if ((onWallL || onWallR) && this.body.velocity.y >= 0) {
       // Wall slide: airborne, touching a wall, moving downward (or still).
       this._locomotion = "WallSliding";
@@ -256,6 +265,7 @@ export class Player implements Entity {
     if (onWallL || onWallR) {
       this._airDashesUsed = 0;
       this._dashMomentumLock = false;
+      this._wallKickMomentum = false;
     }
 
     // ─── Jump buffer ──────────────────────────────────────────────────────
@@ -302,17 +312,17 @@ export class Player implements Entity {
         this._bus?.emit("onJump", {});
       } else if (canWallKick) {
         // Kick away from the wall. Dash-held → kick at dash speed.
+        // No input-lockout — the player may move horizontally immediately,
+        // but the wall-kick momentum flag preserves the kick's speed
+        // magnitude until landing or new wall contact (see horizontal
+        // movement block).
         const kickDirX: 1 | -1 = onWallL ? 1 : -1;
         const horizSpeed = dashHeld ? dashSpeed : s.wallKickVX;
         this.body.velocity.x = kickDirX * horizSpeed;
         this.body.velocity.y = s.wallKickVY;
         this._jumpBufferTimer = 0;
-        this._wallKickLockTimer = s.wallKickLockDuration;
-        if (dashHeld) {
-          // Dash-wall-kick: persist horizontal momentum across the air
-          // until landing or next wall contact.
-          this._dashMomentumLock = true;
-        }
+        this._wallKickMomentum = true;
+        this._facing = kickDirX;
         this._locomotion = "Airborne";
         jumpedThisFrame = true;
         this._bus?.emit("onJump", {});
@@ -423,11 +433,21 @@ export class Player implements Entity {
     }
 
     // ─── Horizontal movement ──────────────────────────────────────────────
-    if (
-      !this._isDashing &&
-      !this._dashMomentumLock &&
-      this._wallKickLockTimer <= 0
-    ) {
+    if (this._isDashing) {
+      // Dash sets velocity directly above; do nothing here.
+    } else if (this._dashMomentumLock) {
+      // Dash-jump: full horizontal authority lock until landing/wall.
+    } else if (this._wallKickMomentum) {
+      // Wall-kick (with or without dash): the player may move horizontally
+      // immediately, but the kick's speed magnitude is preserved across
+      // direction changes. With no input the current velocity is held.
+      if (snap.axes.moveX !== 0) {
+        const sign: 1 | -1 = snap.axes.moveX > 0 ? 1 : -1;
+        const mag = Math.abs(this.body.velocity.x);
+        this.body.velocity.x = sign * mag;
+        this._facing = sign;
+      }
+    } else if (this._wallKickLockTimer <= 0) {
       const accel = this._locomotion === "Grounded" ? s.groundAccel : s.airAccel;
       const targetVX = snap.axes.moveX * s.maxSpeed;
       const diff = targetVX - this.body.velocity.x;
