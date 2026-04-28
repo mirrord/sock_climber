@@ -55,6 +55,7 @@ export class AudioSystem {
       eventBus.on("onSegmentCross", () => this._play("segmentCross")),
       eventBus.on("onBuffApplied", () => this._play("buffApplied")),
       eventBus.on("onGumEnter", () => this._play("gumEnter")),
+      eventBus.on("onGaugeFull", () => this._play("gaugeFull")),
       eventBus.on("onSpringRelease", () => {
         this._springHandle?.stop();
         this._springHandle = this._play("springRelease");

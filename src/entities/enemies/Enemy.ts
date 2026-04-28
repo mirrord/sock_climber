@@ -54,6 +54,20 @@ export abstract class Enemy implements Entity, Damageable {
   /** Upgrade gauge fill awarded to the player when this enemy dies. */
   readonly gaugeReward: number;
 
+  /**
+   * Whether this enemy has been revealed by the camera at least once.
+   *
+   * While `false`, `update()` skips the subclass `updateAI()` step so the
+   * enemy holds its spawn pose and does not begin moving toward the player.
+   * The game loop sets this to `true` once the enemy enters the visible
+   * viewport; it is sticky (never reset to `false`).
+   *
+   * Defaults to `true` so unit tests that construct enemies directly are
+   * unaffected; the level generator explicitly sets `false` for entities it
+   * spawns into the world.
+   */
+  revealed = true;
+
   constructor(opts: EnemyOptions) {
     this.id = nextEntityId();
     this.body = createBody({
@@ -169,7 +183,7 @@ export abstract class Enemy implements Entity, Damageable {
     if (this._health.iFrameTimer > 0) {
       this._health.iFrameTimer = Math.max(0, this._health.iFrameTimer - dt);
     }
-    if (this.isAlive) this.updateAI(dt, playerX, playerY);
+    if (this.isAlive && this.revealed) this.updateAI(dt, playerX, playerY);
   }
 
   /** Subclass-specific AI logic. Only called while alive. */

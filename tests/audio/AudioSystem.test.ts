@@ -83,6 +83,12 @@ describe("AudioSystem — event routing", () => {
     expect(s.playSfxSpy).toHaveBeenCalledWith(FAKE_BUFFER);
   });
 
+  it("plays gaugeFull SFX on onGaugeFull", () => {
+    s.registry.register("gaugeFull", FAKE_BUFFER);
+    s.bus.emit("onGaugeFull", {});
+    expect(s.playSfxSpy).toHaveBeenCalledWith(FAKE_BUFFER);
+  });
+
   it("does not call playSfx when the SFX is not registered", () => {
     // registry has no entries
     s.bus.emit("onJump", {});

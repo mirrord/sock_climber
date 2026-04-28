@@ -54,10 +54,110 @@ describe("UpgradeSystem — gauge", () => {
   });
 });
 
+// ─── Climb-based fill ─────────────────────────────────────────────────────
+
+describe("UpgradeSystem — climb fill", () => {
+  it("baselines climb position on first update without filling", () => {
+    const bus = createEventBus<GameEvents>();
+    const sys = new UpgradeSystem(bus, createRNG(1));
+    const player = makePlayer(3);
+    player.body.position.y = 100;
+    sys.update(player);
+    expect(sys.gauge).toBe(0);
+  });
+
+  it("fills from 0 to 1 after 50 world-units of net upward climb", () => {
+    const bus = createEventBus<GameEvents>();
+    const sys = new UpgradeSystem(bus, createRNG(1));
+    const player = makePlayer(3);
+    player.body.position.y = 100;
+    sys.update(player); // baseline
+    // World Y+ is down; climb upward = decrease y by 50.
+    player.body.position.y = 50;
+    sys.update(player);
+    expect(sys.gauge).toBeCloseTo(1);
+  });
+
+  it("partial climb yields proportional fill", () => {
+    const bus = createEventBus<GameEvents>();
+    const sys = new UpgradeSystem(bus, createRNG(1));
+    const player = makePlayer(3);
+    player.body.position.y = 100;
+    sys.update(player); // baseline
+    player.body.position.y = 90; // 10 units up
+    sys.update(player);
+    expect(sys.gauge).toBeCloseTo(10 / 50);
+  });
+
+  it("descending does not decrease the gauge", () => {
+    const bus = createEventBus<GameEvents>();
+    const sys = new UpgradeSystem(bus, createRNG(1));
+    const player = makePlayer(3);
+    player.body.position.y = 100;
+    sys.update(player); // baseline
+    player.body.position.y = 80; // climb 20 → gauge 0.4
+    sys.update(player);
+    const after = sys.gauge;
+    player.body.position.y = 200; // fall well below baseline
+    sys.update(player);
+    expect(sys.gauge).toBeCloseTo(after);
+  });
+
+  it("emits onGaugeChanged with the updated fill on climb", () => {
+    const bus = createEventBus<GameEvents>();
+    const sys = new UpgradeSystem(bus, createRNG(1));
+    const player = makePlayer(3);
+    player.body.position.y = 100;
+    sys.update(player); // baseline
+    let lastFill = -1;
+    bus.on("onGaugeChanged", ({ fill }) => {
+      lastFill = fill;
+    });
+    player.body.position.y = 75; // 25 units up
+    sys.update(player);
+    expect(lastFill).toBeCloseTo(25 / 50);
+  });
+
+  it("climb fill combined with kills caps at 1 and emits onGaugeFull once", () => {
+    const bus = createEventBus<GameEvents>();
+    const sys = new UpgradeSystem(bus, createRNG(1));
+    const player = makePlayer(3);
+    damagePlayer(player, 1);
+    let fullCount = 0;
+    bus.on("onGaugeFull", () => fullCount++);
+    player.body.position.y = 100;
+    sys.update(player); // baseline
+    bus.emit("onKill", { entityId: 1 }); // 0.25
+    bus.emit("onKill", { entityId: 2 }); // 0.50
+    player.body.position.y = 50; // +1.0 climb fill, total clamped to 1
+    sys.update(player);
+    expect(fullCount).toBe(1);
+    expect(sys.tryOpenPicker(player)).toBe(true);
+    expect(sys.isPickerOpen).toBe(true);
+  });
+
+  it("reset() re-baselines the climb position", () => {
+    const bus = createEventBus<GameEvents>();
+    const sys = new UpgradeSystem(bus, createRNG(1));
+    const player = makePlayer(3);
+    player.body.position.y = 100;
+    sys.update(player); // baseline at 100
+    player.body.position.y = 50; // fills to 1
+    sys.update(player);
+    sys.reset();
+    expect(sys.gauge).toBe(0);
+    // After reset, jumping straight to a much higher altitude should not
+    // immediately fill the bar — the next update re-baselines.
+    player.body.position.y = 0;
+    sys.update(player);
+    expect(sys.gauge).toBe(0);
+  });
+});
+
 // ─── Picker opening ───────────────────────────────────────────────────────
 
 describe("UpgradeSystem — picker opening", () => {
-  it("picker opens when gauge reaches 1 and player has empty containers", () => {
+  it("picker opens when tryOpenPicker is called with full gauge and an empty container", () => {
     const bus = createEventBus<GameEvents>();
     const sys = new UpgradeSystem(bus, createRNG(1));
     const player = makePlayer(3);
@@ -66,7 +166,9 @@ describe("UpgradeSystem — picker opening", () => {
     // 4 kills fills gauge to 1.
     for (let i = 0; i < 4; i++) bus.emit("onKill", { entityId: i });
     sys.update(player);
+    expect(sys.isPickerOpen).toBe(false); // does NOT auto-open
 
+    expect(sys.tryOpenPicker(player)).toBe(true);
     expect(sys.isPickerOpen).toBe(true);
   });
 
@@ -77,7 +179,7 @@ describe("UpgradeSystem — picker opening", () => {
     damagePlayer(player, 1);
 
     for (let i = 0; i < 4; i++) bus.emit("onKill", { entityId: i });
-    sys.update(player);
+    sys.tryOpenPicker(player);
 
     expect(sys.currentOffer?.length).toBe(3);
   });
@@ -89,7 +191,7 @@ describe("UpgradeSystem — picker opening", () => {
     damagePlayer(player, 1);
 
     for (let i = 0; i < 4; i++) bus.emit("onKill", { entityId: i });
-    sys.update(player);
+    sys.tryOpenPicker(player);
 
     const offer = sys.currentOffer!;
     const ids = offer.map((p) => p.id);
@@ -103,20 +205,50 @@ describe("UpgradeSystem — picker opening", () => {
     damagePlayer(player, 1);
 
     for (let i = 0; i < 4; i++) bus.emit("onKill", { entityId: i });
-    sys.update(player);
+    sys.tryOpenPicker(player);
 
     expect(sys.gauge).toBeCloseTo(0);
   });
 
-  it("picker does NOT open when player has 0 empty containers (gated)", () => {
+  it("tryOpenPicker still opens with 0 empty containers (offer is filtered)", () => {
     const bus = createEventBus<GameEvents>();
     const sys = new UpgradeSystem(bus, createRNG(1));
     const player = makePlayer(3); // full health → 0 empty containers
 
     for (let i = 0; i < 4; i++) bus.emit("onKill", { entityId: i });
-    sys.update(player);
+    expect(sys.tryOpenPicker(player)).toBe(true);
+    expect(sys.isPickerOpen).toBe(true);
+    // Only ExtraHP is eligible without an empty container.
+    const offer = sys.currentOffer ?? [];
+    for (const p of offer) expect(p.id).toBe("ExtraHP");
+  });
 
+  it("tryOpenPicker returns false when gauge is not full", () => {
+    const bus = createEventBus<GameEvents>();
+    const sys = new UpgradeSystem(bus, createRNG(1));
+    const player = makePlayer(3);
+    damagePlayer(player, 1);
+
+    bus.emit("onKill", { entityId: 1 });
+    expect(sys.gauge).toBeCloseTo(0.25);
+    expect(sys.tryOpenPicker(player)).toBe(false);
     expect(sys.isPickerOpen).toBe(false);
+  });
+
+  it("emits onPickerOpen exactly once when picker opens", () => {
+    const bus = createEventBus<GameEvents>();
+    const sys = new UpgradeSystem(bus, createRNG(1));
+    const player = makePlayer(3);
+    damagePlayer(player, 1);
+
+    let openCount = 0;
+    bus.on("onPickerOpen", () => openCount++);
+
+    for (let i = 0; i < 4; i++) bus.emit("onKill", { entityId: i });
+    sys.tryOpenPicker(player);
+    sys.tryOpenPicker(player); // already open — no-op
+
+    expect(openCount).toBe(1);
   });
 
   it("picker never offers capped patches (AirJump when combined >= 2)", () => {
@@ -127,7 +259,7 @@ describe("UpgradeSystem — picker opening", () => {
     damagePlayer(player, 1);
 
     for (let i = 0; i < 4; i++) bus.emit("onKill", { entityId: i });
-    sys.update(player);
+    sys.tryOpenPicker(player);
 
     const offer = sys.currentOffer ?? [];
     expect(offer.find((p) => p.id === "AirJump")).toBeUndefined();
@@ -145,7 +277,7 @@ describe("UpgradeSystem — selectPatch", () => {
   ): void {
     damagePlayer(player, 1);
     for (let i = 0; i < 4; i++) bus.emit("onKill", { entityId: i });
-    sys.update(player);
+    sys.tryOpenPicker(player);
   }
 
   it("closes picker after selection", () => {
@@ -165,7 +297,7 @@ describe("UpgradeSystem — selectPatch", () => {
     const player = makePlayer(3);
     damagePlayer(player, 2); // 2 empty containers
     for (let i = 0; i < 4; i++) bus.emit("onKill", { entityId: i });
-    sys.update(player);
+    sys.tryOpenPicker(player);
 
     // Find a non-ExtraHP patch to select (ExtraHP doesn't consume a container).
     const idx = sys.currentOffer!.findIndex((p) => p.id !== "ExtraHP");
@@ -225,7 +357,7 @@ describe("UpgradeSystem — selectPatch", () => {
       player = makePlayer(3);
       damagePlayer(player, 1);
       for (let i = 0; i < 4; i++) bus.emit("onKill", { entityId: i });
-      sys.update(player);
+      sys.tryOpenPicker(player);
       if (sys.currentOffer?.some((p) => p.id === "ExtraHP")) {
         found = true;
       } else {
@@ -252,7 +384,7 @@ describe("UpgradeSystem — selectPatch", () => {
 
     // First pick cycle.
     for (let i = 0; i < 4; i++) bus.emit("onKill", { entityId: i });
-    sys.update(player);
+    sys.tryOpenPicker(player);
     // Find AirDash in offer (combined is 1, so still eligible).
     const idx = sys.currentOffer?.findIndex((p) => p.id === "AirDash") ?? -1;
     if (idx === -1) return; // not in offer this seed — skip
@@ -260,7 +392,7 @@ describe("UpgradeSystem — selectPatch", () => {
 
     // Second pick cycle (combined now 1+1=2, so both capped).
     for (let i = 4; i < 8; i++) bus.emit("onKill", { entityId: i });
-    sys.update(player);
+    sys.tryOpenPicker(player);
 
     if (!sys.isPickerOpen) return; // no more empty containers — skip
     const offer2 = sys.currentOffer ?? [];

@@ -9,6 +9,19 @@ function getEntry(id: string): PatchEntry {
   return entry;
 }
 
+/**
+ * Construct a player with at least one empty HP container so patches that
+ * require an empty container to apply are eligible. Most catalog tests are
+ * about cap logic, not the empty-container gate, so we damage the player by
+ * default.
+ */
+function playerWithEmptyContainer(opts?: ConstructorParameters<typeof Player>[1]): Player {
+  const p = new Player({ x: 0, y: 0 }, opts ?? {});
+  p.takeDamage(1, 0, 0);
+  (p as unknown as { _health: { iFrameTimer: number } })._health.iFrameTimer = 0;
+  return p;
+}
+
 // ─── Catalog structure ────────────────────────────────────────────────────
 
 describe("PatchCatalog — structure", () => {
@@ -33,17 +46,22 @@ describe("PatchCatalog — structure", () => {
 
 describe("PatchCatalog — AirJump eligibility", () => {
   it("eligible when maxAirJumps + maxAirDashes < 2", () => {
-    const player = new Player({ x: 0, y: 0 }, { maxAirJumps: 0, maxAirDashes: 0 });
+    const player = playerWithEmptyContainer({ maxAirJumps: 0, maxAirDashes: 0 });
     expect(getEntry("AirJump").isEligible(player, new Set())).toBe(true);
   });
 
   it("ineligible when maxAirJumps + maxAirDashes >= 2", () => {
-    const player = new Player({ x: 0, y: 0 }, { maxAirJumps: 1, maxAirDashes: 1 });
+    const player = playerWithEmptyContainer({ maxAirJumps: 1, maxAirDashes: 1 });
     expect(getEntry("AirJump").isEligible(player, new Set())).toBe(false);
   });
 
   it("ineligible when base maxAirJumps alone is >= 2", () => {
-    const player = new Player({ x: 0, y: 0 }, { maxAirJumps: 2, maxAirDashes: 0 });
+    const player = playerWithEmptyContainer({ maxAirJumps: 2, maxAirDashes: 0 });
+    expect(getEntry("AirJump").isEligible(player, new Set())).toBe(false);
+  });
+
+  it("ineligible when player has no empty HP containers", () => {
+    const player = new Player({ x: 0, y: 0 }, { maxAirJumps: 0, maxAirDashes: 0 });
     expect(getEntry("AirJump").isEligible(player, new Set())).toBe(false);
   });
 });
@@ -52,17 +70,17 @@ describe("PatchCatalog — AirJump eligibility", () => {
 
 describe("PatchCatalog — AirDash eligibility", () => {
   it("eligible when maxAirJumps + maxAirDashes < 2", () => {
-    const player = new Player({ x: 0, y: 0 }, { maxAirJumps: 0, maxAirDashes: 0 });
+    const player = playerWithEmptyContainer({ maxAirJumps: 0, maxAirDashes: 0 });
     expect(getEntry("AirDash").isEligible(player, new Set())).toBe(true);
   });
 
   it("ineligible when maxAirJumps + maxAirDashes >= 2", () => {
-    const player = new Player({ x: 0, y: 0 }, { maxAirJumps: 2, maxAirDashes: 0 });
+    const player = playerWithEmptyContainer({ maxAirJumps: 2, maxAirDashes: 0 });
     expect(getEntry("AirDash").isEligible(player, new Set())).toBe(false);
   });
 
   it("ineligible when combined is exactly 2 with one of each", () => {
-    const player = new Player({ x: 0, y: 0 }, { maxAirJumps: 1, maxAirDashes: 1 });
+    const player = playerWithEmptyContainer({ maxAirJumps: 1, maxAirDashes: 1 });
     expect(getEntry("AirDash").isEligible(player, new Set())).toBe(false);
   });
 });
@@ -81,15 +99,20 @@ describe("PatchCatalog — ExtraHP eligibility", () => {
   });
 });
 
-// ─── Always-eligible patches ──────────────────────────────────────────────
+// ─── Stat-mod patches (require an empty HP container) ─────────────────────
 
-describe("PatchCatalog — always-eligible patches", () => {
-  const alwaysEligible = ["Speed", "Damage", "AttackSpeed", "SlowFlood"];
+describe("PatchCatalog — stat-mod patches", () => {
+  const statModPatches = ["Speed", "Damage", "AttackSpeed", "SlowFlood"];
 
-  for (const id of alwaysEligible) {
-    it(`${id} is always eligible regardless of player state`, () => {
+  for (const id of statModPatches) {
+    it(`${id} is eligible whenever the player has an empty HP container`, () => {
+      const player = playerWithEmptyContainer({ maxAirJumps: 2, maxAirDashes: 2 });
+      expect(getEntry(id).isEligible(player, new Set([id]))).toBe(true);
+    });
+
+    it(`${id} is ineligible when the player has no empty HP containers`, () => {
       const player = new Player({ x: 0, y: 0 }, { maxAirJumps: 2, maxAirDashes: 2 });
-      expect(getEntry(id).isEligible(player, new Set([id, id]))).toBe(true);
+      expect(getEntry(id).isEligible(player, new Set())).toBe(false);
     });
   }
 });

@@ -136,8 +136,16 @@ export type GameEvents = {
   onDistanceChanged: { distance: number };
   /** Emitted by Title screen when the player starts a new run. */
   onGameStart: Record<string, never>;
-  /** Emitted to pause game simulation (Pause action or PatchPicker opening). */
+  /** Emitted to pause game simulation and show the pause menu. */
   onPause: Record<string, never>;
-  /** Emitted to resume game simulation. */
+  /** Emitted to resume game simulation from the pause menu. */
   onResume: Record<string, never>;
+  /**
+   * Emitted by `UpgradeSystem` when the player invokes the patch picker
+   * (typically via the `ApplyPatch` input). Halts simulation but does NOT
+   * show the pause menu.
+   */
+  onPickerOpen: Record<string, never>;
+  /** Emitted when the patch picker closes (selection made). Resumes simulation. */
+  onPickerClose: Record<string, never>;
 };

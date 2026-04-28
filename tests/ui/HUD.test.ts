@@ -40,6 +40,48 @@ describe("HUD", () => {
     hud.destroy();
   });
 
+  it("renders both empty and full bar sprite images", () => {
+    const hud = new HUD(bus, container);
+
+    const empty = container.querySelector<HTMLImageElement>(".gauge-empty");
+    const full = container.querySelector<HTMLImageElement>(".gauge-fill .gauge-full");
+    expect(empty).not.toBeNull();
+    expect(full).not.toBeNull();
+    expect(empty!.getAttribute("src")).toBe("assets/sprites/bar empty.png");
+    expect(full!.getAttribute("src")).toBe("assets/sprites/bar full.png");
+
+    hud.destroy();
+  });
+
+  it("adds the is-full class to #hud-gauge on onGaugeFull and removes it on next reset", () => {
+    const hud = new HUD(bus, container);
+    const gauge = container.querySelector<HTMLElement>("#hud-gauge")!;
+
+    bus.emit("onGaugeFull", {});
+    expect(gauge.classList.contains("is-full")).toBe(true);
+
+    bus.emit("onGaugeChanged", { fill: 0 });
+    expect(gauge.classList.contains("is-full")).toBe(false);
+
+    hud.destroy();
+  });
+
+  it("renders trailing particle dots inside the gauge while bar is full", () => {
+    const hud = new HUD(bus, container);
+    // No dots before bar is full.
+    expect(container.querySelectorAll(".gauge-trail-dot").length).toBe(0);
+
+    bus.emit("onGaugeFull", {});
+    // First dot is emitted immediately on entering the full state.
+    expect(container.querySelectorAll(".gauge-trail-dot").length).toBeGreaterThan(0);
+
+    // After the bar is no longer full, the trail container is cleared.
+    bus.emit("onGaugeChanged", { fill: 0 });
+    expect(container.querySelectorAll(".gauge-trail-dot").length).toBe(0);
+
+    hud.destroy();
+  });
+
   it("adds a buff element on onBuffApplied", () => {
     const hud = new HUD(bus, container);
     bus.emit("onBuffApplied", { buffId: "SpeedSock", duration: 5 });

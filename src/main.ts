@@ -172,6 +172,7 @@ const SFX_ASSETS: Partial<Record<SfxId, string>> = {
   attack: "whih.mp3",
   buffApplied: "wahaa.mp3",
   gumEnter: "squelch.mp3",
+  gaugeFull: "whistleup.mp3",
 };
 
 /**
@@ -378,12 +379,19 @@ const gameOver = new GameOver(bus, scoreSystem, onRestart);
 
 let alive = false; // starts false — loop only runs after onGameStart
 let paused = false;
+/**
+ * True while the patch picker is open. Halts gameplay simulation just like
+ * `paused`, but is tracked separately so the pause menu UI does not appear
+ * and so the Pause input toggle is suppressed for the duration.
+ */
+let pickerOpen = false;
 
 bus.on("onGameStart", () => {
   maybeResumeAudio();
   resetGame();
   alive = true;
   paused = false;
+  pickerOpen = false;
   hud.show();
   // Pick a random gameplay track for this run.
   const idx = rng.int(0, GAMEPLAY_MUSIC_IDS.length - 1);
@@ -392,6 +400,8 @@ bus.on("onGameStart", () => {
 
 bus.on("onPause", () => { paused = true; });
 bus.on("onResume", () => { paused = false; input.flush(); });
+bus.on("onPickerOpen", () => { pickerOpen = true; });
+bus.on("onPickerClose", () => { pickerOpen = false; input.flush(); });
 
 bus.on("onPlayerDeath", () => {
   alive = false;
@@ -475,6 +485,7 @@ function resetGame(): void {
 function onQuit(): void {
   alive = false;
   paused = false;
+  pickerOpen = false;
   pause.hide();
   hud.hide();
   renderer.clearCanvas();
@@ -488,6 +499,7 @@ function onRestart(): void {
   resetGame();
   alive = true;
   paused = false;
+  pickerOpen = false;
   // Pick a fresh random gameplay track for this run.
   const idx = rng.int(0, GAMEPLAY_MUSIC_IDS.length - 1);
   playMusic(GAMEPLAY_MUSIC_IDS[idx]!);
@@ -519,7 +531,9 @@ const loop = createLoop({
     }
 
     // Pause toggle — edge-detect the Pause action before alive/paused guards.
-    if (snap.buttonsPressed.has("Pause")) {
+    // Suppressed while the patch picker is open so Escape can't dismiss play
+    // out from under the picker (and so the pause menu doesn't stack on it).
+    if (snap.buttonsPressed.has("Pause") && !pickerOpen) {
       bus.emit(paused ? "onResume" : "onPause", {});
     }
 
@@ -528,7 +542,19 @@ const loop = createLoop({
     // outside the alive/paused guard for the same reason.
     music.update(dt);
 
-    if (!alive || paused) return;
+    // ApplyPatch — open the picker when the gauge is full. Tried before the
+    // alive/paused guard returns so the press is consumed even on the same
+    // frame we transition into the picker-open state.
+    if (
+      alive &&
+      !paused &&
+      !pickerOpen &&
+      snap.buttonsPressed.has("ApplyPatch")
+    ) {
+      upgradeSystem.tryOpenPicker(player);
+    }
+
+    if (!alive || paused || pickerOpen) return;
 
     // 1. Player controller.
     player.update(dt, snap, world);
@@ -549,12 +575,19 @@ const loop = createLoop({
     const live = spawnSystem.liveEntities;
     const px = player.body.position.x;
     const py = player.body.position.y;
+    // World-space Y of the top edge of the camera view (Y+ = down). Enemies
+    // become "revealed" — and only then start moving toward the player —
+    // once their position has scrolled into the viewport from above.
+    const cameraTopY = camera.viewTopY;
     _seenBuffIds.clear();
 
     for (let i = 0; i < live.length; i++) {
       const se = live[i]!;
       if (se.kind === "enemy") {
         const enemy = se.entity as Enemy;
+        if (!enemy.revealed && enemy.body.position.y >= cameraTopY) {
+          enemy.revealed = true;
+        }
         enemy.update(dt, px, py);
         step(enemy.body, world, dt);
         if (enemy.isAlive) {

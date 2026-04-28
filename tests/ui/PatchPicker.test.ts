@@ -36,8 +36,9 @@ describe("PatchPicker", () => {
   function openPicker(): void {
     // 4 kills fills the gauge.
     for (let i = 0; i < 4; i++) bus.emit("onKill", { entityId: i });
-    upgradeSystem.update(player);
-    // onGaugeFull was emitted inside update(); PatchPicker listens to it.
+    // Player must explicitly invoke the picker (mirrors ApplyPatch input).
+    upgradeSystem.tryOpenPicker(player);
+    // tryOpenPicker emits onPickerOpen, which PatchPicker listens for.
   }
 
   it("modal starts hidden", () => {
@@ -47,7 +48,7 @@ describe("PatchPicker", () => {
     pp.destroy();
   });
 
-  it("modal is shown on onGaugeFull", () => {
+  it("modal is shown on onPickerOpen", () => {
     const pp = new PatchPicker(bus, upgradeSystem, player, container);
     openPicker();
 
@@ -83,19 +84,25 @@ describe("PatchPicker", () => {
     pp.destroy();
   });
 
-  it("emits onPause when picker opens and onResume when a choice is made", () => {
+  it("emits onPickerOpen when picker opens and onPickerClose when a choice is made; does NOT emit onPause/onResume", () => {
     const pp = new PatchPicker(bus, upgradeSystem, player, container);
+    const openHandler = vi.fn();
+    const closeHandler = vi.fn();
     const pauseHandler = vi.fn();
     const resumeHandler = vi.fn();
+    bus.on("onPickerOpen", openHandler);
+    bus.on("onPickerClose", closeHandler);
     bus.on("onPause", pauseHandler);
     bus.on("onResume", resumeHandler);
 
     openPicker();
-    expect(pauseHandler).toHaveBeenCalledOnce();
+    expect(openHandler).toHaveBeenCalledOnce();
+    expect(pauseHandler).not.toHaveBeenCalled();
 
     const btn = container.querySelector<HTMLButtonElement>(".patch-btn");
     btn?.click();
-    expect(resumeHandler).toHaveBeenCalledOnce();
+    expect(closeHandler).toHaveBeenCalledOnce();
+    expect(resumeHandler).not.toHaveBeenCalled();
 
     pp.destroy();
   });

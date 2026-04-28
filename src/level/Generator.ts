@@ -119,6 +119,14 @@ export interface GeneratorOptions {
     minTy: number;
     maxTy: number;
   };
+  /**
+   * Minimum climb height (in metres / world units) below which enemy entities
+   * are not allowed to spawn. Measured from the player's spawn altitude
+   * (Y = 0); since Y+ = down, an enemy may only spawn when its world-space
+   * Y satisfies `y <= -enemySpawnMinHeight`. Obstacles and buffs are
+   * unaffected. Defaults to 30 m.
+   */
+  enemySpawnMinHeight?: number;
   /** Registries override (for testing). */
   registries?: GeneratorRegistries;
 }
@@ -193,6 +201,7 @@ export function createGenerator(opts: GeneratorOptions): Generator {
   const OPEN_BIAS = opts.openBias ?? 0.6;
   const WORLD_WIDTH = opts.worldWidth ?? 12;
   const SPAWN_SAFE_ZONE = opts.spawnSafeZone;
+  const ENEMY_SPAWN_MIN_HEIGHT = opts.enemySpawnMinHeight ?? 30;
 
   /** True if (tx, ty) lies inside the configured spawn safe zone. */
   function inSpawnSafeZone(tx: number, ty: number): boolean {
@@ -605,6 +614,10 @@ export function createGenerator(opts: GeneratorOptions): Generator {
         // for entities taller than one tile (halfH > 0.5).
         const finalX = tx + 0.5;
         const finalY = platform.ty - half.y;
+        // Enforce the no-enemy-spawn zone near the start of the level.
+        // Y+ = down; the player begins at Y = 0 and climbs upward (negative).
+        // Enemies are allowed only above the configured minimum climb height.
+        if (category === "enemy" && finalY > -ENEMY_SPAWN_MIN_HEIGHT) continue;
         // The chunk above this one has not been generated yet, so its
         // wall/platform tiles aren't tracked in `placedSolid`. Reject any
         // spawn whose AABB would protrude into rows above this chunk's top
@@ -622,6 +635,11 @@ export function createGenerator(opts: GeneratorOptions): Generator {
 
         setEntityPosition(entity, finalX, finalY);
         usedSpawnCells.add(key);
+        // Enemies start hidden; the gameplay loop reveals them once they
+        // enter the camera viewport. Until then their AI does not run.
+        if (category === "enemy") {
+          (entity as Enemy).revealed = false;
+        }
         placed = {
           kind: category,
           tag,

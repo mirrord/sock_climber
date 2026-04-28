@@ -62,6 +62,16 @@ export class GameCamera {
   }
 
   /**
+   * World-space Y of the top edge of the visible viewport.
+   * Y+ = down, so this is the most negative (highest) Y currently on screen.
+   * Used by gameplay systems to determine when off-screen entities have been
+   * revealed by the camera.
+   */
+  get viewTopY(): number {
+    return this._camWorldY - HALF_H;
+  }
+
+  /**
    * Smoothly chase `(targetX, targetY)` in world space.
    *
    * The deadzone prevents micro-jitter when the player is near the screen

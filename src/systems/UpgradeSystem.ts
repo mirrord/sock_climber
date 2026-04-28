@@ -8,12 +8,20 @@ import type { PatchEntry } from "./PatchCatalog.js";
 const FILL_PER_KILL = 0.25;
 
 /**
+ * Fractional gauge fill per world-unit (≈ metre) of net upward climb progress.
+ * 50 m of net climb = full bar in the absence of kills.
+ */
+const FILL_PER_CLIMB_UNIT = 1 / 50;
+
+/**
  * UpgradeSystem — manages the upgrade gauge and patch picker.
  *
- * The gauge fills by `FILL_PER_KILL` per `onKill` event (saturates at 1).
- * When full and the player has at least one empty HP container, the picker
- * opens with 3 randomly sampled eligible patches. Selecting a patch consumes
- * one empty container and applies the stat mod permanently.
+ * The gauge fills by `FILL_PER_KILL` per `onKill` event and by
+ * `FILL_PER_CLIMB_UNIT` per world-unit of net upward climb progress
+ * (saturates at 1). When full and the player has at least one empty HP
+ * container, the picker opens with 3 randomly sampled eligible patches.
+ * Selecting a patch consumes one empty container and applies the stat mod
+ * permanently.
  */
 export class UpgradeSystem {
   private _gauge = 0;
@@ -22,6 +30,18 @@ export class UpgradeSystem {
   private readonly _appliedPatchIds = new Set<string>();
   private readonly _bus: EventBus<GameEvents>;
   private readonly _rng: RNG;
+  /**
+   * Highest point (smallest world-Y) the player has reached so far this run.
+   * `null` until the first `update()` call after construction or `reset()`,
+   * at which point it is baselined to the player's current Y.
+   */
+  private _lastClimbY: number | null = null;
+  /**
+   * Latched `true` once `_gauge` reaches 1 and `onGaugeFull` has been emitted
+   * for the current cycle. Cleared on `selectPatch` / `reset`. Prevents
+   * duplicate `onGaugeFull` emissions while the player waits to apply.
+   */
+  private _gaugeFullEmitted = false;
 
   constructor(bus: EventBus<GameEvents>, rng: RNG) {
     this._bus = bus;
@@ -30,27 +50,58 @@ export class UpgradeSystem {
     bus.on("onKill", () => {
       this._gauge = Math.min(1, this._gauge + FILL_PER_KILL);
       bus.emit("onGaugeChanged", { fill: this._gauge });
+      this._maybeEmitGaugeFull();
     });
   }
 
   /**
-   * Call once per fixed step. Opens the picker if the gauge is full and the
-   * player has at least one empty HP container.
+   * Call once per fixed step. Adds climb-derived fill since the last call.
+   * The picker is no longer auto-opened here — the player must invoke it
+   * explicitly via {@link tryOpenPicker} (bound to the `ApplyPatch` input).
    */
   update(player: Player): void {
-    if (this._isPickerOpen) return;
-    if (this._gauge < 1) return;
-    if (player.emptyContainers < 1) return;
+    // ─── Climb-based fill ──────────────────────────────────────────────
+    // World Y+ is down, so "climbing up" means decreasing y.
+    const y = player.body.position.y;
+    if (this._lastClimbY === null) {
+      this._lastClimbY = y;
+    } else if (y < this._lastClimbY) {
+      const delta = this._lastClimbY - y;
+      this._lastClimbY = y;
+      const before = this._gauge;
+      this._gauge = Math.min(1, this._gauge + delta * FILL_PER_CLIMB_UNIT);
+      if (this._gauge !== before) {
+        this._bus.emit("onGaugeChanged", { fill: this._gauge });
+        this._maybeEmitGaugeFull();
+      }
+    }
+  }
+
+  /**
+   * Attempt to open the patch picker. Succeeds whenever the gauge is full
+   * (the only requirement — the offer itself is filtered to patches the
+   * player can actually apply, e.g. non-`ExtraHP` patches require an empty
+   * HP container). Emits `onPickerOpen` on success.
+   *
+   * @returns `true` if the picker was opened, `false` otherwise.
+   */
+  tryOpenPicker(player: Player): boolean {
+    if (this._isPickerOpen) return false;
+    if (this._gauge < 1) return false;
 
     this._gauge = 0;
+    this._gaugeFullEmitted = false;
     this._currentOffer = this._sampleOffer(player);
-    this._bus.emit("onGaugeFull", {});
     this._isPickerOpen = true;
+    this._bus.emit("onGaugeChanged", { fill: 0 });
+    this._bus.emit("onPickerOpen", {});
+    return true;
   }
 
   /**
    * Apply the patch at the given index in the current offer.
-   * Consumes one empty HP container and applies the stat mod.
+   * Consumes one empty HP container and applies the stat mod, then emits
+   * `onPickerClose` so the simulation can resume.
    *
    * @param index  - 0, 1, or 2.
    * @param player - The player to apply the patch to.
@@ -75,6 +126,7 @@ export class UpgradeSystem {
 
     this._isPickerOpen = false;
     this._currentOffer = null;
+    this._bus.emit("onPickerClose", {});
   }
 
   /** Upgrade gauge, clamped to [0, 1]. */
@@ -98,7 +150,21 @@ export class UpgradeSystem {
     this._isPickerOpen = false;
     this._currentOffer = null;
     this._appliedPatchIds.clear();
+    this._lastClimbY = null;
+    this._gaugeFullEmitted = false;
     this._bus.emit("onGaugeChanged", { fill: 0 });
+  }
+
+  /**
+   * Emit `onGaugeFull` exactly once per fill cycle (transition to ≥ 1).
+   * Latch is cleared by `tryOpenPicker` (when the picker actually opens) and
+   * by `reset()`.
+   */
+  private _maybeEmitGaugeFull(): void {
+    if (this._gaugeFullEmitted) return;
+    if (this._gauge < 1) return;
+    this._gaugeFullEmitted = true;
+    this._bus.emit("onGaugeFull", {});
   }
 
   /** Sample 3 distinct eligible patches without replacement using `_rng`. */

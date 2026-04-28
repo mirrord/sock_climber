@@ -34,6 +34,7 @@ export const PATCH_CATALOG: readonly PatchEntry[] = [
     description: "Gain one extra mid-air jump.",
     statMod: { maxAirJumps: 1 },
     isEligible(player) {
+      if (player.emptyContainers < 1) return false;
       const s = player.effectiveStats;
       return s.maxAirJumps + s.maxAirDashes < 2;
     },
@@ -44,6 +45,7 @@ export const PATCH_CATALOG: readonly PatchEntry[] = [
     description: "Gain one extra mid-air dash.",
     statMod: { maxAirDashes: 1 },
     isEligible(player) {
+      if (player.emptyContainers < 1) return false;
       const s = player.effectiveStats;
       return s.maxAirJumps + s.maxAirDashes < 2;
     },
@@ -62,27 +64,27 @@ export const PATCH_CATALOG: readonly PatchEntry[] = [
     name: "Speed Boost",
     description: "Increase maximum run speed.",
     statMod: { maxSpeed: 2 },
-    isEligible: () => true,
+    isEligible: (player) => player.emptyContainers >= 1,
   },
   {
     id: "Damage",
     name: "Power Up",
     description: "Deal more damage per hit.",
     statMod: { damageMultiplier: 0.25 },
-    isEligible: () => true,
+    isEligible: (player) => player.emptyContainers >= 1,
   },
   {
     id: "AttackSpeed",
     name: "Quick Strikes",
     description: "Attack animations play faster.",
     statMod: { attackSpeedMultiplier: 0.25 },
-    isEligible: () => true,
+    isEligible: (player) => player.emptyContainers >= 1,
   },
   {
     id: "SlowFlood",
     name: "Slow the Flood",
     description: "Reduce the death plane ascent speed.",
     statMod: { deathPlaneSpeedMultiplier: -0.2 },
-    isEligible: () => true,
+    isEligible: (player) => player.emptyContainers >= 1,
   },
 ] as const;

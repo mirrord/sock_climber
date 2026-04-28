@@ -18,7 +18,8 @@ export type SfxId =
   | "playerHurt"
   | "springRelease"
   | "buffApplied"
-  | "gumEnter";
+  | "gumEnter"
+  | "gaugeFull";
 
 /**
  * SfxRegistry — maps {@link SfxId} to a pre-decoded `AudioBuffer`.
