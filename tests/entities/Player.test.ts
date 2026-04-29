@@ -807,7 +807,7 @@ describe("Player — dash interactions", () => {
     }
   });
 
-  it("dash-wall-kick momentum is retained in the air with no horizontal input", () => {
+  it("dash-wall-kick raises the air-speed cap to dashSpeed until surface contact", () => {
     const player = new Player({ x: 5, y: 5 });
     player.body.flags.onGround = false;
     player.body.flags.onWallL = true;
@@ -818,16 +818,30 @@ describe("Player — dash interactions", () => {
     player.update(DT, makeSnap({ pressed: ["Jump"], down: ["Dash", "Jump"] }));
     expect(player.body.velocity.x).toBeCloseTo(dashSpeed, 3);
 
-    // Leave wall, advance airborne with no horizontal input — wall-kick
-    // momentum holds the dash-derived speed indefinitely until landing.
+    // Leave wall and tick past the input lock with no input — standard
+    // air-accel decelerates the player toward 0, but the elevated cap is
+    // still in effect.
     player.body.flags.onWallL = false;
-    for (let i = 0; i < 60; i++) {
-      player.update(DT, makeSnap());
-      expect(player.body.velocity.x).toBeCloseTo(dashSpeed, 3);
+    const lockTicks = Math.ceil(DEFAULT_PLAYER_STATS.wallKickLockDuration / DT) + 1;
+    for (let i = 0; i < lockTicks; i++) player.update(DT, makeSnap());
+    for (let i = 0; i < 60; i++) player.update(DT, makeSnap());
+    expect(player.body.velocity.x).toBeCloseTo(0, 3);
+
+    // Holding into a direction accelerates the player up to dashSpeed (the
+    // elevated cap), not the normal maxSpeed.
+    for (let i = 0; i < 120; i++) {
+      player.update(DT, makeSnap({ axes: { moveX: 1 } }));
     }
+    expect(player.body.velocity.x).toBeCloseTo(dashSpeed, 3);
+
+    // Holding the opposite direction reverses the player up to -dashSpeed.
+    for (let i = 0; i < 120; i++) {
+      player.update(DT, makeSnap({ axes: { moveX: -1 } }));
+    }
+    expect(player.body.velocity.x).toBeCloseTo(-dashSpeed, 3);
   });
 
-  it("dash-wall-kick treats dash speed as a cap, not a lock, after the input lock expires", () => {
+  it("dash-wall-kick elevated cap is restored to maxSpeed after surface contact", () => {
     const player = new Player({ x: 5, y: 5 });
     player.body.flags.onGround = false;
     player.body.flags.onWallL = true;
@@ -837,36 +851,21 @@ describe("Player — dash interactions", () => {
     player.update(DT, makeSnap({ pressed: ["Jump"], down: ["Dash", "Jump"] }));
     expect(player.body.velocity.x).toBeCloseTo(dashSpeed, 3);
 
-    // Tick past the dash wall-kick lock window with no input.
+    // Tick past the input lock so air-control re-engages.
     player.body.flags.onWallL = false;
-    const ticks = Math.ceil(DEFAULT_PLAYER_STATS.wallKickLockDuration / DT) + 1;
-    for (let i = 0; i < ticks; i++) {
-      player.update(DT, makeSnap());
-    }
-    // Momentum carried unchanged through the no-input ticks.
-    expect(player.body.velocity.x).toBeCloseTo(dashSpeed, 3);
+    const lockTicks = Math.ceil(DEFAULT_PLAYER_STATS.wallKickLockDuration / DT) + 1;
+    for (let i = 0; i < lockTicks; i++) player.update(DT, makeSnap());
 
-    // Holding into the kick direction preserves the supercharged speed —
-    // standard air-accel does not bleed the player down to maxSpeed.
-    for (let i = 0; i < 30; i++) {
+    // Land — elevated cap should be cleared.
+    player.body.flags.onGround = true;
+    player.update(DT, makeSnap());
+    player.body.flags.onGround = false;
+
+    // Holding into a direction now caps at the normal maxSpeed.
+    for (let i = 0; i < 120; i++) {
       player.update(DT, makeSnap({ axes: { moveX: 1 } }));
     }
-    expect(player.body.velocity.x).toBeCloseTo(dashSpeed, 3);
-
-    // Pressing the opposite direction does NOT instantly flip to -dashSpeed;
-    // standard air-accel decelerates the player. After one tick the player
-    // has slowed by airAccel * dt but is still moving in the original direction.
-    const vxBefore = player.body.velocity.x;
-    player.update(DT, makeSnap({ axes: { moveX: -1 } }));
-    const expectedAfterOneTick = vxBefore - DEFAULT_PLAYER_STATS.airAccel * DT;
-    expect(player.body.velocity.x).toBeCloseTo(expectedAfterOneTick, 3);
-
-    // Continue holding opposite — eventually the player's velocity reverses
-    // and settles at -maxSpeed (the standard air-control cap), not -dashSpeed.
-    for (let i = 0; i < 60; i++) {
-      player.update(DT, makeSnap({ axes: { moveX: -1 } }));
-    }
-    expect(player.body.velocity.x).toBeCloseTo(-DEFAULT_PLAYER_STATS.maxSpeed, 3);
+    expect(player.body.velocity.x).toBeCloseTo(DEFAULT_PLAYER_STATS.maxSpeed, 3);
   });
 
   it("plain air-dash momentum still decays after the dash ends", () => {

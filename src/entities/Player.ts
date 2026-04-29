@@ -456,39 +456,29 @@ export class Player implements Entity {
       // After the lock expires:
       //   • Plain wall kick (kick speed ≤ maxSpeed): the kick magnitude is
       //     preserved across direction flips (legacy behavior).
-      //   • Dash wall kick (kick speed > maxSpeed): the kick speed acts as a
-      //     *cap* rather than a lock. With no input, momentum carries. Holding
-      //     into the kick direction preserves the supercharged speed (does
-      //     not bleed down to maxSpeed). Holding the opposite direction
-      //     applies standard air-accel deceleration toward ±maxSpeed.
+      //   • Dash wall kick (kick speed > maxSpeed): the player's air-speed
+      //     *cap* is raised to the kick speed (in both directions) until they
+      //     contact a surface. Within that envelope, normal air-accel applies,
+      //     so the player can hold into or against the kick direction and
+      //     control their speed up to the elevated cap.
       if (this._wallKickLockTimer <= 0) {
         const inputX = snap.axes.moveX;
-        const vx = this.body.velocity.x;
         if (this._wallKickSpeed > s.maxSpeed) {
-          if (inputX !== 0) {
-            const sign: 1 | -1 = inputX > 0 ? 1 : -1;
-            const sameDir = sign === Math.sign(vx);
-            if (sameDir && Math.abs(vx) > s.maxSpeed) {
-              // Holding into the kick direction at supercharged speed:
-              // preserve velocity so air-control does not bleed it back
-              // down to maxSpeed.
-              this._facing = sign;
-            } else {
-              const targetVX = inputX * s.maxSpeed;
-              const diff = targetVX - vx;
-              const maxChange = s.airAccel * dt;
-              if (Math.abs(diff) <= maxChange) {
-                this.body.velocity.x = targetVX;
-              } else {
-                this.body.velocity.x += Math.sign(diff) * maxChange;
-              }
-              this._facing = sign;
-            }
+          // Elevated air-speed cap — normal air control within ±cap.
+          const cap = this._wallKickSpeed;
+          const targetVX = inputX * cap;
+          const diff = targetVX - this.body.velocity.x;
+          const maxChange = s.airAccel * dt;
+          if (Math.abs(diff) <= maxChange) {
+            this.body.velocity.x = targetVX;
+          } else {
+            this.body.velocity.x += Math.sign(diff) * maxChange;
           }
-          // No input → preserve current velocity (momentum carries).
+          if (inputX !== 0) this._facing = inputX > 0 ? 1 : -1;
         } else if (inputX !== 0) {
+          // Plain wall kick: legacy magnitude-preserving flip.
           const sign: 1 | -1 = inputX > 0 ? 1 : -1;
-          const mag = Math.abs(vx);
+          const mag = Math.abs(this.body.velocity.x);
           this.body.velocity.x = sign * mag;
           this._facing = sign;
         }
