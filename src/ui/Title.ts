@@ -1,11 +1,11 @@
-import type { EventBus, GameEvents } from "../core/EventBus.js";
 import { el, setText, setVisible } from "./dom.js";
 import { TEXT } from "./i18n.js";
 
 /**
  * Title — title screen overlay, shown on page load.
  *
- * Clicking Start emits `onGameStart` and hides the overlay.
+ * Clicking Start invokes the `onStart` callback (the host wires this to
+ * the level-select screen) and hides the overlay.
  * Clicking Settings calls the `openSettings()` callback.
  *
  * Gamepad navigation: D-pad up/down (buttons 12/13) or left-stick Y moves
@@ -25,7 +25,7 @@ export class Title {
   private _gpRaf: number | null = null;
 
   constructor(
-    bus: EventBus<GameEvents>,
+    onStart: () => void,
     openSettings: () => void,
     container: HTMLElement = document.body,
   ) {
@@ -64,7 +64,7 @@ export class Title {
     startBtn.addEventListener("click", () => {
       this._stopGamepadNav();
       setVisible(this._overlay, false);
-      bus.emit("onGameStart", {});
+      onStart();
     });
 
     settingsBtn.addEventListener("click", () => {

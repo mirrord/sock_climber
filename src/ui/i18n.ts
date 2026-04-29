@@ -20,6 +20,18 @@ export const TEXT = {
     start: "Start",
     settings: "Settings",
   },
+  levelSelect: {
+    heading: "Select a Level",
+    subtitle: "Choose where to begin your climb",
+    back: "Back",
+    comingSoon: "Coming Soon",
+    levels: {
+      1: "Level 1 — The Laundry Pile",
+      2: "Level 2 — ???",
+      3: "Level 3 — ???",
+      4: "Level 4 — ???",
+    },
+  },
   gameOver: {
     heading: "Game Over",
     distance: "Distance",

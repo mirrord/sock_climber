@@ -14,16 +14,18 @@ import { TEXT } from "./i18n.js";
  *
  * The player *must* choose — Escape is intentionally ignored while open.
  *
- * Gamepad navigation mirrors {@link Pause}: D-pad up/down (buttons 12/13)
- * or left-stick Y moves focus among the visible patch buttons; A (button 0)
- * or Start (button 9) confirms the highlighted choice. A `▶` arrow span
- * next to the focused button provides visual feedback.
+ * Gamepad navigation mirrors {@link Pause}: D-pad left/right (buttons 14/15)
+ * or left-stick X moves focus among the visible patch buttons; A (button 0)
+ * or Start (button 9) confirms the highlighted choice. The focused panel
+ * gets a `.focused` class that applies the same gold highlight as the
+ * mouse `:hover` state.
  */
 export class PatchPicker {
   private readonly _modal: HTMLElement;
   private readonly _buttons: [HTMLButtonElement, HTMLButtonElement, HTMLButtonElement];
-  private readonly _arrows: [HTMLSpanElement, HTMLSpanElement, HTMLSpanElement];
-  private readonly _labels: [HTMLSpanElement, HTMLSpanElement, HTMLSpanElement];
+  private readonly _icons: [HTMLImageElement, HTMLImageElement, HTMLImageElement];
+  private readonly _names: [HTMLSpanElement, HTMLSpanElement, HTMLSpanElement];
+  private readonly _descs: [HTMLSpanElement, HTMLSpanElement, HTMLSpanElement];
   private readonly _unsubs: Unsubscribe[] = [];
   private _upgradeSystem: UpgradeSystem;
   private _player: Player;
@@ -50,15 +52,17 @@ export class PatchPicker {
     setText(heading, TEXT.patch.heading);
     const options = el("div", ["patch-options"]);
 
-    const arrows: HTMLSpanElement[] = [];
-    const labels: HTMLSpanElement[] = [];
+    const icons: HTMLImageElement[] = [];
+    const names: HTMLSpanElement[] = [];
+    const descs: HTMLSpanElement[] = [];
     this._buttons = [
-      this._makeButton(0, arrows, labels),
-      this._makeButton(1, arrows, labels),
-      this._makeButton(2, arrows, labels),
+      this._makeButton(0, icons, names, descs),
+      this._makeButton(1, icons, names, descs),
+      this._makeButton(2, icons, names, descs),
     ];
-    this._arrows = arrows as [HTMLSpanElement, HTMLSpanElement, HTMLSpanElement];
-    this._labels = labels as [HTMLSpanElement, HTMLSpanElement, HTMLSpanElement];
+    this._icons = icons as [HTMLImageElement, HTMLImageElement, HTMLImageElement];
+    this._names = names as [HTMLSpanElement, HTMLSpanElement, HTMLSpanElement];
+    this._descs = descs as [HTMLSpanElement, HTMLSpanElement, HTMLSpanElement];
     for (const btn of this._buttons) options.appendChild(btn);
 
     this._modal.appendChild(heading);
@@ -80,13 +84,19 @@ export class PatchPicker {
             continue;
           }
           btn.dataset.patchId = entry.id;
-          setText(this._labels[i]!, `${entry.name}: ${entry.description}`);
+          setText(this._names[i]!, entry.name);
+          setText(this._descs[i]!, entry.description);
+          const icon = this._icons[i]!;
+          if (icon.getAttribute("src") !== entry.icon) {
+            icon.setAttribute("src", entry.icon);
+          }
+          icon.alt = entry.name;
           setVisible(btn, true);
         }
 
         // Focus the first visible button and start gamepad nav.
         this._focusIndex = this._firstVisibleIndex();
-        this._updateArrows();
+        this._updateFocus();
         setVisible(this._modal, true);
         this._startGamepadNav();
       }),
@@ -106,18 +116,28 @@ export class PatchPicker {
 
   // ─── Private ─────────────────────────────────────────────────────────────
 
-  private _makeButton(index: 0 | 1 | 2, arrows: HTMLSpanElement[], labels: HTMLSpanElement[]): HTMLButtonElement {
+  private _makeButton(
+    index: 0 | 1 | 2,
+    icons: HTMLImageElement[],
+    names: HTMLSpanElement[],
+    descs: HTMLSpanElement[],
+  ): HTMLButtonElement {
     const btn = el("button", ["patch-btn"]);
-    const arrow = el("span", ["menu-arrow", "hidden"]);
-    setText(arrow, "▶ ");
-    btn.appendChild(arrow);
-    arrows.push(arrow);
-    // Use a separate label span so per-offer text updates do not wipe the
-    // arrow indicator (setText on the button itself would replace all
-    // children via textContent).
-    const label = el("span", ["patch-label"]);
-    btn.appendChild(label);
-    labels.push(label);
+
+    const icon = el("img", ["patch-icon"]);
+    icon.setAttribute("alt", "");
+    btn.appendChild(icon);
+    icons.push(icon);
+
+    const text = el("span", ["patch-text"]);
+    const name = el("span", ["patch-name"]);
+    const desc = el("span", ["patch-desc"]);
+    text.appendChild(name);
+    text.appendChild(desc);
+    btn.appendChild(text);
+    names.push(name);
+    descs.push(desc);
+
     btn.addEventListener("click", () => {
       this._upgradeSystem.selectPatch(index, this._player);
       setVisible(this._modal, false);
@@ -133,9 +153,9 @@ export class PatchPicker {
     return 0;
   }
 
-  private _updateArrows(): void {
-    for (let i = 0; i < this._arrows.length; i++) {
-      setVisible(this._arrows[i]!, i === this._focusIndex);
+  private _updateFocus(): void {
+    for (let i = 0; i < this._buttons.length; i++) {
+      this._buttons[i]!.classList.toggle("focused", i === this._focusIndex);
     }
   }
 
@@ -147,7 +167,7 @@ export class PatchPicker {
       next = (next + delta + n) % n;
       if (!this._buttons[next]!.classList.contains("hidden")) {
         this._focusIndex = next;
-        this._updateArrows();
+        this._updateFocus();
         return;
       }
     }
@@ -210,19 +230,19 @@ export class PatchPicker {
     const justPressed = (btn: number): boolean =>
       pressed.has(btn) && !this._gpPrevButtons.has(btn);
 
-    if (justPressed(13)) this._moveFocus(+1); // D-pad down
-    if (justPressed(12)) this._moveFocus(-1); // D-pad up
+    if (justPressed(15)) this._moveFocus(+1); // D-pad right
+    if (justPressed(14)) this._moveFocus(-1); // D-pad left
     if (justPressed(0) || justPressed(9)) {   // A or Start → confirm
       this._buttons[this._focusIndex]!.click();
     }
 
-    // Left-stick Y — trigger once per deflection, require re-center.
-    const stickY = gp.axes[1] ?? 0;
-    if (Math.abs(stickY) < 0.5) {
+    // Left-stick X — trigger once per deflection, require re-center.
+    const stickX = gp.axes[0] ?? 0;
+    if (Math.abs(stickX) < 0.5) {
       this._gpAxisTriggered = false;
     } else if (!this._gpAxisTriggered) {
       this._gpAxisTriggered = true;
-      this._moveFocus(stickY > 0 ? +1 : -1);
+      this._moveFocus(stickX > 0 ? +1 : -1);
     }
 
     this._gpPrevButtons = pressed;

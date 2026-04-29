@@ -14,7 +14,7 @@
       .hidden { display: none !important; }
 
       /* Full-screen overlay panels */
-      #title, #pause, #settings, #game-over {
+      #title, #pause, #settings, #game-over, #level-select {
         position: fixed;
         inset: 0;
         display: flex;
@@ -49,15 +49,73 @@
       }
       #patch-picker .patch-options {
         display: flex;
-        flex-direction: column;
-        gap: 0.6rem;
-        width: min(520px, 90%);
+        flex-direction: row;
+        align-items: stretch;
+        justify-content: center;
+        gap: 1rem;
+        width: min(960px, 95%);
+        flex-wrap: wrap;
       }
       #patch-picker .patch-btn {
-        text-align: left;
-        padding: 0.7rem 1rem;
+        position: relative;
+        flex: 1 1 220px;
+        max-width: 280px;
+        min-width: 200px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.6rem;
+        padding: 1rem 0.9rem 1.1rem;
+        background: rgba(28, 28, 36, 0.92);
+        border: 2px solid #4a4a55;
+        border-radius: 10px;
+        color: #f0f0f0;
+        font-family: inherit;
+        text-align: center;
+        cursor: pointer;
+        transition: border-color 0.12s ease, background-color 0.12s ease, transform 0.12s ease;
+      }
+      #patch-picker .patch-btn:hover,
+      #patch-picker .patch-btn:focus-visible,
+      #patch-picker .patch-btn.focused {
+        border-color: #ffd66e;
+        background: rgba(48, 44, 28, 0.92);
+        transform: translateY(-2px);
+        outline: none;
+      }
+      #patch-picker .patch-btn .menu-arrow {
+        position: absolute;
+        top: 0.5rem;
+        left: 0.6rem;
+        color: #ffd66e;
         font-size: 1rem;
+        line-height: 1;
+      }
+      #patch-picker .patch-icon {
+        width: 96px;
+        height: 96px;
+        object-fit: contain;
+        image-rendering: pixelated;
+        image-rendering: -moz-crisp-edges;
+        image-rendering: crisp-edges;
+        pointer-events: none;
+      }
+      #patch-picker .patch-text {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.3rem;
+      }
+      #patch-picker .patch-name {
+        font-size: 1.05rem;
+        font-weight: 600;
+        letter-spacing: 0.03em;
+        color: #ffd66e;
+      }
+      #patch-picker .patch-desc {
+        font-size: 0.88rem;
         line-height: 1.35;
+        color: #d8d8d8;
       }
 
       /* HUD — top-left corner, never blocks clicks on the game */
@@ -179,6 +237,33 @@
         opacity: 0.7;
         margin-bottom: 1rem;
         font-style: italic;
+      }
+
+      /* ── Level-select screen ──────────────────────────────────────────── */
+      #level-select h1 {
+        font-size: 2.4rem;
+        letter-spacing: 0.06em;
+      }
+      #level-select .level-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        width: min(420px, 90%);
+        margin: 0.5rem 0 1rem;
+      }
+      #level-select .level-btn {
+        text-align: left;
+        padding: 0.6rem 1rem;
+        font-size: 1rem;
+      }
+      #level-select .level-btn-disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+        font-style: italic;
+      }
+      #level-select .level-btn-disabled:hover { background: #222; }
+      #level-select .level-back {
+        margin-top: 0.25rem;
       }
 
       /* ── Settings overlay ─────────────────────────────────────────────── */

@@ -102,7 +102,7 @@ describe("PatchCatalog — ExtraHP eligibility", () => {
 // ─── Stat-mod patches (require an empty HP container) ─────────────────────
 
 describe("PatchCatalog — stat-mod patches", () => {
-  const statModPatches = ["Speed", "Damage", "AttackSpeed", "SlowFlood"];
+  const statModPatches = ["Speed", "Damage", "AttackSpeed"];
 
   for (const id of statModPatches) {
     it(`${id} is eligible whenever the player has an empty HP container`, () => {
@@ -138,10 +138,6 @@ describe("PatchCatalog — statMod values", () => {
 
   it("AttackSpeed increases attackSpeedMultiplier", () => {
     expect((getEntry("AttackSpeed").statMod.attackSpeedMultiplier ?? 0)).toBeGreaterThan(0);
-  });
-
-  it("SlowFlood decreases deathPlaneSpeedMultiplier", () => {
-    expect((getEntry("SlowFlood").statMod.deathPlaneSpeedMultiplier ?? 0)).toBeLessThan(0);
   });
 
   it("ExtraHP has an empty statMod (uses gainContainer instead)", () => {

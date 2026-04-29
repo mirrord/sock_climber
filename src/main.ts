@@ -19,7 +19,8 @@ import {
   ScoreSystem,
   SpawnSystem,
 } from "./systems/index.js";
-import { HUD, PatchPicker, Pause, Settings, Title, GameOver } from "./ui/index.js";
+import { HUD, PatchPicker, Pause, Settings, Title, LevelSelect, GameOver } from "./ui/index.js";
+import type { LevelId } from "./ui/index.js";
 import { Renderer, GameCamera, SpritePool, ParticleSystem, DebugOverlay } from "./render/index.js";
 import {
   AudioBus,
@@ -372,13 +373,32 @@ function openSettings(onClose: () => void): void {
 }
 
 const pause = new Pause(bus, onQuit, () => { pause.hide(); openSettings(() => pause.show()); });
-const title = new Title(bus, () => { title.hide(); openSettings(() => title.show()); });
+const title = new Title(
+  () => { title.hide(); levelSelect.show(); },
+  () => { title.hide(); openSettings(() => title.show()); },
+);
+const levelSelect = new LevelSelect(
+  (level) => {
+    selectedLevel = level;
+    bus.emit("onGameStart", {});
+  },
+  () => { levelSelect.hide(); title.show(); },
+);
 const gameOver = new GameOver(bus, scoreSystem, onRestart);
 
 // ─── Game state ───────────────────────────────────────────────────────────
 
 let alive = false; // starts false — loop only runs after onGameStart
 let paused = false;
+/**
+ * The level the player most recently selected from the LevelSelect screen.
+ * Defaults to `1` so a programmatic `onGameStart` (tests, keyboard cheat,
+ * etc.) still has a coherent value to act on. Currently used purely for
+ * diagnostics — levels 2–4 are placeholders that the LevelSelect screen
+ * does not let the player pick — but kept around so future per-level
+ * generator/music branches have a single source of truth to read.
+ */
+let selectedLevel: LevelId = 1;
 /**
  * True while the patch picker is open. Halts gameplay simulation just like
  * `paused`, but is tracked separately so the pause menu UI does not appear
@@ -499,6 +519,11 @@ function onQuit(): void {
   renderer.clearCanvas();
   title.show();
   playMusic("title");
+}
+
+/** Diagnostic accessor so the selected level isn't an unused variable. */
+export function getSelectedLevel(): LevelId {
+  return selectedLevel;
 }
 
 function onRestart(): void {

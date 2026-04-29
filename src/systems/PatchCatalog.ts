@@ -9,6 +9,8 @@ export interface PatchEntry {
   name: string;
   /** Brief description shown in the patch picker. */
   description: string;
+  /** Path to the patch icon sprite (relative to the site root). */
+  icon: string;
   /**
    * Additive stat deltas applied to the player on selection.
    * Empty for `ExtraHP` — that patch calls `player.gainContainer()` instead.
@@ -32,6 +34,7 @@ export const PATCH_CATALOG: readonly PatchEntry[] = [
     id: "AirJump",
     name: "Air Jump",
     description: "Gain one extra mid-air jump.",
+    icon: "assets/sprites/jump patch.png",
     statMod: { maxAirJumps: 1 },
     isEligible(player) {
       if (player.emptyContainers < 1) return false;
@@ -43,6 +46,7 @@ export const PATCH_CATALOG: readonly PatchEntry[] = [
     id: "AirDash",
     name: "Air Dash",
     description: "Gain one extra mid-air dash.",
+    icon: "assets/sprites/dash patch.png",
     statMod: { maxAirDashes: 1 },
     isEligible(player) {
       if (player.emptyContainers < 1) return false;
@@ -54,6 +58,7 @@ export const PATCH_CATALOG: readonly PatchEntry[] = [
     id: "ExtraHP",
     name: "Extra HP",
     description: "Gain one extra HP container (full).",
+    icon: "assets/sprites/hp patch.png",
     statMod: {},
     isEligible(_player, appliedPatchIds) {
       return !appliedPatchIds.has("ExtraHP");
@@ -63,6 +68,7 @@ export const PATCH_CATALOG: readonly PatchEntry[] = [
     id: "Speed",
     name: "Speed Boost",
     description: "Increase maximum run speed.",
+    icon: "assets/sprites/speed patch.png",
     statMod: { maxSpeed: 2 },
     isEligible: (player) => player.emptyContainers >= 1,
   },
@@ -70,6 +76,7 @@ export const PATCH_CATALOG: readonly PatchEntry[] = [
     id: "Damage",
     name: "Power Up",
     description: "Deal more damage per hit.",
+    icon: "assets/sprites/power patch.png",
     statMod: { damageMultiplier: 0.25 },
     isEligible: (player) => player.emptyContainers >= 1,
   },
@@ -77,14 +84,8 @@ export const PATCH_CATALOG: readonly PatchEntry[] = [
     id: "AttackSpeed",
     name: "Quick Strikes",
     description: "Attack animations play faster.",
+    icon: "assets/sprites/attack spatch.png",
     statMod: { attackSpeedMultiplier: 0.25 },
-    isEligible: (player) => player.emptyContainers >= 1,
-  },
-  {
-    id: "SlowFlood",
-    name: "Slow the Flood",
-    description: "Reduce the death plane ascent speed.",
-    statMod: { deathPlaneSpeedMultiplier: -0.2 },
     isEligible: (player) => player.emptyContainers >= 1,
   },
 ] as const;
