@@ -130,6 +130,27 @@
         pointer-events: none;
       }
 
+      /* ── HP container row (top-right) ────────────────────────────────── */
+      #hud-hp {
+        position: fixed;
+        top: 0.75rem;
+        right: 1rem;
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: 0.25rem;
+        pointer-events: none;
+      }
+      #hud-hp .hp-container {
+        width: 32px;
+        height: 32px;
+        display: block;
+        image-rendering: pixelated;
+        image-rendering: -moz-crisp-edges;
+        image-rendering: crisp-edges;
+        user-select: none;
+      }
+
       /* ── Upgrade gauge (sprite-based, top-center) ────────────────────── */
       #hud-gauge {
         position: fixed;

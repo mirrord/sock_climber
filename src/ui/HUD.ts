@@ -177,14 +177,21 @@ export class HUD {
     // Clear existing containers.
     this._hpList.textContent = "";
     for (let i = 0; i < current; i++) {
-      const span = el("span", ["hp-container", "filled"]);
-      this._hpList.appendChild(span);
+      this._hpList.appendChild(this._makeHpIcon(true));
     }
     for (let i = 0; i < empty; i++) {
-      const span = el("span", ["hp-container", "empty"]);
-      this._hpList.appendChild(span);
+      this._hpList.appendChild(this._makeHpIcon(false));
     }
     // Remaining containers are unused (max - current - empty) — not rendered separately.
     void max; // referenced so TS doesn't complain about the parameter
+  }
+
+  /** Build a single HP container icon (`<img>`) for the HUD. */
+  private _makeHpIcon(filled: boolean): HTMLImageElement {
+    const img = el("img", ["hp-container", filled ? "filled" : "empty"]);
+    img.src = filled ? "assets/objects/fullhp.png" : "assets/objects/emptyhp.png";
+    img.alt = "";
+    img.draggable = false;
+    return img;
   }
 }
