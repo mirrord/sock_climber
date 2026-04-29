@@ -63,11 +63,14 @@ export class Player implements Entity {
   private _dashMomentumLock = false;
   /**
    * True while the player is airborne after performing any wall kick (with
-   * or without dash held). Horizontal input retains the kick's speed
-   * magnitude but may flip direction at any time. Cleared on landing or
-   * fresh wall contact.
+   * or without dash held). Plain wall kicks retain the kick's speed magnitude
+   * across direction flips. Dash wall kicks treat the kick speed as a *cap*
+   * (not a lock), allowing normal air control within that envelope. Cleared
+   * on landing or fresh wall contact.
    */
   private _wallKickMomentum = false;
+  /** Magnitude of the most recent wall-kick horizontal velocity (m/s). */
+  private _wallKickSpeed = 0;
   // ─── Stat mod system ─────────────────────────────────────────────────────
   /** Active temporary stat modifiers, keyed by source id. Values are additive deltas. */
   private readonly _statMods = new Map<string, Partial<PlayerStats>>();
@@ -188,6 +191,7 @@ export class Player implements Entity {
     this._dashVX = 0;
     this._dashMomentumLock = false;
     this._wallKickMomentum = false;
+    this._wallKickSpeed = 0;
     this._springCharge = 0;
     this._springDirX = 0;
     this._springDirY = -1;
@@ -251,6 +255,7 @@ export class Player implements Entity {
       this._coyoteTimer = 0;
       this._dashMomentumLock = false;
       this._wallKickMomentum = false;
+      this._wallKickSpeed = 0;
     } else if ((onWallL || onWallR) && this.body.velocity.y >= 0) {
       // Wall slide: airborne, touching a wall, moving downward (or still).
       this._locomotion = "WallSliding";
@@ -266,6 +271,7 @@ export class Player implements Entity {
       this._airDashesUsed = 0;
       this._dashMomentumLock = false;
       this._wallKickMomentum = false;
+      this._wallKickSpeed = 0;
     }
 
     // ─── Jump buffer ──────────────────────────────────────────────────────
@@ -324,6 +330,7 @@ export class Player implements Entity {
         this.body.velocity.y = s.wallKickVY;
         this._jumpBufferTimer = 0;
         this._wallKickMomentum = true;
+        this._wallKickSpeed = horizSpeed;
         this._wallKickLockTimer = s.wallKickLockDuration;
         this._facing = kickDirX;
         this._locomotion = "Airborne";
@@ -444,15 +451,47 @@ export class Player implements Entity {
       // Wall-kick (with or without dash): during the input lockout the
       // kicked velocity is preserved verbatim — no horizontal authority —
       // so the player travels meaningfully away from the wall before being
-      // able to reverse course. After the lock expires the player may move
-      // horizontally immediately, but the kick's speed magnitude is
-      // preserved across direction changes. With no input the current
-      // velocity is held.
-      if (this._wallKickLockTimer <= 0 && snap.axes.moveX !== 0) {
-        const sign: 1 | -1 = snap.axes.moveX > 0 ? 1 : -1;
-        const mag = Math.abs(this.body.velocity.x);
-        this.body.velocity.x = sign * mag;
-        this._facing = sign;
+      // able to reverse course.
+      //
+      // After the lock expires:
+      //   • Plain wall kick (kick speed ≤ maxSpeed): the kick magnitude is
+      //     preserved across direction flips (legacy behavior).
+      //   • Dash wall kick (kick speed > maxSpeed): the kick speed acts as a
+      //     *cap* rather than a lock. With no input, momentum carries. Holding
+      //     into the kick direction preserves the supercharged speed (does
+      //     not bleed down to maxSpeed). Holding the opposite direction
+      //     applies standard air-accel deceleration toward ±maxSpeed.
+      if (this._wallKickLockTimer <= 0) {
+        const inputX = snap.axes.moveX;
+        const vx = this.body.velocity.x;
+        if (this._wallKickSpeed > s.maxSpeed) {
+          if (inputX !== 0) {
+            const sign: 1 | -1 = inputX > 0 ? 1 : -1;
+            const sameDir = sign === Math.sign(vx);
+            if (sameDir && Math.abs(vx) > s.maxSpeed) {
+              // Holding into the kick direction at supercharged speed:
+              // preserve velocity so air-control does not bleed it back
+              // down to maxSpeed.
+              this._facing = sign;
+            } else {
+              const targetVX = inputX * s.maxSpeed;
+              const diff = targetVX - vx;
+              const maxChange = s.airAccel * dt;
+              if (Math.abs(diff) <= maxChange) {
+                this.body.velocity.x = targetVX;
+              } else {
+                this.body.velocity.x += Math.sign(diff) * maxChange;
+              }
+              this._facing = sign;
+            }
+          }
+          // No input → preserve current velocity (momentum carries).
+        } else if (inputX !== 0) {
+          const sign: 1 | -1 = inputX > 0 ? 1 : -1;
+          const mag = Math.abs(vx);
+          this.body.velocity.x = sign * mag;
+          this._facing = sign;
+        }
       }
     } else if (this._wallKickLockTimer <= 0) {
       const accel = this._locomotion === "Grounded" ? s.groundAccel : s.airAccel;

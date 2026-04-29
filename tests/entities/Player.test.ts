@@ -827,7 +827,7 @@ describe("Player — dash interactions", () => {
     }
   });
 
-  it("dash-wall-kick allows horizontal direction flip after the input lock expires while retaining magnitude", () => {
+  it("dash-wall-kick treats dash speed as a cap, not a lock, after the input lock expires", () => {
     const player = new Player({ x: 5, y: 5 });
     player.body.flags.onGround = false;
     player.body.flags.onWallL = true;
@@ -843,10 +843,30 @@ describe("Player — dash interactions", () => {
     for (let i = 0; i < ticks; i++) {
       player.update(DT, makeSnap());
     }
+    // Momentum carried unchanged through the no-input ticks.
+    expect(player.body.velocity.x).toBeCloseTo(dashSpeed, 3);
 
-    // Press opposite direction — velocity flips, magnitude preserved.
+    // Holding into the kick direction preserves the supercharged speed —
+    // standard air-accel does not bleed the player down to maxSpeed.
+    for (let i = 0; i < 30; i++) {
+      player.update(DT, makeSnap({ axes: { moveX: 1 } }));
+    }
+    expect(player.body.velocity.x).toBeCloseTo(dashSpeed, 3);
+
+    // Pressing the opposite direction does NOT instantly flip to -dashSpeed;
+    // standard air-accel decelerates the player. After one tick the player
+    // has slowed by airAccel * dt but is still moving in the original direction.
+    const vxBefore = player.body.velocity.x;
     player.update(DT, makeSnap({ axes: { moveX: -1 } }));
-    expect(player.body.velocity.x).toBeCloseTo(-dashSpeed, 3);
+    const expectedAfterOneTick = vxBefore - DEFAULT_PLAYER_STATS.airAccel * DT;
+    expect(player.body.velocity.x).toBeCloseTo(expectedAfterOneTick, 3);
+
+    // Continue holding opposite — eventually the player's velocity reverses
+    // and settles at -maxSpeed (the standard air-control cap), not -dashSpeed.
+    for (let i = 0; i < 60; i++) {
+      player.update(DT, makeSnap({ axes: { moveX: -1 } }));
+    }
+    expect(player.body.velocity.x).toBeCloseTo(-DEFAULT_PLAYER_STATS.maxSpeed, 3);
   });
 
   it("plain air-dash momentum still decays after the dash ends", () => {
