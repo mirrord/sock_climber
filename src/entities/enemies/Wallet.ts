@@ -17,12 +17,26 @@ export class Wallet extends Enemy {
   static readonly CHARGE_SPEED = 6; // m/s
   static readonly DETECTION_RANGE = 6; // meters
   static readonly CHARGE_DURATION = 1.5; // seconds
+  /**
+   * Pause (in seconds) after hitting a wall in `Patrol` before reversing
+   * direction. Gives the wallet a brief "thinking" beat instead of an
+   * instantaneous bounce.
+   */
+  static readonly TURN_DELAY = 0.4; // seconds
   /** Terminal fall speed in m/s. Caps gravity-driven downward velocity. */
   static readonly MAX_FALL_SPEED = 12;
 
   private _state: WalletState = "Patrol";
   private _patrolDir: 1 | -1 = 1;
   private _chargeTimer = 0;
+  /**
+   * Remaining seconds of post-wall-hit pause in `Patrol`. While > 0 the
+   * wallet stands still; when it hits 0 the patrol direction is committed
+   * to the opposite of the wall it touched.
+   */
+  private _turnDelayTimer = 0;
+  /** Direction to face after `_turnDelayTimer` reaches 0. */
+  private _pendingTurnDir: 1 | -1 | null = null;
 
   constructor(position: { x: number; y: number }) {
     super({
@@ -43,19 +57,43 @@ export class Wallet extends Enemy {
     this._state = "Patrol";
     this._patrolDir = 1;
     this._chargeTimer = 0;
+    this._turnDelayTimer = 0;
+    this._pendingTurnDir = null;
   }
 
   protected updateAI(dt: number, playerX: number, _playerY: number): void {
     switch (this._state) {
       case "Patrol":
-        // Reverse on wall contact.
-        if (this.body.flags.onWallL) this._patrolDir = 1;
-        if (this.body.flags.onWallR) this._patrolDir = -1;
-        this.body.velocity.x = this._patrolDir * Wallet.PATROL_SPEED;
+        // Queue a delayed reversal on wall contact rather than turning
+        // around immediately. Only re-arm the timer if we're not already
+        // mid-pause for this same wall.
+        if (this.body.flags.onWallL && this._pendingTurnDir !== 1) {
+          this._pendingTurnDir = 1;
+          this._turnDelayTimer = Wallet.TURN_DELAY;
+        } else if (this.body.flags.onWallR && this._pendingTurnDir !== -1) {
+          this._pendingTurnDir = -1;
+          this._turnDelayTimer = Wallet.TURN_DELAY;
+        }
+
+        if (this._turnDelayTimer > 0) {
+          // Stand still while the turn delay elapses.
+          this._turnDelayTimer -= dt;
+          this.body.velocity.x = 0;
+          if (this._turnDelayTimer <= 0 && this._pendingTurnDir !== null) {
+            this._patrolDir = this._pendingTurnDir;
+            this._pendingTurnDir = null;
+            this._turnDelayTimer = 0;
+          }
+        } else {
+          this.body.velocity.x = this._patrolDir * Wallet.PATROL_SPEED;
+        }
+
         // Transition to Charge when player is in range.
         if (Math.abs(playerX - this.body.position.x) < Wallet.DETECTION_RANGE) {
           this._state = "Charge";
           this._chargeTimer = Wallet.CHARGE_DURATION;
+          this._turnDelayTimer = 0;
+          this._pendingTurnDir = null;
         }
         break;
 

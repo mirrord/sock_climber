@@ -25,17 +25,27 @@ describe("Wallet — state machine", () => {
     expect(Math.abs(w.body.velocity.x)).toBeGreaterThan(0);
   });
 
-  it("reverses patrol direction on left wall", () => {
+  it("reverses patrol direction on left wall after a brief delay", () => {
     const w = new Wallet({ x: 0, y: 0 });
     w.body.flags.onWallL = true;
+    // During the turn delay the wallet stands still.
     steps(w, 1, 999);
+    expect(w.body.velocity.x).toBe(0);
+    // After the delay elapses it commits to the opposite direction.
+    const turnSteps = Math.ceil(Wallet.TURN_DELAY / DT) + 2;
+    w.body.flags.onWallL = false;
+    steps(w, turnSteps, 999);
     expect(w.body.velocity.x).toBeGreaterThan(0); // now moving right
   });
 
-  it("reverses patrol direction on right wall", () => {
+  it("reverses patrol direction on right wall after a brief delay", () => {
     const w = new Wallet({ x: 0, y: 0 });
     w.body.flags.onWallR = true;
     steps(w, 1, 999);
+    expect(w.body.velocity.x).toBe(0);
+    const turnSteps = Math.ceil(Wallet.TURN_DELAY / DT) + 2;
+    w.body.flags.onWallR = false;
+    steps(w, turnSteps, 999);
     expect(w.body.velocity.x).toBeLessThan(0); // now moving left
   });
 

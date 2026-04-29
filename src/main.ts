@@ -12,6 +12,8 @@ import { Player } from "./entities/Player.js";
 import { TileWorld } from "./physics/TileWorld.js";
 import { step } from "./physics/Resolver.js";
 import { createGenerator } from "./level/Generator.js";
+import { LEVEL_CONFIGS } from "./level/LevelConfig.js";
+import { climbProgress, lateralAxis } from "./level/Axis.js";
 import {
   CombatSystem,
   DeathPlaneSystem,
@@ -44,7 +46,9 @@ scene.background = new THREE.Color(0x111111);
 // ─── Render module ────────────────────────────────────────────────────────
 
 const renderer = new Renderer();
-const camera = new GameCamera(window.innerWidth / window.innerHeight);
+let camera = new GameCamera(window.innerWidth / window.innerHeight, {
+  climbDir: LEVEL_CONFIGS[1].climbDir,
+});
 const spritePool = new SpritePool();
 const particles = new ParticleSystem(scene);
 const debugOverlay = new DebugOverlay();
@@ -55,73 +59,121 @@ const debugOverlay = new DebugOverlay();
 // the texture's aspect ratio, so the image's vertical midpoint sits exactly
 // on the actual death-plane boundary.
 const _textureLoader = new THREE.TextureLoader();
+/** Decoded death-plane texture; cached so level switches can re-skin it. */
+let _deathPlaneTexture: THREE.Texture | null = null;
 _textureLoader.load("assets/objects/laundry pile.png", (tex) => {
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.minFilter = THREE.LinearFilter;
   tex.magFilter = THREE.LinearFilter;
   tex.generateMipmaps = false;
-  // WORLD_WIDTH_TILES is declared below; capture by name at call time.
-  spritePool.setDeathPlaneTexture(tex, WORLD_WIDTH_TILES, WORLD_WIDTH_TILES / 2);
+  _deathPlaneTexture = tex;
+  applyDeathPlaneTexture();
 });
 
-// ─── World constants ──────────────────────────────────────────────────────
+/**
+ * Push the cached death-plane texture into the sprite pool sized to the
+ * active level's lateral extent. Safe to call before the texture has
+ * finished decoding (no-ops in that case) and after every level swap.
+ */
+function applyDeathPlaneTexture(): void {
+  if (_deathPlaneTexture === null) return;
+  spritePool.setDeathPlaneTexture(
+    _deathPlaneTexture,
+    activeLevel.corridorLateralExtent,
+    activeLevel.corridorLateralExtent / 2 +
+      (activeLevel.climbDir.axis === "x" ? activeLevel.worldYMin : 0),
+    activeLevel.climbDir,
+  );
+}
 
-const WORLD_WIDTH_TILES = 12;
-const WORLD_HEIGHT_TILES = 4000; // large enough to never overflow
-const TILE_SIZE = 1; // 1 world unit = 1 m = 1 tile
+// ─── World constants ──────────────────────────────────────────────────────
+// All per-level world parameters now live in LEVEL_CONFIGS. The constants
+// below mirror the level-1 entry so test harnesses and inline accessors
+// that import them keep working; the live values used at runtime are
+// rebuilt from the active LevelConfig in `resetGame()`.
 
 /**
- * Lower bound of addressable tile-Y in the world.
- *
- * The player spawns at world y = 0 and climbs toward negative Y (Y+ = down).
- * The tile world therefore needs to address a large negative-Y range so the
- * upward play area (walls, procedural chunks) can be stored. We reserve a
- * small buffer below the spawn floor for the floor row and any underflow.
+ * The level the player most recently selected from the LevelSelect screen.
+ * Defaults to `1` so a programmatic `onGameStart` (tests, keyboard cheat,
+ * etc.) still has a coherent value to act on.
  */
-const WORLD_Y_MIN = -(WORLD_HEIGHT_TILES - 8);
+let selectedLevel: LevelId = 1;
+/** Active level configuration; rebuilt each `reconfigureLevel()` call. */
+let activeLevel = LEVEL_CONFIGS[selectedLevel];
+
+const TILE_SIZE = 1; // 1 world unit = 1 m = 1 tile
 
 // ─── Systems ──────────────────────────────────────────────────────────────
 
 const bus = createEventBus<GameEvents>();
 const rng = createRNG(Date.now());
-const world = new TileWorld(WORLD_WIDTH_TILES, WORLD_HEIGHT_TILES, WORLD_Y_MIN);
 
 /**
- * Seed the static play-area boundary into the tile world:
- *   - A solid floor row spanning the full play width at y = 2 (just below
- *     the player's spawn at y = 0).
- *   - Full-height solid wall columns at the leftmost and rightmost tiles
- *     extending UPWARD from the floor (Y+ = down, so upward = negative Y).
+ * The TileWorld is rebuilt whenever the player switches levels (the two
+ * levels' tile-grid dimensions differ). The fixed game-loop closures
+ * always read the current binding via the `world` module-level `let`.
+ */
+let world = new TileWorld(
+  activeLevel.worldWidthTiles,
+  activeLevel.worldHeightTiles,
+  activeLevel.worldYMin,
+);
+
+/**
+ * Seed the static play-area boundary into the tile world.
+ *
+ * Vertical climb (level 1):
+ *   - Solid floor row at y = 2 spanning the full play width.
+ *   - Full-height left + right wall columns from `worldYMin` to the floor.
  *   - No ceiling — the player must climb upward freely.
  *
- * This guarantees the player can never fall (or be knocked) into empty
- * space outside the play area, regardless of what the procedural
- * generator places.
+ * Horizontal climb (level 2):
+ *   - Solid ceiling row at y = `worldYMin` spanning the full world width.
+ *   - Solid floor row at y = 2 spanning the full world width.
+ *   - Solid trailing-wall column at x = 0 from ceiling to floor (the
+ *     death wall starts here and advances rightward).
+ *   - No leading-end wall — the corridor is open-ended.
  */
 function seedWorldBoundary(): void {
-  // Full-width floor.
-  world.fillRect(0, 2, WORLD_WIDTH_TILES, 1, true);
-  // Side walls: span from the floor row (ty = 2) upward to the top of the
-  // addressable range (ty = WORLD_Y_MIN). No ceiling above WORLD_Y_MIN.
-  const wallTopY = WORLD_Y_MIN;
-  const wallHeight = 3 - wallTopY; // covers ty in [WORLD_Y_MIN, 2]
-  world.fillRect(0, wallTopY, 1, wallHeight, true);
-  world.fillRect(WORLD_WIDTH_TILES - 1, wallTopY, 1, wallHeight, true);
+  const W = activeLevel.worldWidthTiles;
+  const yMin = activeLevel.worldYMin;
+  if (activeLevel.climbDir.axis === "y") {
+    world.fillRect(0, 2, W, 1, true);
+    world.fillRect(0, yMin, 1, 3 - yMin, true);
+    world.fillRect(W - 1, yMin, 1, 3 - yMin, true);
+  } else {
+    // Ceiling row.
+    world.fillRect(0, yMin, W, 1, true);
+    // Floor row.
+    world.fillRect(0, 2, W, 1, true);
+    // Trailing wall column at x = 0 spanning the corridor height.
+    world.fillRect(0, yMin, 1, 3 - yMin, true);
+  }
 }
 
 seedWorldBoundary();
 
-const player = new Player({ x: WORLD_WIDTH_TILES / 2, y: 0 }, {}, bus);
+let player = new Player(
+  { x: activeLevel.spawn.x, y: activeLevel.spawn.y },
+  {},
+  bus,
+);
 
 /**
  * Inclusive tile rectangle around the player's spawn position that the
- * procedural generator must keep clear. Sized to cover the player's body
- * AABB plus a one-tile margin in every direction so the player can never
- * spawn embedded in a wall or platform tile.
+ * procedural generator must keep clear. Recomputed by
+ * `reconfigureLevel()` since the spawn position varies per level.
  */
-const PLAYER_SPAWN_SAFE_ZONE = (() => {
-  const cx = WORLD_WIDTH_TILES / 2;
-  const cy = 0;
+let PLAYER_SPAWN_SAFE_ZONE = computeSpawnSafeZone();
+
+function computeSpawnSafeZone(): {
+  minTx: number;
+  maxTx: number;
+  minTy: number;
+  maxTy: number;
+} {
+  const cx = activeLevel.spawn.x;
+  const cy = activeLevel.spawn.y;
   const halfW = player.body.halfExtents.x;
   const halfH = player.body.halfExtents.y;
   const margin = 1;
@@ -131,7 +183,7 @@ const PLAYER_SPAWN_SAFE_ZONE = (() => {
     minTy: Math.floor(cy - halfH) - margin,
     maxTy: Math.floor(cy + halfH - 1e-6) + margin,
   };
-})();
+}
 
 const input = new Input(loadBindings());
 input.attach(window);
@@ -314,38 +366,28 @@ if (typeof window !== "undefined") {
 let generator = createGenerator({
   seed: rng.int(0, 0x7fffffff),
   cameraY: 0,
-  worldWidth: WORLD_WIDTH_TILES,
+  climbDir: activeLevel.climbDir,
+  worldWidth: activeLevel.worldWidthTiles,
+  worldYMin: activeLevel.worldYMin,
   spawnSafeZone: PLAYER_SPAWN_SAFE_ZONE,
 });
-const spawnSystem = new SpawnSystem(generator, world, bus);
+let spawnSystem = new SpawnSystem(generator, world, bus);
 const combatSystem = new CombatSystem(bus);
-/**
- * Initial death-plane Y in world units. Sits just below the floor row
- * (floor occupies tiles y=2..3, so y=3 is its bottom edge), placing the plane
- * at the bottom of the playable level. It does not begin ascending until the
- * player has climbed high enough to start moving the camera (see
- * `deathPlaneActivated` below).
- */
-const DEATH_PLANE_START_Y = 3;
 
-const deathPlaneSystem = new DeathPlaneSystem(bus, { startY: DEATH_PLANE_START_Y });
+let deathPlaneSystem = new DeathPlaneSystem(bus, {
+  climbDir: activeLevel.climbDir,
+  start: activeLevel.deathPlaneStart,
+});
 
 /**
- * Height in metres the player must climb above their spawn before the
- * death plane begins to ascend. Y+ = down, so the activation threshold is
- * `player.body.position.y <= -DEATH_PLANE_ACTIVATION_HEIGHT`.
- */
-const DEATH_PLANE_ACTIVATION_HEIGHT = 20;
-
-/**
- * Latched once the player first climbs `DEATH_PLANE_ACTIVATION_HEIGHT`
- * metres above spawn. The death plane is held stationary at the bottom of
- * the level until then so the player has a beat to find their footing
- * before the rise begins.
+ * Latched once the player first travels `activeLevel.deathPlaneActivationDistance`
+ * metres along the climb direction from spawn. The death plane is held
+ * stationary until then so the player has a beat to find their footing
+ * before the chase begins.
  */
 let deathPlaneActivated = false;
-const upgradeSystem = new UpgradeSystem(bus, rng);
-const scoreSystem = new ScoreSystem(bus);
+const upgradeSystem = new UpgradeSystem(bus, rng, activeLevel.climbDir);
+const scoreSystem = new ScoreSystem(bus, activeLevel.climbDir);
 
 // ─── UI layer ─────────────────────────────────────────────────────────────
 
@@ -390,15 +432,9 @@ const gameOver = new GameOver(bus, scoreSystem, onRestart);
 
 let alive = false; // starts false — loop only runs after onGameStart
 let paused = false;
-/**
- * The level the player most recently selected from the LevelSelect screen.
- * Defaults to `1` so a programmatic `onGameStart` (tests, keyboard cheat,
- * etc.) still has a coherent value to act on. Currently used purely for
- * diagnostics — levels 2–4 are placeholders that the LevelSelect screen
- * does not let the player pick — but kept around so future per-level
- * generator/music branches have a single source of truth to read.
- */
-let selectedLevel: LevelId = 1;
+// `selectedLevel` and `activeLevel` are declared earlier (next to the
+// world constants) since they are read by texture-loader callbacks that
+// fire before the gameplay state below is initialised.
 /**
  * True while the patch picker is open. Halts gameplay simulation just like
  * `paused`, but is tracked separately so the pause menu UI does not appear
@@ -470,29 +506,56 @@ function resetActiveBuffs(): void {
 }
 
 function resetGame(): void {
-  // Reset world tiles and re-seed the bounded play area.
-  world.clear();
+  // Apply the most recently selected level. Tile-grid dimensions, climb
+  // direction, spawn position, and death-plane parameters are all
+  // re-derived from `LEVEL_CONFIGS[selectedLevel]` so a level change
+  // takes effect on the next run start.
+  activeLevel = LEVEL_CONFIGS[selectedLevel];
+
+  // Rebuild the TileWorld since dimensions vary per level.
+  world = new TileWorld(
+    activeLevel.worldWidthTiles,
+    activeLevel.worldHeightTiles,
+    activeLevel.worldYMin,
+  );
   seedWorldBoundary();
+
+  // Recompute the spawn safe zone for the active level.
+  PLAYER_SPAWN_SAFE_ZONE = computeSpawnSafeZone();
 
   // Fresh procedural generator with a new seed.
   generator = createGenerator({
     seed: rng.int(0, 0x7fffffff),
     cameraY: 0,
-    worldWidth: WORLD_WIDTH_TILES,
+    climbDir: activeLevel.climbDir,
+    worldWidth: activeLevel.worldWidthTiles,
+    worldYMin: activeLevel.worldYMin,
     spawnSafeZone: PLAYER_SPAWN_SAFE_ZONE,
   });
 
-  // Reset all systems, providing the new generator to SpawnSystem.
-  spawnSystem.reset(generator);
+  // Rebuild axis-aware systems.
+  spawnSystem = new SpawnSystem(generator, world, bus);
+  scoreSystem.setClimbDir(activeLevel.climbDir);
   scoreSystem.reset();
-  deathPlaneSystem.reset({ startY: DEATH_PLANE_START_Y });
+  deathPlaneSystem = new DeathPlaneSystem(bus, {
+    climbDir: activeLevel.climbDir,
+    start: activeLevel.deathPlaneStart,
+  });
+  camera = new GameCamera(window.innerWidth / window.innerHeight, {
+    climbDir: activeLevel.climbDir,
+  });
   deathPlaneActivated = false;
+  upgradeSystem.setClimbDir(activeLevel.climbDir);
   upgradeSystem.reset();
 
-  // Respawn player at origin.
+  // Re-skin the death plane to the active level's lateral extent /
+  // orientation. Safe to call before the texture has decoded.
+  applyDeathPlaneTexture();
+
+  // Respawn player at the configured spawn position.
   player.spawn();
-  player.body.position.x = WORLD_WIDTH_TILES / 2;
-  player.body.position.y = 0;
+  player.body.position.x = activeLevel.spawn.x;
+  player.body.position.y = activeLevel.spawn.y;
 
   // Re-prime the interpolation source so the first render frame after a
   // reset doesn't lerp from the previous run's last position.
@@ -610,17 +673,29 @@ const loop = createLoop({
     const live = spawnSystem.liveEntities;
     const px = player.body.position.x;
     const py = player.body.position.y;
-    // World-space Y of the top edge of the camera view (Y+ = down). Enemies
-    // become "revealed" — and only then start moving toward the player —
-    // once their position has scrolled into the viewport from above.
-    const cameraTopY = camera.viewTopY;
+    // Coordinate of the leading edge of the camera view along the climb
+    // axis (level 1: top of screen in world Y; level 2: right edge in
+    // world X). Off-screen entities become "revealed" — and only then
+    // start moving toward the player — once their position has scrolled
+    // into the viewport from the leading edge.
+    const cameraLeadingEdge = camera.viewLeadingEdge;
+    const climbAxis = activeLevel.climbDir.axis;
+    const climbSign = activeLevel.climbDir.sign;
     _seenBuffIds.clear();
 
     for (let i = 0; i < live.length; i++) {
       const se = live[i]!;
       if (se.kind === "enemy") {
         const enemy = se.entity as Enemy;
-        if (!enemy.revealed && enemy.body.position.y >= cameraTopY) {
+        // Reveal once the enemy's centre has crossed past the leading edge
+        // of the camera (entered the visible play area). Sign-aware so the
+        // same comparison works for level 1 (leading edge is the smaller Y)
+        // and level 2 (leading edge is the larger X).
+        if (
+          !enemy.revealed &&
+          climbSign * enemy.body.position[climbAxis] <=
+            climbSign * cameraLeadingEdge
+        ) {
           enemy.revealed = true;
         }
         enemy.update(dt, px, py);
@@ -678,26 +753,34 @@ const loop = createLoop({
     }
 
     // 4. Death plane — uses player's deathPlaneSpeedMultiplier stat.
-    //    Held stationary at the bottom of the level until the player has
-    //    climbed `DEATH_PLANE_ACTIVATION_HEIGHT` metres above spawn. Once
-    //    activated it stays active for the remainder of the run.
-    if (!deathPlaneActivated && player.body.position.y <= -DEATH_PLANE_ACTIVATION_HEIGHT) {
+    //    Held stationary at its starting position until the player has
+    //    travelled `activeLevel.deathPlaneActivationDistance` metres along
+    //    the climb direction. Once activated it stays active for the
+    //    remainder of the run.
+    if (
+      !deathPlaneActivated &&
+      climbProgress(player.body.position, activeLevel.climbDir) >=
+        activeLevel.deathPlaneActivationDistance
+    ) {
       deathPlaneActivated = true;
     }
     if (deathPlaneActivated) {
       deathPlaneSystem.update(dt, player.body, player.effectiveStats.deathPlaneSpeedMultiplier);
     }
 
-    // 5. Level generation — advance ahead of camera.
-    const cameraTileY = Math.floor(camera.worldY / TILE_SIZE);
-    const deathPlaneTileY = Math.floor(deathPlaneSystem.planeY / TILE_SIZE);
-    spawnSystem.advance(cameraTileY, deathPlaneTileY);
+    // 5. Level generation — advance ahead of camera. The generator's
+    //    `advance` API takes climb-axis world tile coordinates regardless
+    //    of orientation; we read the camera and death plane through their
+    //    axis-agnostic accessors.
+    const cameraTile = Math.floor(camera.worldClimb / TILE_SIZE);
+    const deathPlaneTile = Math.floor(deathPlaneSystem.planePos / TILE_SIZE);
+    spawnSystem.advance(cameraTile, deathPlaneTile);
 
     // 6. Upgrade picker.
     upgradeSystem.update(player);
 
-    // 7. Score — track highest position reached.
-    scoreSystem.update(player.body.position.y);
+    // 7. Score — track furthest progress along the climb direction.
+    scoreSystem.update(player.body.position);
 
     // 8. Advance particles. Music crossfades are advanced above the
     //    alive/paused guard so transitions to/from title and game-over
@@ -714,8 +797,9 @@ const loop = createLoop({
     const renderX = prevPlayerX + (player.body.position.x - prevPlayerX) * alpha;
     const renderY = prevPlayerY + (player.body.position.y - prevPlayerY) * alpha;
 
-    // Camera must be updated first — GameCamera.worldY is read for tile culling.
-    camera.follow(renderX, renderY, deathPlaneSystem.planeY);
+    // Camera must be updated first — its climb-axis position is read for
+    // tile culling.
+    camera.follow(renderX, renderY, deathPlaneSystem.planePos);
 
     // Advance hit-flash timers (independent of fixed-step gameplay).
     const nowMs = clock.now();
@@ -726,8 +810,8 @@ const loop = createLoop({
     // Sync entity meshes.
     spritePool.syncPlayer(player, scene, renderX, renderY);
     spritePool.syncAll(spawnSystem.liveEntities, scene);
-    spritePool.syncDeathPlane(deathPlaneSystem.planeY, scene, !deathPlaneActivated);
-    spritePool.syncTiles(world, scene, camera.worldY);
+    spritePool.syncDeathPlane(deathPlaneSystem.planePos, scene, !deathPlaneActivated);
+    spritePool.syncTiles(world, scene, camera.worldClimb, activeLevel.climbDir);
 
     // Debug AABB wireframes (only when ?debug=1).
     if (debugOverlay.enabled) {

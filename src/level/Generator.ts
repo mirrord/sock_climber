@@ -24,6 +24,8 @@ import {
   type PlatformCandidate,
 } from "./Reachability.js";
 import { poissonSample } from "./Sampler.js";
+import { CLIMB_DIR_VERTICAL, type ClimbDir } from "./Axis.js";
+import { createHorizontalGenerator } from "./HorizontalGenerator.js";
 import type { PlayerStats } from "../entities/components/Stats.js";
 import { DEFAULT_PLAYER_STATS } from "../entities/components/Stats.js";
 
@@ -87,8 +89,16 @@ export interface GeneratorOptions {
   /** Seed for all procedural choices. */
   seed: number;
   /**
-   * World-tile Y that the camera is currently showing (centre row).
-   * Advances as the player climbs. Decreases (more negative) over time.
+   * Climb direction the world grows along. Defaults to vertical (level 1).
+   * When set to a horizontal direction, `createGenerator` dispatches to
+   * {@link createHorizontalGenerator} which implements the same `Generator`
+   * interface using a corridor-based layout.
+   */
+  climbDir?: ClimbDir;
+  /**
+   * World-tile coordinate (along the climb axis) of the camera centre.
+   * For vertical climb this is the camera tile-Y (decreases over time);
+   * for horizontal climb it is the camera tile-X (increases over time).
    */
   cameraY: number;
   /** How many tile-rows ahead of the camera to keep generated. Defaults to 80. */
@@ -127,6 +137,13 @@ export interface GeneratorOptions {
    * unaffected. Defaults to 30 m.
    */
   enemySpawnMinHeight?: number;
+  /**
+   * Lower bound of addressable world tile-Y (the topmost row in world
+   * coordinates, since Y+ = down). Currently consumed only by the
+   * horizontal generator to size the corridor's ceiling row; the vertical
+   * generator infers all bounds from chunk profiles.
+   */
+  worldYMin?: number;
   /** Registries override (for testing). */
   registries?: GeneratorRegistries;
 }
@@ -196,6 +213,14 @@ function isBuffTag(tag: EntityTag): tag is BuffTag {
  * prunes the head once chunks are behind the death plane.
  */
 export function createGenerator(opts: GeneratorOptions): Generator {
+  // Dispatch to the horizontal generator when the configured climb
+  // direction targets the X axis. The two implementations share the
+  // public `Generator` interface so callers don't branch.
+  const climbDir: ClimbDir = opts.climbDir ?? CLIMB_DIR_VERTICAL;
+  if (climbDir.axis === "x") {
+    return createHorizontalGenerator(opts);
+  }
+
   const LOOKAHEAD = opts.lookahead ?? 80;
   const GRACE_ROWS = opts.graceRows ?? 8;
   const OPEN_BIAS = opts.openBias ?? 0.6;

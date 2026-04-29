@@ -25,8 +25,8 @@ function playerWithEmptyContainer(opts?: ConstructorParameters<typeof Player>[1]
 // ─── Catalog structure ────────────────────────────────────────────────────
 
 describe("PatchCatalog — structure", () => {
-  it("contains exactly 7 patches", () => {
-    expect(PATCH_CATALOG.length).toBe(7);
+  it("contains exactly 6 patches", () => {
+    expect(PATCH_CATALOG.length).toBe(6);
   });
 
   it("each patch has a unique id", () => {

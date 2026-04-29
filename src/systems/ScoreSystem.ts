@@ -1,8 +1,9 @@
 import type { EventBus, GameEvents } from "../core/EventBus.js";
+import { CLIMB_DIR_VERTICAL, climbProgress, type ClimbDir } from "../level/Axis.js";
 
 /** End-of-run statistics returned by `ScoreSystem.getSummary()`. */
 export interface RunSummary {
-  /** Maximum distance climbed (metres). Equals `max(-playerY)` seen during the run. */
+  /** Maximum distance climbed (metres) along the configured climb direction. */
   distanceTraversed: number;
   /** Total enemies killed during the run. */
   enemiesKilled: number;
@@ -23,9 +24,11 @@ export class ScoreSystem {
   private _enemiesKilled = 0;
   private _deathReason = "";
   private readonly _bus: EventBus<GameEvents>;
+  private _dir: ClimbDir;
 
-  constructor(bus: EventBus<GameEvents>) {
+  constructor(bus: EventBus<GameEvents>, climbDir: ClimbDir = CLIMB_DIR_VERTICAL) {
     this._bus = bus;
+    this._dir = climbDir;
     bus.on("onKill", () => {
       this._enemiesKilled++;
     });
@@ -36,12 +39,17 @@ export class ScoreSystem {
   }
 
   /**
-   * Update climb distance from the player's current Y position.
-   * Negative Y = height climbed above spawn.
+   * Update climb distance from the player's current world position.
+   *
+   * Accepts either a single number (player Y, level-1 backward-compat — only
+   * meaningful when this system was constructed with the default vertical
+   * climb direction) or a `{x, y}` position (preferred; works for any
+   * climb axis).
    */
-  update(playerY: number): void {
-    // Climbing upward produces negative Y; distance = -Y (floored at 0).
-    const dist = Math.max(0, -playerY);
+  update(playerPos: number | { x: number; y: number }): void {
+    const pos =
+      typeof playerPos === "number" ? { x: 0, y: playerPos } : playerPos;
+    const dist = Math.max(0, climbProgress(pos, this._dir));
     if (dist > this._maxDistance) {
       this._maxDistance = dist;
       // Emit whenever distance crosses a new whole-metre threshold.
@@ -68,5 +76,14 @@ export class ScoreSystem {
     this._lastEmittedDistance = -1;
     this._enemiesKilled = 0;
     this._deathReason = "";
+  }
+
+  /**
+   * Reconfigure the climb direction. Used when switching levels so that
+   * the same `ScoreSystem` instance can track progress along a new axis
+   * (e.g. level 1 → level 2). Callers should follow with `reset()`.
+   */
+  setClimbDir(dir: ClimbDir): void {
+    this._dir = dir;
   }
 }

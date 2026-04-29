@@ -41,14 +41,25 @@ describe("LevelSelect", () => {
     ls.destroy();
   });
 
-  it("levels 2-4 are disabled placeholders", () => {
+  it("levels 3-4 are disabled placeholders", () => {
     const ls = new LevelSelect(vi.fn(), vi.fn(), container);
-    for (const id of [2, 3, 4]) {
+    for (const id of [3, 4]) {
       const btn = container.querySelector<HTMLButtonElement>(`#level-select-${id}`);
       expect(btn).not.toBeNull();
       expect(btn?.disabled).toBe(true);
       expect(btn?.classList.contains("level-btn-disabled")).toBe(true);
     }
+    ls.destroy();
+  });
+
+  it("level 2 is enabled and clickable", () => {
+    const onLevelSelected = vi.fn();
+    const ls = new LevelSelect(onLevelSelected, vi.fn(), container);
+    ls.show();
+    const btn = container.querySelector<HTMLButtonElement>("#level-select-2");
+    expect(btn?.disabled).toBe(false);
+    btn?.click();
+    expect(onLevelSelected).toHaveBeenCalledWith(2);
     ls.destroy();
   });
 
@@ -73,7 +84,6 @@ describe("LevelSelect", () => {
     // Force a click despite the disabled attribute (jsdom honours `disabled`
     // by default and silently swallows the event, which is itself the
     // behaviour we want to assert).
-    container.querySelector<HTMLButtonElement>("#level-select-2")?.click();
     container.querySelector<HTMLButtonElement>("#level-select-3")?.click();
     container.querySelector<HTMLButtonElement>("#level-select-4")?.click();
 

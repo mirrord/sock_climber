@@ -3,6 +3,7 @@ import type { Player } from "../entities/Player.js";
 import type { SpawnedEntity } from "../level/Generator.js";
 import type { TileWorld } from "../physics/TileWorld.js";
 import type { EntityTag } from "../level/Chunks.js";
+import { CLIMB_DIR_VERTICAL, type ClimbDir } from "../level/Axis.js";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -132,11 +133,13 @@ export class SpritePool {
     color: 0xff2222,
   });
   private _planeGeo: THREE.PlaneGeometry = new THREE.PlaneGeometry(100, 0.1);
-  /** World X at which the death-plane mesh is centred (set by `setDeathPlaneTexture`). */
-  private _planeCenterX = 0;
-  /** Vertical offset added to the mesh so the death line sits where requested.
-   *  Default 0 = mesh centred on `planeY` (image's vertical midpoint = the death line). */
-  private _planeYOffset = 0;
+  /** World coord (lateral axis) at which the death-plane mesh is centred. */
+  private _planeCenterLateral = 0;
+  /** Offset along climb axis added to the mesh position. Default 0 = mesh
+   *  centred on `planePos` (image midpoint = death line). */
+  private _planePosOffset = 0;
+  /** Climb direction the death plane is rendered for. */
+  private _planeDir: ClimbDir = CLIMB_DIR_VERTICAL;
 
   // ─── Hit-flash / blink API ───────────────────────────────────────────
 
@@ -324,26 +327,30 @@ export class SpritePool {
    *                    vertically to indicate the plane is about to start
    *                    moving. Set to false once the plane is in motion.
    */
-  syncDeathPlane(planeY: number, scene: THREE.Scene, rumbling = false): void {
+  syncDeathPlane(planePos: number, scene: THREE.Scene, rumbling = false): void {
     if (!this._planeMesh) {
       this._planeMesh = new THREE.Mesh(this._planeGeo, this._planeMat);
       this._planeMesh.position.z = Z_LAYER.deathPlane;
-      this._planeMesh.position.x = this._planeCenterX;
       scene.add(this._planeMesh);
     }
-    // The mesh centre maps to `planeY` (Y-flip), so the image's vertical
-    // midpoint sits exactly on the death line.
-    let xOffset = 0;
-    let yOffset = 0;
+    let xJitter = 0;
+    let yJitter = 0;
     if (rumbling) {
-      // Small randomized jitter — amplitude in world units. Two independent
+      // Small randomised jitter — amplitude in world units. Two independent
       // axes give a noisy shake. No allocation, no time dependency.
       const AMP = 0.08;
-      xOffset = (Math.random() - 0.5) * 2 * AMP;
-      yOffset = (Math.random() - 0.5) * 2 * AMP;
+      xJitter = (Math.random() - 0.5) * 2 * AMP;
+      yJitter = (Math.random() - 0.5) * 2 * AMP;
     }
-    this._planeMesh.position.x = this._planeCenterX + xOffset;
-    this._planeMesh.position.y = -planeY + this._planeYOffset + yOffset;
+    if (this._planeDir.axis === "y") {
+      // Vertical climb: mesh is a horizontal bar. Position X = lateral centre, Y = -planePos (Y-flip).
+      this._planeMesh.position.x = this._planeCenterLateral + xJitter;
+      this._planeMesh.position.y = -(planePos + this._planePosOffset) + yJitter;
+    } else {
+      // Horizontal climb: mesh is a vertical strip (rotated 90°). Position X = planePos, Y = -lateral centre.
+      this._planeMesh.position.x = planePos + this._planePosOffset + xJitter;
+      this._planeMesh.position.y = -this._planeCenterLateral + yJitter;
+    }
   }
 
   /**
@@ -358,14 +365,36 @@ export class SpritePool {
    * @param worldWidth - Desired mesh width in world units.
    * @param centerX    - World X at which to centre the mesh.
    */
-  setDeathPlaneTexture(texture: THREE.Texture, worldWidth: number, centerX: number): void {
+  setDeathPlaneTexture(
+    texture: THREE.Texture,
+    lateralExtent: number,
+    lateralCenter: number,
+    climbDir: ClimbDir = CLIMB_DIR_VERTICAL,
+  ): void {
     const img = texture.image as { width: number; height: number } | undefined;
     const aspect = img && img.width > 0 && img.height > 0 ? img.width / img.height : 1;
-    const planeHeight = worldWidth / aspect;
+    const planeThickness = lateralExtent / aspect;
 
-    // Replace geometry sized to the world width × proportional height.
+    // Replace geometry sized to span the lateral extent. For vertical
+    // climb the mesh is a horizontal bar (lateralExtent wide ×
+    // planeThickness tall). For horizontal climb the mesh is a vertical
+    // strip (planeThickness wide × lateralExtent tall) — same image,
+    // with its texture rotated 90° so its long edge is parallel to the
+    // death wall while preserving aspect ratio.
     this._planeGeo.dispose();
-    this._planeGeo = new THREE.PlaneGeometry(worldWidth, planeHeight);
+    this._planeGeo =
+      climbDir.axis === "y"
+        ? new THREE.PlaneGeometry(lateralExtent, planeThickness)
+        : new THREE.PlaneGeometry(planeThickness, lateralExtent);
+
+    // Rotate the texture itself for horizontal climb so the image's long
+    // edge runs along the corridor's lateral (Y) axis. Rotating the mesh
+    // would swap world-space dimensions and squash the strip onto a thin
+    // band, which is what previously caused the death plane to fail to
+    // span the full corridor height in level 2.
+    texture.center.set(0.5, 0.5);
+    texture.rotation = climbDir.axis === "y" ? 0 : -Math.PI / 2;
+    texture.needsUpdate = true;
 
     // Replace material with a transparent textured one (PNG has alpha).
     this._planeMat.dispose();
@@ -375,12 +404,15 @@ export class SpritePool {
       depthWrite: false,
     });
 
-    this._planeCenterX = centerX;
+    this._planeCenterLateral = lateralCenter;
+    this._planeDir = climbDir;
 
     if (this._planeMesh) {
       this._planeMesh.geometry = this._planeGeo;
       this._planeMesh.material = this._planeMat;
-      this._planeMesh.position.x = centerX;
+      // Mesh itself is never rotated — the texture rotation above handles
+      // image orientation while keeping the geometry's world-space size.
+      this._planeMesh.rotation.z = 0;
     }
   }
 
@@ -396,7 +428,12 @@ export class SpritePool {
    * @param scene        - Three.js scene.
    * @param cameraWorldY - Camera centre world Y from `GameCamera.worldY`.
    */
-  syncTiles(world: TileWorld, scene: THREE.Scene, cameraWorldY: number): void {
+  syncTiles(
+    world: TileWorld,
+    scene: THREE.Scene,
+    cameraWorldClimb: number,
+    climbDir: ClimbDir = CLIMB_DIR_VERTICAL,
+  ): void {
     if (!this._tileMesh) {
       this._tileMesh = new THREE.InstancedMesh(
         this._geoUnit,
@@ -404,28 +441,52 @@ export class SpritePool {
         MAX_TILE_INSTANCES,
       );
       this._tileMesh.position.z = Z_LAYER.tile;
-      // Instances are manually culled to the visible row range in this method,
-      // but the InstancedMesh's bounding sphere is derived from the unit-plane
-      // geometry at the mesh origin (0, 0, 0).  Once the camera climbs far
-      // enough from the origin, Three.js frustum-culls the entire mesh and the
-      // walls vanish visually (physics is unaffected).  Disable frustum
-      // culling — per-instance culling above already keeps the draw bounded.
+      // Instances are manually culled to the visible range in this method,
+      // but the InstancedMesh's bounding sphere is derived from the unit-
+      // plane geometry at the mesh origin (0, 0, 0). Once the camera
+      // moves far enough from the origin, Three.js frustum-culls the
+      // entire mesh and the walls vanish visually (physics is
+      // unaffected). Disable frustum culling — per-instance culling above
+      // already keeps the draw bounded.
       this._tileMesh.frustumCulled = false;
       scene.add(this._tileMesh);
     }
 
-    const minTileY = Math.floor(cameraWorldY - HALF_H - TILE_ROW_BUFFER);
-    const maxTileY = Math.ceil(cameraWorldY + HALF_H + TILE_ROW_BUFFER);
+    // Visible band along the climb axis.
+    const minClimb = Math.floor(cameraWorldClimb - HALF_H - TILE_ROW_BUFFER);
+    const maxClimb = Math.ceil(cameraWorldClimb + HALF_H + TILE_ROW_BUFFER);
 
     let count = 0;
-    for (let ty = minTileY; ty <= maxTileY && count < MAX_TILE_INSTANCES; ty++) {
-      for (let tx = 0; tx < world.width && count < MAX_TILE_INSTANCES; tx++) {
-        if (world.solidAt(tx, ty)) {
-          // Tile AABB spans [tx, tx+1] × [ty, ty+1]; centre at (tx+0.5, ty+0.5).
-          this._dummy.position.set(tx + 0.5, -(ty + 0.5), 0); // Y-flip
-          this._dummy.updateMatrix();
-          this._tileMesh.setMatrixAt(count, this._dummy.matrix);
-          count++;
+    if (climbDir.axis === "y") {
+      // Climb axis = Y: iterate the visible band of rows, full world width per row.
+      const minTy = minClimb;
+      const maxTy = maxClimb;
+      for (let ty = minTy; ty <= maxTy && count < MAX_TILE_INSTANCES; ty++) {
+        for (let tx = 0; tx < world.width && count < MAX_TILE_INSTANCES; tx++) {
+          if (world.solidAt(tx, ty)) {
+            this._dummy.position.set(tx + 0.5, -(ty + 0.5), 0);
+            this._dummy.updateMatrix();
+            this._tileMesh.setMatrixAt(count, this._dummy.matrix);
+            count++;
+          }
+        }
+      }
+    } else {
+      // Climb axis = X: iterate the visible band of columns, full corridor
+      // height per column.  The corridor is only ~12 tiles tall in level 2
+      // so a single full scan is cheap.
+      const minTx = minClimb;
+      const maxTx = maxClimb;
+      const tyLo = world.yMin;
+      const tyHi = world.yMin + world.height - 1;
+      for (let tx = minTx; tx <= maxTx && count < MAX_TILE_INSTANCES; tx++) {
+        for (let ty = tyLo; ty <= tyHi && count < MAX_TILE_INSTANCES; ty++) {
+          if (world.solidAt(tx, ty)) {
+            this._dummy.position.set(tx + 0.5, -(ty + 0.5), 0);
+            this._dummy.updateMatrix();
+            this._tileMesh.setMatrixAt(count, this._dummy.matrix);
+            count++;
+          }
         }
       }
     }

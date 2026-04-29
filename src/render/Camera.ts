@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { CLIMB_DIR_VERTICAL, type ClimbDir } from "../level/Axis.js";
 
 /** Visible half-height of the viewport in world units (metres). */
 const HALF_H = 10;
@@ -7,36 +8,50 @@ const HALF_H = 10;
 const LERP = 0.1;
 
 /**
- * Half-height of the vertical deadzone band in world units.
- * The camera only chases when the player drifts outside this range around the
- * camera centre, preventing jitter from tiny vertical oscillations.
+ * Half-width of the deadzone band along the climb axis, in world units.
+ * The camera only chases when the player drifts outside this range around
+ * the camera centre, preventing jitter from tiny oscillations along the
+ * climb axis.
  */
-const DEADZONE_Y = 1.5;
+const DEADZONE = 1.5;
 
 /**
- * How far (world units / metres) the death plane is allowed to climb above
- * the bottom of the camera view before it begins to push the camera upward.
- * This intrusion margin gives the eventual death-plane animation room to be
- * partially visible on screen instead of being clamped flush to the bottom.
+ * How far (world units / metres) the death plane is allowed to encroach
+ * past the trailing edge of the camera view before it begins to push the
+ * camera forward. Gives the death-plane animation room to be partially
+ * visible on screen instead of being clamped flush to the edge.
  */
 const DEATH_PLANE_INTRUSION = 5;
 
+export interface GameCameraOptions {
+  /**
+   * Climb direction this camera follows. Defaults to vertical (level 1).
+   * The smoothed/deadzoned axis follows the climb axis; the perpendicular
+   * (lateral) axis snaps to the target each frame.
+   */
+  climbDir?: ClimbDir;
+}
+
 /**
- * GameCamera — orthographic camera with smooth follow, vertical deadzone, and
- * death-plane clamp.
+ * GameCamera — orthographic camera with smooth follow along the climb
+ * axis, a deadzone, and a death-plane clamp on the trailing edge.
  *
  * Y-axis convention: world Y+ = down (physics), Three.js Y+ = up (render).
- * World positions are negated before being applied to the Three.js camera.
+ * World Y is negated before being applied to the Three.js camera.
  */
 export class GameCamera {
   private readonly _cam: THREE.OrthographicCamera;
-  /** Current camera centre in world-space Y (Y+ = down). */
-  private _camWorldY = 0;
+  private readonly _dir: ClimbDir;
+  /** Smoothed camera centre along the climb axis (world units). */
+  private _camWorldClimb = 0;
+  /** Last known target along the lateral axis (snapped instantly). */
+  private _camWorldLateral = 0;
   private _aspect: number;
 
   /** @param aspect - Initial viewport width / height ratio. */
-  constructor(aspect: number) {
+  constructor(aspect: number, opts: GameCameraOptions = {}) {
     this._aspect = aspect;
+    this._dir = opts.climbDir ?? CLIMB_DIR_VERTICAL;
     this._cam = new THREE.OrthographicCamera(
       -HALF_H * aspect,
       HALF_H * aspect,
@@ -54,55 +69,90 @@ export class GameCamera {
   }
 
   /**
-   * Current camera centre in world-space Y (Y+ = down).
-   * Updated by `follow()`.  Use to cull tile rows for tile mesh construction.
+   * Camera centre coordinate along the climb axis (world space). Updated
+   * by `follow()`. For level 1 this is the camera Y; for level 2 the
+   * camera X. Used to cull tile rows / columns.
+   */
+  get worldClimb(): number {
+    return this._camWorldClimb;
+  }
+
+  /**
+   * Backward-compatible alias for `worldClimb` used by level-1 callsites
+   * that read camera Y directly. For level 2 the same value is returned
+   * (it just isn't a Y coordinate).
    */
   get worldY(): number {
-    return this._camWorldY;
+    return this._camWorldClimb;
   }
 
   /**
-   * World-space Y of the top edge of the visible viewport.
-   * Y+ = down, so this is the most negative (highest) Y currently on screen.
-   * Used by gameplay systems to determine when off-screen entities have been
+   * Coordinate of the leading edge of the viewport along the climb axis
+   * (world space). For level 1 this is the most-negative Y currently on
+   * screen (top edge); for level 2 the most-positive X (right edge). Used
+   * by gameplay systems to detect when off-screen entities have been
    * revealed by the camera.
    */
+  get viewLeadingEdge(): number {
+    return this._camWorldClimb + this._dir.sign * HALF_H;
+  }
+
+  /** Backward-compatible alias for `viewLeadingEdge` used by level 1. */
   get viewTopY(): number {
-    return this._camWorldY - HALF_H;
+    return this.viewLeadingEdge;
+  }
+
+  /** Climb direction this camera was configured for. */
+  get climbDir(): ClimbDir {
+    return this._dir;
   }
 
   /**
-   * Smoothly chase `(targetX, targetY)` in world space.
-   *
-   * The deadzone prevents micro-jitter when the player is near the screen
-   * centre.  The bottom of the view is clamped so the death plane is never
-   * cut off unfairly.
+   * Smoothly chase `(targetX, targetY)` in world space along the climb
+   * axis; snap to target along the lateral axis. The trailing edge of the
+   * view is clamped so the death plane is never cut off unfairly.
    *
    * Call once per render frame (not per physics step).
    *
-   * @param targetX     - Player X in world units.
-   * @param targetY     - Player Y in world units (Y+ = down).
-   * @param deathPlaneY - Current death-plane Y in world units.
+   * @param targetX       - Player X in world units.
+   * @param targetY       - Player Y in world units (Y+ = down).
+   * @param deathPlanePos - Current death-plane position along climb axis.
    */
-  follow(targetX: number, targetY: number, deathPlaneY: number): void {
-    const dy = targetY - this._camWorldY;
+  follow(targetX: number, targetY: number, deathPlanePos: number): void {
+    const target = this._dir.axis === "y" ? targetY : targetX;
+    const lateralTarget = this._dir.axis === "y" ? targetX : targetY;
+
+    const d = target - this._camWorldClimb;
 
     // Only chase when the target exits the deadzone band.
-    if (Math.abs(dy) > DEADZONE_Y) {
-      this._camWorldY += (dy - Math.sign(dy) * DEADZONE_Y) * LERP;
+    if (Math.abs(d) > DEADZONE) {
+      this._camWorldClimb += (d - Math.sign(d) * DEADZONE) * LERP;
     }
 
-    // Clamp: the death plane is allowed to intrude `DEATH_PLANE_INTRUSION`
-    // metres above the bottom of the view before it forces the camera to
-    // chase it upward. This leaves room for the death-plane animation to be
-    // partially visible on screen instead of being pinned flush to the edge.
-    const bottomY = this._camWorldY + HALF_H;
-    if (bottomY - DEATH_PLANE_INTRUSION > deathPlaneY) {
-      this._camWorldY = deathPlaneY - HALF_H + DEATH_PLANE_INTRUSION;
+    // Trailing edge of the view = the side the death plane approaches
+    // from. For sign=-1 (climb up), trailing edge is the bottom of the
+    // screen (cam + HALF_H). For sign=+1 (climb right), trailing edge is
+    // the left of the screen (cam - HALF_H).
+    //  level 1: clamp when (cam + HALF_H) - intrusion > planeY  →  cam = planeY - HALF_H + intrusion
+    //  level 2: clamp when (cam - HALF_H) + intrusion < planeX  →  cam = planeX + HALF_H - intrusion
+    if (this._dir.sign < 0) {
+      const trailing = this._camWorldClimb + HALF_H;
+      if (trailing - DEATH_PLANE_INTRUSION > deathPlanePos) {
+        this._camWorldClimb = deathPlanePos - HALF_H + DEATH_PLANE_INTRUSION;
+      }
+    } else {
+      const trailing = this._camWorldClimb - HALF_H;
+      if (trailing + DEATH_PLANE_INTRUSION < deathPlanePos) {
+        this._camWorldClimb = deathPlanePos + HALF_H - DEATH_PLANE_INTRUSION;
+      }
     }
+
+    this._camWorldLateral = lateralTarget;
 
     // Apply: world Y+ = down → Three.js Y+ = up.
-    this._cam.position.set(targetX, -this._camWorldY, 10);
+    const worldX = this._dir.axis === "y" ? lateralTarget : this._camWorldClimb;
+    const worldY = this._dir.axis === "y" ? this._camWorldClimb : lateralTarget;
+    this._cam.position.set(worldX, -worldY, 10);
     this._cam.updateProjectionMatrix();
   }
 

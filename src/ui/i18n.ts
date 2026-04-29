@@ -27,7 +27,7 @@ export const TEXT = {
     comingSoon: "Coming Soon",
     levels: {
       1: "Level 1 — The Laundry Pile",
-      2: "Level 2 — ???",
+      2: "Level 2 — The Sock Drawer",
       3: "Level 3 — ???",
       4: "Level 4 — ???",
     },

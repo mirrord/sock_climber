@@ -26,7 +26,7 @@ export interface PatchEntry {
 }
 
 /**
- * Full patch catalog — 7 permanent upgrade options.
+ * Full patch catalog — 6 permanent upgrade options.
  * Sampled by `UpgradeSystem` when the upgrade gauge fills.
  */
 export const PATCH_CATALOG: readonly PatchEntry[] = [

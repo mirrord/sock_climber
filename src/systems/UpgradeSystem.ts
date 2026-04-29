@@ -1,6 +1,7 @@
 import type { EventBus, GameEvents } from "../core/EventBus.js";
 import type { RNG } from "../core/RNG.js";
 import type { Player } from "../entities/Player.js";
+import { CLIMB_DIR_VERTICAL, climbProgress, type ClimbDir } from "../level/Axis.js";
 import { PATCH_CATALOG } from "./PatchCatalog.js";
 import type { PatchEntry } from "./PatchCatalog.js";
 
@@ -30,12 +31,14 @@ export class UpgradeSystem {
   private readonly _appliedPatchIds = new Set<string>();
   private readonly _bus: EventBus<GameEvents>;
   private readonly _rng: RNG;
+  private _dir: ClimbDir;
   /**
-   * Highest point (smallest world-Y) the player has reached so far this run.
-   * `null` until the first `update()` call after construction or `reset()`,
-   * at which point it is baselined to the player's current Y.
+   * Highest climb-progress value (along the configured climb direction)
+   * the player has reached so far this run. `null` until the first
+   * `update()` call after construction or `reset()`, at which point it
+   * is baselined to the player's current progress.
    */
-  private _lastClimbY: number | null = null;
+  private _lastClimbProgress: number | null = null;
   /**
    * Latched `true` once `_gauge` reaches 1 and `onGaugeFull` has been emitted
    * for the current cycle. Cleared on `selectPatch` / `reset`. Prevents
@@ -43,9 +46,14 @@ export class UpgradeSystem {
    */
   private _gaugeFullEmitted = false;
 
-  constructor(bus: EventBus<GameEvents>, rng: RNG) {
+  constructor(
+    bus: EventBus<GameEvents>,
+    rng: RNG,
+    climbDir: ClimbDir = CLIMB_DIR_VERTICAL,
+  ) {
     this._bus = bus;
     this._rng = rng;
+    this._dir = climbDir;
 
     bus.on("onKill", () => {
       this._gauge = Math.min(1, this._gauge + FILL_PER_KILL);
@@ -61,13 +69,15 @@ export class UpgradeSystem {
    */
   update(player: Player): void {
     // ─── Climb-based fill ──────────────────────────────────────────────
-    // World Y+ is down, so "climbing up" means decreasing y.
-    const y = player.body.position.y;
-    if (this._lastClimbY === null) {
-      this._lastClimbY = y;
-    } else if (y < this._lastClimbY) {
-      const delta = this._lastClimbY - y;
-      this._lastClimbY = y;
+    // Forward climb progress depends on the active climb direction:
+    // level 1 (axis="y", sign=-1) → progress = -y; level 2 (axis="x",
+    // sign=+1) → progress = +x. Only forward gains add to the gauge.
+    const progress = climbProgress(player.body.position, this._dir);
+    if (this._lastClimbProgress === null) {
+      this._lastClimbProgress = progress;
+    } else if (progress > this._lastClimbProgress) {
+      const delta = progress - this._lastClimbProgress;
+      this._lastClimbProgress = progress;
       const before = this._gauge;
       this._gauge = Math.min(1, this._gauge + delta * FILL_PER_CLIMB_UNIT);
       if (this._gauge !== before) {
@@ -75,6 +85,16 @@ export class UpgradeSystem {
         this._maybeEmitGaugeFull();
       }
     }
+  }
+
+  /**
+   * Reconfigure the climb direction (e.g. when switching levels). The
+   * climb-progress baseline is cleared so the next `update()` re-baselines
+   * against the new axis without spuriously filling the gauge.
+   */
+  setClimbDir(dir: ClimbDir): void {
+    this._dir = dir;
+    this._lastClimbProgress = null;
   }
 
   /**
@@ -150,7 +170,7 @@ export class UpgradeSystem {
     this._isPickerOpen = false;
     this._currentOffer = null;
     this._appliedPatchIds.clear();
-    this._lastClimbY = null;
+    this._lastClimbProgress = null;
     this._gaugeFullEmitted = false;
     this._bus.emit("onGaugeChanged", { fill: 0 });
   }
