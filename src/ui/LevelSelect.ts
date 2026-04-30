@@ -11,7 +11,7 @@ import { TEXT } from "./i18n.js";
 export type LevelId = 1 | 2 | 3 | 4;
 
 /** Levels considered playable. Used to gate button enablement. */
-const PLAYABLE_LEVELS: ReadonlySet<LevelId> = new Set<LevelId>([1, 2, 3]);
+const PLAYABLE_LEVELS: ReadonlySet<LevelId> = new Set<LevelId>([1, 2, 3, 4]);
 
 /**
  * LevelSelect — level selection overlay shown between the title screen and

@@ -154,4 +154,22 @@ export type GameEvents = {
    * can localise themselves to the source.
    */
   onKeysTelegraph: { x: number; y: number };
+  /**
+   * Emitted by `BossLaundry` (level 4) once the player has dealt the
+   * required number of melee strikes during dizzy windows. Triggers the
+   * Victory overlay and ends the run as a win.
+   */
+  onLevelComplete: { levelId: number };
+  /**
+   * Emitted by `BossLaundry` during its Throw behaviour, once per
+   * spawned projectile. Carries the entity to add to the live world.
+   * The `kind` and `tag` are forwarded so `SpawnSystem` can manage the
+   * entity uniformly with generator-spawned ones.
+   */
+  onBossSpawn: {
+    kind: "obstacle" | "buff";
+    tag: string;
+    entity: unknown;
+    position: { x: number; y: number };
+  };
 };

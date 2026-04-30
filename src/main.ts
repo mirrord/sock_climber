@@ -23,7 +23,7 @@ import {
   SpawnSystem,
 } from "./systems/index.js";
 import { ATTACK_TABLE } from "./systems/AttackTable.js";
-import { HUD, PatchPicker, Pause, Settings, Title, LevelSelect, GameOver } from "./ui/index.js";
+import { HUD, PatchPicker, Pause, Settings, Title, LevelSelect, GameOver, Victory } from "./ui/index.js";
 import type { LevelId } from "./ui/index.js";
 import { Renderer, GameCamera, SpritePool, ParticleSystem, DebugOverlay } from "./render/index.js";
 import {
@@ -40,6 +40,8 @@ import type { Obstacle } from "./entities/obstacles/Obstacle.js";
 import type { Buff } from "./entities/buffs/Buff.js";
 import type { Gum } from "./entities/obstacles/Gum.js";
 import { DustBunny } from "./entities/obstacles/DustBunny.js";
+import { DryerSheet } from "./entities/obstacles/DryerSheet.js";
+import { BossLaundry } from "./entities/enemies/BossLaundry.js";
 
 // ─── Three.js scene ───────────────────────────────────────────────────────
 
@@ -298,6 +300,10 @@ function seedWorldBoundary(): void {
     world.fillRect(0, 2, W, 1, true);
     // Trailing wall column at x = 0 spanning the corridor height.
     world.fillRect(0, yMin, 1, 3 - yMin, true);
+  } else if (activeLevel.climbDir.axis === "none") {
+    // Arena (level 4): the ArenaGenerator places every wall tile as
+    // part of its first `advance()` pass — no bootstrap geometry is
+    // needed here. Intentionally no-op.
   } else {
     // Path-mode (level 3): the corridor itself is carved by the
     // SnakeGenerator, but the generator only places walls along the
@@ -603,11 +609,71 @@ const title = new Title(
 const levelSelect = new LevelSelect(
   (level) => {
     selectedLevel = level;
-    bus.emit("onGameStart", {});
+    // Level 4 (the boss arena) opens the pre-run loadout flow before
+    // starting the run. The player picks 3 patches from successive
+    // PatchPicker offers; once all picks are made we emit `onGameStart`.
+    if (level === 4) {
+      startLoadoutFlow();
+    } else {
+      bus.emit("onGameStart", {});
+    }
   },
   () => { levelSelect.hide(); title.show(); },
 );
 const gameOver = new GameOver(bus, scoreSystem, onRestart);
+const victory = new Victory(bus, scoreSystem, onRestart, onQuit);
+
+/** Number of remaining loadout picks owed before `onGameStart` fires. */
+let _loadoutPicksRemaining = 0;
+
+/**
+ * Open the pre-run loadout PatchPicker the configured number of times,
+ * then start the run. The picker re-opens itself via `onPickerClose`
+ * until the counter hits zero. Used only by level 4.
+ */
+function startLoadoutFlow(): void {
+  _loadoutPicksRemaining = 3;
+  // Make sure player + activeLevel are reset so the loadout patches
+  // accumulate on the correct character (HP containers, etc.).
+  selectedLevel = 4;
+  resetGame();
+  // resetGame fires gauge/HP snapshots etc.; suppress the death-music
+  // playback by not flipping `alive` yet. Open the first loadout pick.
+  upgradeSystem.openLoadoutOffer(player);
+}
+
+bus.on("onPickerClose", () => {
+  pickerOpen = false;
+  input.flush();
+  if (_loadoutPicksRemaining > 0) {
+    _loadoutPicksRemaining -= 1;
+    if (_loadoutPicksRemaining > 0) {
+      // Re-open with a fresh offer for the next pick.
+      upgradeSystem.openLoadoutOffer(player);
+    } else {
+      // Final pick complete — start the run.
+      bus.emit("onGameStart", {});
+    }
+  }
+});
+
+// Boss-thrown projectiles + Softener pickups. Adopted into the live entity list.
+bus.on("onBossSpawn", ({ kind, tag, entity, position }) => {
+  spawnSystem.addEntity({
+    kind,
+    tag: tag as never,
+    position,
+    entity: entity as never,
+  });
+});
+
+// Boss defeated — show Victory overlay and end the run.
+bus.on("onLevelComplete", () => {
+  alive = false;
+  hud.hide();
+  playMusic("title");
+  victory.show();
+});
 
 // ─── Game state ───────────────────────────────────────────────────────────
 
@@ -622,6 +688,12 @@ let paused = false;
  * and so the Pause input toggle is suppressed for the duration.
  */
 let pickerOpen = false;
+/**
+ * Edge-tracker for `combatSystem.isAttacking`. When the player has the
+ * Softener temp-buff active and starts a new attack swing, we consume
+ * the buff and spawn a {@link DryerSheet} projectile in front of them.
+ */
+let _prevAttacking = false;
 
 bus.on("onGameStart", () => {
   maybeResumeAudio();
@@ -732,6 +804,10 @@ function resetGame(): void {
   deathPlaneActivated = false;
   upgradeSystem.setClimbDir(activeLevel.climbDir);
   upgradeSystem.reset();
+  // Arena (level 4) drives upgrades through the pre-run loadout flow,
+  // not through in-run kill/climb gauge fills. Disable the gauge so
+  // the picker can never auto-open mid-fight.
+  upgradeSystem.setEnabled(activeLevel.climbDir.axis !== "none");
 
   // Re-skin the death plane to the active level's lateral extent /
   // orientation. Safe to call before the texture has decoded.
@@ -904,6 +980,34 @@ const loop = createLoop({
       .map((e) => e.entity as Parameters<typeof combatSystem.update>[3][0]);
     combatSystem.update(dt, snap, player, enemies);
 
+    // 2b. Softener temp-buff: if the player just started a new attack
+    //     swing and is holding a Softener charge, consume the buff and
+    //     spawn a DryerSheet projectile travelling in their facing
+    //     direction. Edge-detect on `isAttacking` so the buff is only
+    //     consumed once per swing rather than on every active frame.
+    {
+      const attacking = combatSystem.isAttacking;
+      if (
+        attacking &&
+        !_prevAttacking &&
+        player.hasStatMod("Softener")
+      ) {
+        player.removeStatMod("Softener");
+        const dir = (player.facing as 1 | -1);
+        const sheet = new DryerSheet(
+          { x: player.body.position.x + dir * 0.8, y: player.body.position.y },
+          dir,
+        );
+        spawnSystem.addEntity({
+          kind: "obstacle",
+          tag: "DryerSheet",
+          position: { x: sheet.body.position.x, y: sheet.body.position.y },
+          entity: sheet,
+        });
+      }
+      _prevAttacking = attacking;
+    }
+
     // 3. Physics step.
     step(player.body, world, dt);
 
@@ -940,7 +1044,7 @@ const loop = createLoop({
         // and level 2 (leading edge is the larger X). For path-mode
         // levels we fall back to a Euclidean-distance check.
         if (!enemy.revealed) {
-          if (climbAxis === "path") {
+          if (climbAxis === "path" || climbAxis === "none") {
             const ex = enemy.body.position.x - px;
             const ey = enemy.body.position.y - py;
             if (ex * ex + ey * ey <= PATH_REVEAL_RADIUS * PATH_REVEAL_RADIUS) {
@@ -975,6 +1079,12 @@ const loop = createLoop({
           if (db.processPlayer(player)) {
             particles.emit("dust", db.body.position.x, db.body.position.y);
           }
+        } else if (se.tag === "DryerSheet") {
+          // Trigger projectile — the per-frame movement is handled by
+          // `obstacle.update(dt)` above. Collision against the boss and
+          // dust-bunnies is resolved in a dedicated sweep below so we
+          // can reuse the live list once it is fully ticked.
+          // Intentionally no contactDamage call (damage is 0).
         } else {
           obstacle.applyContactDamage(player);
         }
@@ -1006,10 +1116,62 @@ const loop = createLoop({
       }
     }
     for (const id of _expiredBuffIds) activeBuffs.delete(id);
+
+    // 3c. DryerSheet collision sweep (level 4 only). Each live sheet is
+    //     tested against the boss (one Softener hit toward Dizzy) and
+    //     against any live ballistic dust-bunny (one-shot destroy). The
+    //     sheet is consumed on first contact and culled in the next
+    //     pass alongside expired sheets.
+    for (let i = 0; i < live.length; i++) {
+      const a = live[i]!;
+      if (a.kind !== "obstacle" || a.tag !== "DryerSheet") continue;
+      const sheet = a.entity as DryerSheet;
+      if (sheet.expired) continue;
+      const sx = sheet.body.position.x;
+      const sy = sheet.body.position.y;
+      const shw = sheet.body.halfExtents.x;
+      const shh = sheet.body.halfExtents.y;
+      for (let j = 0; j < live.length && !sheet.expired; j++) {
+        if (j === i) continue;
+        const b = live[j]!;
+        if (b.kind === "enemy" && b.tag === "BossLaundry") {
+          const boss = b.entity as BossLaundry;
+          const bx = boss.body.position.x;
+          const by = boss.body.position.y;
+          const bhw = boss.body.halfExtents.x;
+          const bhh = boss.body.halfExtents.y;
+          if (
+            Math.abs(sx - bx) <= shw + bhw &&
+            Math.abs(sy - by) <= shh + bhh
+          ) {
+            boss.applyDryerSheetHit();
+            sheet.consume();
+          }
+        } else if (b.kind === "obstacle" && b.tag === "DustBunny") {
+          const db = b.entity as DustBunny;
+          const bx = db.body.position.x;
+          const by = db.body.position.y;
+          const bhw = db.body.halfExtents.x;
+          const bhh = db.body.halfExtents.y;
+          if (
+            Math.abs(sx - bx) <= shw + bhw &&
+            Math.abs(sy - by) <= shh + bhh
+          ) {
+            particles.emit("dust", bx, by);
+            spawnSystem.removeById(db.id);
+            sheet.consume();
+          }
+        }
+      }
+    }
     for (let i = live.length - 1; i >= 0; i--) {
       const se = live[i]!;
       if (se.kind === "enemy" && !(se.entity as Enemy).isAlive) {
         spawnSystem.removeById(se.entity.id);
+      } else if (se.kind === "obstacle" && se.tag === "DryerSheet") {
+        if ((se.entity as DryerSheet).expired) {
+          spawnSystem.removeById(se.entity.id);
+        }
       }
     }
 
@@ -1024,36 +1186,42 @@ const loop = createLoop({
     const path = activePath();
     const playerPathS =
       path !== null ? path.estimateS(player.body.position) : undefined;
-    if (
-      !deathPlaneActivated &&
-      climbProgress(player.body.position, activeLevel.climbDir, playerPathS) >=
-        activeLevel.deathPlaneActivationDistance
-    ) {
-      deathPlaneActivated = true;
-    }
-    if (deathPlaneActivated) {
-      // Path mode: project the plane's `s` to world space once so the
-      // death-plane kill check can use a finite 2-D rectangle bounded
-      // by the corridor walls (matching the on-screen graphic) rather
-      // than an infinite half-space along path-`s`.
-      const pathContext =
-        path !== null
-          ? (() => {
-              const proj = path.projectS(deathPlaneSystem.planePos);
-              return {
-                planeWorld: proj.position,
-                tangent: proj.tangent,
-                corridorHalfWidth: activeLevel.corridorLateralExtent / 2,
-              };
-            })()
-          : undefined;
-      deathPlaneSystem.update(
-        dt,
-        player.body,
-        player.effectiveStats.deathPlaneSpeedMultiplier,
-        playerPathS,
-        pathContext,
-      );
+    // Arena (level 4): death plane is disabled — the win condition is
+    // beating the boss, not avoiding a chase. Skip activation, update,
+    // and the syncDeathPlane render call (handled in render()).
+    const isArena = activeLevel.climbDir.axis === "none";
+    if (!isArena) {
+      if (
+        !deathPlaneActivated &&
+        climbProgress(player.body.position, activeLevel.climbDir, playerPathS) >=
+          activeLevel.deathPlaneActivationDistance
+      ) {
+        deathPlaneActivated = true;
+      }
+      if (deathPlaneActivated) {
+        // Path mode: project the plane's `s` to world space once so the
+        // death-plane kill check can use a finite 2-D rectangle bounded
+        // by the corridor walls (matching the on-screen graphic) rather
+        // than an infinite half-space along path-`s`.
+        const pathContext =
+          path !== null
+            ? (() => {
+                const proj = path.projectS(deathPlaneSystem.planePos);
+                return {
+                  planeWorld: proj.position,
+                  tangent: proj.tangent,
+                  corridorHalfWidth: activeLevel.corridorLateralExtent / 2,
+                };
+              })()
+            : undefined;
+        deathPlaneSystem.update(
+          dt,
+          player.body,
+          player.effectiveStats.deathPlaneSpeedMultiplier,
+          playerPathS,
+          pathContext,
+        );
+      }
     }
 
     // 5. Level generation — advance ahead of camera. The generator's
@@ -1102,12 +1270,14 @@ const loop = createLoop({
     // Sync entity meshes.
     spritePool.syncPlayer(player, scene, renderX, renderY, renderDt, combatSystem.isAttacking);
     spritePool.syncAll(spawnSystem.liveEntities, scene);
-    spritePool.syncDeathPlane(
-      deathPlaneSystem.planePos,
-      scene,
-      !deathPlaneActivated,
-      activePath(),
-    );
+    if (activeLevel.climbDir.axis !== "none") {
+      spritePool.syncDeathPlane(
+        deathPlaneSystem.planePos,
+        scene,
+        !deathPlaneActivated,
+        activePath(),
+      );
+    }
     spritePool.syncTiles(
       world,
       scene,

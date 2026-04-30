@@ -3,9 +3,15 @@ import { Gum } from "./Gum.js";
 import { DustBunny } from "./DustBunny.js";
 import { Lighter } from "./Lighter.js";
 import { Pen } from "./Pen.js";
+import { DryerSheet } from "./DryerSheet.js";
 
 /** Tag identifying each obstacle type. */
-export type ObstacleTag = "Gum" | "DustBunny" | "Lighter" | "Pen";
+export type ObstacleTag =
+  | "Gum"
+  | "DustBunny"
+  | "Lighter"
+  | "Pen"
+  | "DryerSheet";
 
 /** Per-type metadata used by the level generator. */
 export interface ObstacleSpec {
@@ -21,6 +27,13 @@ export const OBSTACLE_REGISTRY: Readonly<Record<ObstacleTag, ObstacleSpec>> = {
   DustBunny: { factory: (pos) => new DustBunny(pos), isTrigger: false },
   Lighter: { factory: (pos) => new Lighter(pos), isTrigger: false },
   Pen: { factory: (pos) => new Pen(pos), isTrigger: false },
+  // DryerSheet is the player projectile — never spawned by level
+  // generators, but registered so its tag participates in EntityTag
+  // unions (sprite registration, generator filters, etc.).
+  DryerSheet: {
+    factory: (pos) => new DryerSheet(pos, 1),
+    isTrigger: true,
+  },
 };
 
 /**

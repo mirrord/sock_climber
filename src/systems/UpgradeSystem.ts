@@ -45,6 +45,20 @@ export class UpgradeSystem {
    * duplicate `onGaugeFull` emissions while the player waits to apply.
    */
   private _gaugeFullEmitted = false;
+  /**
+   * When `false`, the gauge no longer fills from kills or climb progress.
+   * Used by level 4 (the boss arena) where the upgrade pipeline is
+   * driven entirely by the pre-run loadout picker instead of in-run
+   * gauge fills. Defaults to `true`.
+   */
+  private _enabled = true;
+  /**
+   * `true` while the picker is operating in pre-run loadout mode
+   * (level 4). Toggled on by `openLoadoutOffer`; consumed and cleared
+   * by the next `selectPatch` so the cost-skip applies to exactly one
+   * pick per opening.
+   */
+  private _loadoutMode = false;
 
   constructor(
     bus: EventBus<GameEvents>,
@@ -56,6 +70,7 @@ export class UpgradeSystem {
     this._dir = climbDir;
 
     bus.on("onKill", () => {
+      if (!this._enabled) return;
       this._gauge = Math.min(1, this._gauge + FILL_PER_KILL);
       bus.emit("onGaugeChanged", { fill: this._gauge });
       this._maybeEmitGaugeFull();
@@ -71,6 +86,7 @@ export class UpgradeSystem {
    * supplied — the bare body position is opaque to this system.
    */
   update(player: Player, pathProgress?: number): void {
+    if (!this._enabled) return;
     // ─── Climb-based fill ──────────────────────────────────────────────
     // Forward climb progress depends on the active climb direction:
     // level 1 (axis="y", sign=-1) → progress = -y; level 2 (axis="x",
@@ -99,6 +115,40 @@ export class UpgradeSystem {
   setClimbDir(dir: ClimbDir): void {
     this._dir = dir;
     this._lastClimbProgress = null;
+  }
+
+  /**
+   * Enable or disable in-run gauge fills (kills + climb progress).
+   * Disabling on level 4 keeps the gauge permanently empty so the
+   * mid-run patch picker can never auto-open; the pre-run loadout
+   * picker is invoked separately via {@link openLoadoutOffer}.
+   */
+  setEnabled(enabled: boolean): void {
+    this._enabled = enabled;
+    if (!enabled) {
+      this._gauge = 0;
+      this._gaugeFullEmitted = false;
+      this._bus.emit("onGaugeChanged", { fill: 0 });
+    }
+  }
+
+  /** `true` if in-run gauge fills are accepted. */
+  get enabled(): boolean {
+    return this._enabled;
+  }
+
+  /**
+   * Open the patch picker in "loadout" mode — a pre-run draft used by
+   * level 4. Bypasses the gauge requirement and arms the next
+   * `selectPatch` call so it does not consume an empty HP container.
+   * Returns the offer the UI should present.
+   */
+  openLoadoutOffer(player: Player): readonly PatchEntry[] {
+    this._loadoutMode = true;
+    this._currentOffer = this._sampleOffer(player);
+    this._isPickerOpen = true;
+    this._bus.emit("onPickerOpen", {});
+    return this._currentOffer;
   }
 
   /**
@@ -139,6 +189,10 @@ export class UpgradeSystem {
     if (entry.id === "ExtraHP") {
       // ExtraHP is unique: it adds a new full HP container without consuming an empty slot.
       player.gainContainer();
+    } else if (this._loadoutMode) {
+      // Pre-run loadout: skip the empty-container cost so the player
+      // doesn't need to take damage before the run begins.
+      player.applyStatMod(entry.id, entry.statMod);
     } else {
       // All other patches cost one empty HP container.
       player.consumeEmptyContainer();
@@ -150,6 +204,10 @@ export class UpgradeSystem {
 
     this._isPickerOpen = false;
     this._currentOffer = null;
+    // Loadout mode is single-shot per opening; clear so subsequent
+    // mid-run pickings (none in level 4 in practice, but defensive)
+    // pay the normal HP-container cost.
+    this._loadoutMode = false;
     this._bus.emit("onPickerClose", {});
   }
 
@@ -176,6 +234,8 @@ export class UpgradeSystem {
     this._appliedPatchIds.clear();
     this._lastClimbProgress = null;
     this._gaugeFullEmitted = false;
+    this._loadoutMode = false;
+    this._enabled = true;
     this._bus.emit("onGaugeChanged", { fill: 0 });
   }
 

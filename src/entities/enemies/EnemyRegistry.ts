@@ -4,9 +4,16 @@ import { Wallet } from "./Wallet.js";
 import { Phone } from "./Phone.js";
 import { Lipstick } from "./Lipstick.js";
 import { Headphones } from "./Headphones.js";
+import { BossLaundry } from "./BossLaundry.js";
 
 /** Tag identifying each enemy type. */
-export type EnemyTag = "Keys" | "Wallet" | "Phone" | "Lipstick" | "Headphones";
+export type EnemyTag =
+  | "Keys"
+  | "Wallet"
+  | "Phone"
+  | "Lipstick"
+  | "Headphones"
+  | "BossLaundry";
 
 /** Per-type metadata used by the level generator. */
 export interface EnemySpec {
@@ -23,6 +30,7 @@ export const ENEMY_REGISTRY: Readonly<Record<EnemyTag, EnemySpec>> = {
   Phone: { factory: (pos) => new Phone(pos), gaugeReward: 1 },
   Lipstick: { factory: (pos) => new Lipstick(pos), gaugeReward: 1 },
   Headphones: { factory: (pos) => new Headphones(pos), gaugeReward: 1 },
+  BossLaundry: { factory: (pos) => new BossLaundry(pos), gaugeReward: 0 },
 };
 
 /**

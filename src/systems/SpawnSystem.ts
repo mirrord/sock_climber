@@ -88,6 +88,22 @@ export class SpawnSystem {
   }
 
   /**
+   * Add an entity that wasn't produced by the generator (e.g. boss-spawned
+   * dust bunnies, Softener pickups, dryer-sheet projectiles in level 4).
+   * Wires the entity into the live list and runs the same `attachBus`
+   * opt-in hook used by `advance()`.
+   */
+  addEntity(spawned: SpawnedEntity): void {
+    const maybeBusAware = spawned.entity as unknown as {
+      attachBus?: (bus: EventBus<GameEvents>) => void;
+    };
+    if (typeof maybeBusAware.attachBus === "function") {
+      maybeBusAware.attachBus(this._bus);
+    }
+    this._liveEntities.push(spawned);
+  }
+
+  /**
    * Clear all live entities, reset the segment counter, and swap in a new
    * generator for the next run.
    */

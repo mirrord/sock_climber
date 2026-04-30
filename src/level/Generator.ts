@@ -27,6 +27,7 @@ import { poissonSample } from "./Sampler.js";
 import { CLIMB_DIR_VERTICAL, type ClimbDir } from "./Axis.js";
 import { createHorizontalGenerator } from "./HorizontalGenerator.js";
 import { createSnakeGenerator } from "./SnakeGenerator.js";
+import { createArenaGenerator } from "./ArenaGenerator.js";
 import type { PlayerStats } from "../entities/components/Stats.js";
 import { DEFAULT_PLAYER_STATS } from "../entities/components/Stats.js";
 
@@ -230,6 +231,9 @@ export function createGenerator(opts: GeneratorOptions): Generator {
   }
   if (climbDir.axis === "path") {
     return createSnakeGenerator(opts);
+  }
+  if (climbDir.axis === "none") {
+    return createArenaGenerator(opts);
   }
 
   const LOOKAHEAD = opts.lookahead ?? 80;

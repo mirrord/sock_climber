@@ -5,6 +5,7 @@ import { SlowFloodSock } from "./SlowFloodSock.js";
 import { HighJumpSock } from "./HighJumpSock.js";
 import { PowerSock } from "./PowerSock.js";
 import { RapidStrikeSock } from "./RapidStrikeSock.js";
+import { SoftenerBuff } from "./SoftenerBuff.js";
 
 /** Tag identifying each buff pickup variant. */
 export type BuffTag =
@@ -13,7 +14,8 @@ export type BuffTag =
   | "SlowFloodSock"
   | "HighJumpSock"
   | "PowerSock"
-  | "RapidStrikeSock";
+  | "RapidStrikeSock"
+  | "SoftenerBuff";
 
 /** Per-type metadata used by the level generator. */
 export interface BuffSpec {
@@ -48,6 +50,10 @@ export const BUFF_REGISTRY: Readonly<Record<BuffTag, BuffSpec>> = {
   RapidStrikeSock: {
     factory: (pos) => new RapidStrikeSock(pos),
     description: "Increases attack speed.",
+  },
+  SoftenerBuff: {
+    factory: (pos) => new SoftenerBuff(pos),
+    description: "Dryer sheet — your next attack launches a dryer sheet.",
   },
 };
 

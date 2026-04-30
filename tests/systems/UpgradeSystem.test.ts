@@ -400,3 +400,157 @@ describe("UpgradeSystem — selectPatch", () => {
     expect(offer2.find((p) => p.id === "AirDash")).toBeUndefined();
   });
 });
+
+// --- Loadout mode + setEnabled (level 4) --------------------------------
+
+describe("UpgradeSystem � setEnabled", () => {
+  it("disabling blocks gauge fill from kills", () => {
+    const bus = createEventBus<GameEvents>();
+    const sys = new UpgradeSystem(bus, createRNG(1));
+    sys.setEnabled(false);
+    bus.emit("onKill", { entityId: 1 });
+    expect(sys.gauge).toBe(0);
+  });
+
+  it("disabling zeroes existing gauge", () => {
+    const bus = createEventBus<GameEvents>();
+    const sys = new UpgradeSystem(bus, createRNG(1));
+    bus.emit("onKill", { entityId: 1 });
+    expect(sys.gauge).toBeGreaterThan(0);
+    sys.setEnabled(false);
+    expect(sys.gauge).toBe(0);
+  });
+
+  it("re-enabling allows further gauge fill", () => {
+    const bus = createEventBus<GameEvents>();
+    const sys = new UpgradeSystem(bus, createRNG(1));
+    sys.setEnabled(false);
+    sys.setEnabled(true);
+    bus.emit("onKill", { entityId: 1 });
+    expect(sys.gauge).toBeGreaterThan(0);
+  });
+
+  it("reset() re-enables the system", () => {
+    const bus = createEventBus<GameEvents>();
+    const sys = new UpgradeSystem(bus, createRNG(1));
+    sys.setEnabled(false);
+    sys.reset();
+    expect(sys.enabled).toBe(true);
+  });
+});
+
+describe("UpgradeSystem � openLoadoutOffer", () => {
+  it("opens the picker bypassing the gauge requirement", () => {
+    const bus = createEventBus<GameEvents>();
+    const sys = new UpgradeSystem(bus, createRNG(1));
+    const player = makePlayer();
+    expect(sys.gauge).toBe(0);
+    sys.openLoadoutOffer(player);
+    expect(sys.isPickerOpen).toBe(true);
+    expect(sys.currentOffer).not.toBeNull();
+  });
+
+  it("emits onPickerOpen", () => {
+    const bus = createEventBus<GameEvents>();
+    const sys = new UpgradeSystem(bus, createRNG(1));
+    const player = makePlayer();
+    let opened = false;
+    bus.on("onPickerOpen", () => { opened = true; });
+    sys.openLoadoutOffer(player);
+    expect(opened).toBe(true);
+  });
+
+  it("selectPatch in loadout mode does NOT consume an empty HP container", () => {
+    const bus = createEventBus<GameEvents>();
+    const sys = new UpgradeSystem(bus, createRNG(1));
+    const player = makePlayer();
+    // Player at full HP � no empty containers available.
+    expect(player.health.containers - player.health.current).toBe(0);
+    sys.openLoadoutOffer(player);
+    const offer = sys.currentOffer ?? [];
+    // Pick the first non-ExtraHP entry (those use a different code path).
+    const idx = offer.findIndex((p) => p.id !== "ExtraHP");
+    if (idx === -1) return; // unlikely with the default registry
+    const patchId = offer[idx]!.id;
+    sys.selectPatch(idx as 0 | 1 | 2, player);
+    // Mod was applied (no throw, no HP consumption).
+    expect(player.hasStatMod(patchId)).toBe(true);
+    // Picker has closed.
+    expect(sys.isPickerOpen).toBe(false);
+  });
+});
+
+// ─── Loadout mode + setEnabled (level 4) ────────────────────────────────
+
+describe("UpgradeSystem — setEnabled", () => {
+  it("disabling blocks gauge fill from kills", () => {
+    const bus = createEventBus<GameEvents>();
+    const sys = new UpgradeSystem(bus, createRNG(1));
+    sys.setEnabled(false);
+    bus.emit("onKill", { entityId: 1 });
+    expect(sys.gauge).toBe(0);
+  });
+
+  it("disabling zeroes existing gauge", () => {
+    const bus = createEventBus<GameEvents>();
+    const sys = new UpgradeSystem(bus, createRNG(1));
+    bus.emit("onKill", { entityId: 1 });
+    expect(sys.gauge).toBeGreaterThan(0);
+    sys.setEnabled(false);
+    expect(sys.gauge).toBe(0);
+  });
+
+  it("re-enabling allows further gauge fill", () => {
+    const bus = createEventBus<GameEvents>();
+    const sys = new UpgradeSystem(bus, createRNG(1));
+    sys.setEnabled(false);
+    sys.setEnabled(true);
+    bus.emit("onKill", { entityId: 1 });
+    expect(sys.gauge).toBeGreaterThan(0);
+  });
+
+  it("reset() re-enables the system", () => {
+    const bus = createEventBus<GameEvents>();
+    const sys = new UpgradeSystem(bus, createRNG(1));
+    sys.setEnabled(false);
+    sys.reset();
+    expect(sys.enabled).toBe(true);
+  });
+});
+
+describe("UpgradeSystem — openLoadoutOffer", () => {
+  it("opens the picker bypassing the gauge requirement", () => {
+    const bus = createEventBus<GameEvents>();
+    const sys = new UpgradeSystem(bus, createRNG(1));
+    const player = makePlayer();
+    expect(sys.gauge).toBe(0);
+    sys.openLoadoutOffer(player);
+    expect(sys.isPickerOpen).toBe(true);
+    expect(sys.currentOffer).not.toBeNull();
+  });
+
+  it("emits onPickerOpen", () => {
+    const bus = createEventBus<GameEvents>();
+    const sys = new UpgradeSystem(bus, createRNG(1));
+    const player = makePlayer();
+    let opened = false;
+    bus.on("onPickerOpen", () => { opened = true; });
+    sys.openLoadoutOffer(player);
+    expect(opened).toBe(true);
+  });
+
+  it("selectPatch in loadout mode does NOT consume an empty HP container", () => {
+    const bus = createEventBus<GameEvents>();
+    const sys = new UpgradeSystem(bus, createRNG(1));
+    const player = makePlayer();
+    expect(player.health.containers - player.health.current).toBe(0);
+    sys.openLoadoutOffer(player);
+    const offer = sys.currentOffer ?? [];
+    const idx = offer.findIndex((p) => p.id !== "ExtraHP");
+    if (idx === -1) return;
+    const patchId = offer[idx]!.id;
+    sys.selectPatch(idx as 0 | 1 | 2, player);
+    expect(player.hasStatMod(patchId)).toBe(true);
+    expect(sys.isPickerOpen).toBe(false);
+  });
+});

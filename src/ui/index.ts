@@ -6,3 +6,4 @@ export { Title } from "./Title.js";
 export { LevelSelect } from "./LevelSelect.js";
 export type { LevelId } from "./LevelSelect.js";
 export { GameOver } from "./GameOver.js";
+export { Victory } from "./Victory.js";

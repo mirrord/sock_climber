@@ -1,6 +1,7 @@
 import type { LevelId } from "../ui/LevelSelect.js";
 import {
   CLIMB_DIR_HORIZONTAL,
+  CLIMB_DIR_NONE,
   CLIMB_DIR_PATH,
   CLIMB_DIR_VERTICAL,
   type ClimbDir,
@@ -103,11 +104,34 @@ const LEVEL_3: LevelConfig = {
   deathPlaneActivationDistance: 20,
 };
 
-/** All level configurations, keyed by `LevelId`. Level 4 is a placeholder. */
+/**
+ * Level 4 — "Boss Battle Arena". A closed circular room ~40 m in diameter
+ * with a stair-stepped tile circle as the playable area. The player does
+ * not climb; the death plane is disabled. The win condition is defeating
+ * the boss (see `BossLaundry`).
+ */
+const LEVEL_4_ARENA: LevelConfig = {
+  id: 4,
+  climbDir: CLIMB_DIR_NONE,
+  // 48-tile-square world: 40-tile-diameter playable circle plus a 4-tile
+  // border on every side so the wall geometry never touches the world
+  // bounds (and a small buffer for the 1-tile world-edge guard).
+  worldWidthTiles: 48,
+  worldHeightTiles: 48,
+  worldYMin: -32,
+  // Spawn at the bottom centre of the arena, just above the curved floor.
+  spawn: { x: 24, y: 12 },
+  corridorLateralExtent: 40,
+  // Death plane is disabled for axis="none" (guarded in main.ts), so
+  // these values are placeholders.
+  deathPlaneStart: 0,
+  deathPlaneActivationDistance: 0,
+};
+
+/** All level configurations, keyed by `LevelId`. */
 export const LEVEL_CONFIGS: Record<LevelId, LevelConfig> = {
   1: LEVEL_1,
   2: LEVEL_2,
   3: LEVEL_3,
-  // Placeholder so the type stays exhaustive — UI gates it as disabled.
-  4: LEVEL_1,
+  4: LEVEL_4_ARENA,
 };

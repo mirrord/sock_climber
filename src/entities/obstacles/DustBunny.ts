@@ -11,9 +11,18 @@ import type { Player } from "../Player.js";
 export class DustBunny extends Obstacle {
   static readonly DAMAGE = 1;
   static readonly SMOKE_DURATION = 4; // seconds
+  /** Gravity applied to a ballistic (boss-thrown) dust bunny in m/s². */
+  static readonly BALLISTIC_GRAVITY = 30;
 
   private _hasExploded = false;
   private _smokeTimer = 0;
+  /**
+   * `true` once `setBallistic()` has been called. Enables per-frame
+   * Euler integration of the body's velocity (and gravity) inside
+   * `updateObstacle()` so boss-thrown bunnies arc toward the player
+   * without requiring the physics resolver to step obstacles.
+   */
+  private _ballistic = false;
 
   constructor(position: { x: number; y: number }) {
     super({
@@ -40,15 +49,44 @@ export class DustBunny extends Obstacle {
     return this._smokeTimer;
   }
 
+  /**
+   * Launch this dust bunny on a ballistic trajectory (boss-throw). After
+   * this call `updateObstacle` integrates the body's velocity and applies
+   * gravity each step until the bunny explodes on player contact.
+   *
+   * @param vx - Initial horizontal velocity in m/s.
+   * @param vy - Initial vertical velocity in m/s (negative = upward).
+   */
+  setBallistic(vx: number, vy: number): void {
+    this._ballistic = true;
+    this.body.velocity.x = vx;
+    this.body.velocity.y = vy;
+  }
+
+  /** `true` once the bunny is in ballistic flight (set by the boss). */
+  get isBallistic(): boolean {
+    return this._ballistic;
+  }
+
   protected override onSpawn(): void {
     this._hasExploded = false;
     this._smokeTimer = 0;
+    this._ballistic = false;
     this.hitbox.active = false;
   }
 
   protected updateObstacle(dt: number): void {
     if (this._smokeTimer > 0) {
       this._smokeTimer = Math.max(0, this._smokeTimer - dt);
+    }
+    // Ballistic motion: integrate velocity and apply gravity manually so
+    // that boss-thrown bunnies arc through the air without the physics
+    // resolver needing to step every obstacle. Stops integrating once
+    // the bunny has exploded.
+    if (this._ballistic && !this._hasExploded) {
+      this.body.velocity.y += DustBunny.BALLISTIC_GRAVITY * dt;
+      this.body.position.x += this.body.velocity.x * dt;
+      this.body.position.y += this.body.velocity.y * dt;
     }
   }
 

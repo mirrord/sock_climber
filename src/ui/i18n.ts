@@ -29,7 +29,7 @@ export const TEXT = {
       1: "Level 1 — The Laundry Pile",
       2: "Level 2 — The Sock Drawer",
       3: "Level 3 — The Snaking Corridor",
-      4: "Level 4 — ???",
+      4: "Level 4 — The Boss Fight",
     },
   },
   gameOver: {
@@ -37,6 +37,18 @@ export const TEXT = {
     distance: "Distance",
     kills: "Kills",
     restart: "Play Again",
+  },
+  victory: {
+    heading: "Boss Defeated!",
+    subtitle: "You vanquished the laundry pile.",
+    kills: "Enemies defeated",
+    restart: "Play Again",
+    title: "Quit to Title",
+  },
+  loadout: {
+    heading: "Choose Your Loadout",
+    subtitle: "Pick 3 patches before facing the boss.",
+    remaining: "Picks remaining",
   },
   settings: {
     heading: "Settings",

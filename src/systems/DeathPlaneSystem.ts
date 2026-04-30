@@ -184,7 +184,7 @@ export class DeathPlaneSystem {
       // caller; the player's body has no half-extent along `s`.
       playerTrailing = playerProgress ?? 0;
     } else {
-      const axis = this._dir.axis;
+      const axis = this._dir.axis as "x" | "y";
       const playerCoord = playerBody.position[axis];
       const playerHalf = playerBody.halfExtents[axis];
       // The player's trailing edge along the climb axis is the side
@@ -266,7 +266,7 @@ export class DeathPlaneSystem {
       }
       return Math.max(0, (playerProgress ?? this._planePos) - this._planePos);
     }
-    const axis = this._dir.axis;
+    const axis = this._dir.axis as "x" | "y";
     return Math.max(
       0,
       this._dir.sign * (playerBody.position[axis] - this._planePos),

@@ -7,7 +7,7 @@
  * and the direction the death plane chases).
  */
 
-export type ClimbAxis = "x" | "y" | "path";
+export type ClimbAxis = "x" | "y" | "path" | "none";
 
 /** Axis + sign describing the direction the player climbs. */
 export interface ClimbDir {
@@ -16,7 +16,8 @@ export interface ClimbDir {
   /**
    * Direction along `axis` that constitutes forward progress.
    * `-1` for level 1 (climbing UP = -Y); `+1` for level 2 (climbing right = +X);
-   * always `+1` for the path axis (level 3 — `s` is always increasing).
+   * always `+1` for the path axis (level 3 — `s` is always increasing);
+   * always `+1` for the `"none"` axis (level 4 — no climb progress at all).
    */
   sign: -1 | 1;
 }
@@ -37,13 +38,22 @@ export const CLIMB_DIR_HORIZONTAL: ClimbDir = { axis: "x", sign: 1 };
 export const CLIMB_DIR_PATH: ClimbDir = { axis: "path", sign: 1 };
 
 /**
+ * Level 4: arena/boss-fight mode. The player does not climb — there is no
+ * progress axis at all. Systems that would normally chase the player
+ * along an axis (death plane, score distance, climb-based gauge fill)
+ * should be disabled or guarded out when this direction is active.
+ */
+export const CLIMB_DIR_NONE: ClimbDir = { axis: "none", sign: 1 };
+
+/**
  * The world axis perpendicular to the climb axis. For path-mode levels
  * (level 3) there is no single perpendicular axis — the lateral
  * direction varies along the path. Callers in path mode should not rely
- * on this helper; we return `"x"` as a defensive default.
+ * on this helper; we return `"x"` as a defensive default. The same
+ * fallback is used for `"none"` (no axis at all).
  */
 export function lateralAxis(dir: ClimbDir): ClimbAxis {
-  if (dir.axis === "path") return "x";
+  if (dir.axis === "path" || dir.axis === "none") return "x";
   return dir.axis === "y" ? "x" : "y";
 }
 
@@ -64,5 +74,6 @@ export function climbProgress(
   pathProgress?: number,
 ): number {
   if (dir.axis === "path") return pathProgress ?? 0;
+  if (dir.axis === "none") return 0;
   return dir.sign * pos[dir.axis];
 }

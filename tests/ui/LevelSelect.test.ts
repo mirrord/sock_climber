@@ -41,12 +41,12 @@ describe("LevelSelect", () => {
     ls.destroy();
   });
 
-  it("level 4 is a disabled placeholder", () => {
+  it("level 4 is enabled (boss arena unlocked)", () => {
     const ls = new LevelSelect(vi.fn(), vi.fn(), container);
     const btn = container.querySelector<HTMLButtonElement>(`#level-select-4`);
     expect(btn).not.toBeNull();
-    expect(btn?.disabled).toBe(true);
-    expect(btn?.classList.contains("level-btn-disabled")).toBe(true);
+    expect(btn?.disabled).toBe(false);
+    expect(btn?.classList.contains("level-btn-disabled")).toBe(false);
     ls.destroy();
   });
 
@@ -74,18 +74,17 @@ describe("LevelSelect", () => {
     ls.destroy();
   });
 
-  it("clicking a disabled placeholder does NOT fire onLevelSelected", () => {
+  // (disabled-placeholder behaviour removed once level 4 was unlocked.)
+  it("clicking Level 4 fires onLevelSelected(4) and hides the overlay", () => {
     const onLevelSelected = vi.fn();
     const ls = new LevelSelect(onLevelSelected, vi.fn(), container);
     ls.show();
 
-    // Force a click despite the disabled attribute (jsdom honours `disabled`
-    // by default and silently swallows the event, which is itself the
-    // behaviour we want to assert).
     container.querySelector<HTMLButtonElement>("#level-select-4")?.click();
 
-    expect(onLevelSelected).not.toHaveBeenCalled();
-    expect(container.querySelector("#level-select")?.classList.contains("hidden")).toBe(false);
+    expect(onLevelSelected).toHaveBeenCalledOnce();
+    expect(onLevelSelected).toHaveBeenCalledWith(4);
+    expect(container.querySelector("#level-select")?.classList.contains("hidden")).toBe(true);
     ls.destroy();
   });
 

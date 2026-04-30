@@ -144,6 +144,15 @@ export class Player implements Entity {
     if (this._statMods.delete(key)) this._statModsDirty = true;
   }
 
+  /**
+   * Returns `true` if a stat modifier with the given key is currently
+   * registered. Used by gameplay code to check for "presence flag"
+   * buffs (e.g. `Softener`) whose effect isn't a numeric stat delta.
+   */
+  hasStatMod(key: string): boolean {
+    return this._statMods.has(key);
+  }
+
   /** Rebuild `_cachedEffective` from base stats + all active mods. No allocations. */
   private _rebuildEffective(): void {
     const base = this.stats as unknown as Record<string, unknown>;

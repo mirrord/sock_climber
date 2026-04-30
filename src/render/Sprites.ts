@@ -35,6 +35,7 @@ const TAG_COLOR: Readonly<Record<string, number>> = {
   DustBunny: 0x999999,
   Lighter: 0xff8800,
   Pen: 0x00aaaa,
+  DryerSheet: 0xfff8c8,
   // Buffs — white so loaded sprite textures render unmodulated.
   LowGravitySock: 0xffffff,
   SpeedSock: 0xffffff,
@@ -42,6 +43,14 @@ const TAG_COLOR: Readonly<Record<string, number>> = {
   HighJumpSock: 0xffffff,
   PowerSock: 0xffffff,
   RapidStrikeSock: 0xffffff,
+  SoftenerBuff: 0xfff8c8,
+  // Boss
+  BossLaundry: 0xddccaa,
+  BossLaundryThrow: 0xddccaa,
+  BossLaundryChase: 0xeebb88,
+  BossLaundryTelegraph: 0xffaa66,
+  BossLaundryJump: 0xffaa66,
+  BossLaundryDizzy: 0xff6688,
 };
 
 /** Fallback colour when a tag is not found in the palette (bright magenta = obvious placeholder). */
@@ -757,8 +766,9 @@ export class SpritePool {
         }
       }
     } else {
-      // Path-mode (level 3): the camera moves freely in 2-D world
-      // space; iterate a square neighbourhood around the camera centre.
+      // Path-mode (level 3) and arena-mode (level 4, axis === "none"):
+      // the camera moves freely in 2-D world space; iterate a square
+      // neighbourhood around the camera centre.
       const halfWView = Math.ceil(HALF_H * 2 + TILE_ROW_BUFFER);
       const minTx = Math.floor(cameraWorldLateral - halfWView);
       const maxTx = Math.ceil(cameraWorldLateral + halfWView);

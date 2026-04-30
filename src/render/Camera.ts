@@ -128,12 +128,10 @@ export class GameCamera {
    * @param deathPlanePos - Current death-plane position along climb axis.
    */
   follow(targetX: number, targetY: number, deathPlanePos: number): void {
-    // Path-mode (level 3): the camera tracks the player in 2-D world
-    // space. No deadzone or death-plane clamp — the death plane is
-    // expressed in path-`s`, not in world coordinates, and would
-    // require projecting the plane back to world space to clamp
-    // against. Cosmetic at most; safe to skip in the MVP.
-    if (this._dir.axis === "path") {
+    // Path-mode (level 3) and arena-mode (level 4, axis === "none"):
+    // the camera tracks the player in 2-D world space. No deadzone or
+    // death-plane clamp — neither level uses one.
+    if (this._dir.axis === "path" || this._dir.axis === "none") {
       this._camWorldClimb += (targetY - this._camWorldClimb) * LERP;
       this._camWorldLateral += (targetX - this._camWorldLateral) * LERP;
       this._cam.position.set(this._camWorldLateral, -this._camWorldClimb, 10);
