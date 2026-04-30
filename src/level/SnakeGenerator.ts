@@ -111,7 +111,7 @@ const SNAKE_PROFILE_TEMPLATE: Omit<ChunkProfile, "size"> = {
 const CHUNK_S_LENGTH = 24;
 
 /** Lateral half-width of the corridor in tiles (= metres). */
-const CORRIDOR_HALF_WIDTH = 4;
+const CORRIDOR_HALF_WIDTH = 9;
 
 /** Snake generator extends the public `Generator` shape with `path`. */
 export interface SnakeGenerator extends Generator {

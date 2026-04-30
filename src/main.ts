@@ -107,49 +107,51 @@ for (const sheet of PLAYER_SHEETS) {
 }
 
 // ─── Buff pickup sprites ──────────────────────────────────────────────────
-// Six pickup images (four socks + two underwears) are paired one-to-one
-// with the six temporary-buff entity tags. The pairing is randomised on
-// startup so each session feels a little different; rendering uses the
-// shared per-tag material in `SpritePool`, so each tag keeps a single
-// consistent sprite for the whole session.
-const BUFF_TAGS: ReadonlyArray<import("./level/Chunks.js").EntityTag> = [
-  "LowGravitySock",
-  "SpeedSock",
-  "SlowFloodSock",
-  "HighJumpSock",
-  "PowerSock",
-  "RapidStrikeSock",
+// Six animated pickup sprite-sheets are paired one-to-one with the six
+// temporary-buff entity tags. The pairing is fixed (deterministic across
+// sessions); each sheet's per-frame slicing is registered with the
+// SpritePool so all live buff meshes of a given tag animate in lockstep.
+interface BuffSpriteEntry {
+  readonly tag: import("./level/Chunks.js").EntityTag;
+  readonly file: string;
+  readonly frames: number;
+  readonly frameW: number;
+  readonly frameH: number;
+  readonly fps: number;
+}
+const BUFF_SPRITE_SHEETS: readonly BuffSpriteEntry[] = [
+  { tag: "LowGravitySock", file: "girl sock.png",      frames: 8,  frameW: 32, frameH: 48, fps: 10 },
+  { tag: "SpeedSock",      file: "green sock.png",     frames: 8,  frameW: 32, frameH: 48, fps: 10 },
+  { tag: "HighJumpSock",   file: "smart sock.png",     frames: 11, frameW: 32, frameH: 48, fps: 12 },
+  { tag: "PowerSock",      file: "demetrius sock.png", frames: 11, frameW: 32, frameH: 48, fps: 12 },
+  { tag: "SlowFloodSock",  file: "underwear.png",      frames: 2,  frameW: 32, frameH: 32, fps: 4  },
+  { tag: "RapidStrikeSock",file: "underwhere.png",     frames: 2,  frameW: 32, frameH: 32, fps: 4  },
 ];
-const BUFF_SPRITE_FILES: readonly string[] = [
-  "demetrius sock.png",
-  "girl sock.png",
-  "green sock.png",
-  "smart sock.png",
-  "underwear.png",
-  "underwhere.png",
+for (const sheet of BUFF_SPRITE_SHEETS) {
+  _textureLoader.load(`assets/sprites/${encodeURI(sheet.file)}`, (tex) => {
+    spritePool.setEntitySheet(sheet.tag, tex, sheet.frames, sheet.frameW, sheet.frameH, sheet.fps);
+  });
+}
+
+// ─── Obstacle / enemy sprite-sheets ───────────────────────────────────────
+// Animated sprite-sheets for non-buff entities. Each entry registers the
+// sheet's slicing with the SpritePool so all live meshes of that tag
+// animate in lockstep.
+interface EntitySpriteEntry {
+  readonly tag: import("./level/Chunks.js").EntityTag;
+  readonly file: string;
+  readonly frames: number;
+  readonly frameW: number;
+  readonly frameH: number;
+  readonly fps: number;
+}
+const ENTITY_SPRITE_SHEETS: readonly EntitySpriteEntry[] = [
+  { tag: "DustBunny", file: "dust bunny.png", frames: 15, frameW: 48, frameH: 48, fps: 12 },
 ];
-{
-  // Fisher–Yates shuffle of the sprite files (Math.random — pairing is
-  // cosmetic only and does not need to be deterministic with the level
-  // RNG seed).
-  const shuffled = BUFF_SPRITE_FILES.slice();
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    const tmp = shuffled[i] as string;
-    shuffled[i] = shuffled[j] as string;
-    shuffled[j] = tmp;
-  }
-  for (let i = 0; i < BUFF_TAGS.length; i++) {
-    const tag = BUFF_TAGS[i] as import("./level/Chunks.js").EntityTag;
-    const file = shuffled[i] as string;
-    _textureLoader.load(`assets/sprites/${encodeURI(file)}`, (tex) => {
-      tex.colorSpace = THREE.SRGBColorSpace;
-      tex.minFilter = THREE.LinearFilter;
-      tex.magFilter = THREE.LinearFilter;
-      tex.generateMipmaps = false;
-      spritePool.setTexture(tag, tex);
-    });
-  }
+for (const sheet of ENTITY_SPRITE_SHEETS) {
+  _textureLoader.load(`assets/sprites/${encodeURI(sheet.file)}`, (tex) => {
+    spritePool.setEntitySheet(sheet.tag, tex, sheet.frames, sheet.frameW, sheet.frameH, sheet.fps);
+  });
 }
 
 // ─── Level background textures ────────────────────────────────────────────
@@ -275,7 +277,7 @@ function seedWorldBoundary(): void {
     // somehow penetrates the floor they remain entombed instead of
     // falling forever.
     const cx = Math.floor(activeLevel.spawn.x);
-    const halfWPlusWall = 5; // CORRIDOR_HALF_WIDTH (4) + 1 wall tile.
+    const halfWPlusWall = 10; // CORRIDOR_HALF_WIDTH (9) + 1 wall tile.
     world.fillRect(cx - halfWPlusWall, 1, halfWPlusWall * 2 + 1, 8, true);
   }
 }

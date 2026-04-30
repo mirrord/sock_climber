@@ -79,6 +79,27 @@ interface BuffLike {
   readonly halfH: number;
 }
 
+/**
+ * Per-tag sprite-sheet animation state for non-player entities (buff
+ * pickups, obstacles, enemies). The texture/material are shared by every
+ * live entity of that tag, so advancing `texture.offset.x` once per frame
+ * animates all instances simultaneously.
+ * @internal
+ */
+interface EntitySpriteAnim {
+  readonly texture: THREE.Texture;
+  readonly material: THREE.MeshBasicMaterial;
+  readonly frames: number;
+  readonly worldW: number;
+  readonly worldH: number;
+  readonly fps: number;
+  accum: number;
+  frame: number;
+}
+
+/** Pixels-per-world-unit reference for entity sprites (matches PlayerAnimator). */
+const ENTITY_PX_PER_UNIT = 64;
+
 // ─── SpritePool ───────────────────────────────────────────────────────────────
 
 /**
@@ -119,6 +140,8 @@ export class SpritePool {
 
   // ─── Material cache (one MeshBasicMaterial per tag/key) ───────────────────
   private readonly _mats = new Map<string, THREE.MeshBasicMaterial>();
+  /** Per-tag sprite-sheet animations for non-player entities. */
+  private readonly _entityAnims = new Map<string, EntitySpriteAnim>();
   // ─── Hit-flash + i-frame blink state ───────────────────────────────
   /** Bright white material swapped in for the flash duration on a hit. */
   private readonly _flashMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
@@ -178,11 +201,22 @@ export class SpritePool {
     if (this._playerHitFlashTimer > 0) {
       this._playerHitFlashTimer = Math.max(0, this._playerHitFlashTimer - dt);
     }
-    if (this._hitFlashTimers.size === 0) return;
-    for (const [id, t] of this._hitFlashTimers) {
-      const next = t - dt;
-      if (next <= 0) this._hitFlashTimers.delete(id);
-      else this._hitFlashTimers.set(id, next);
+    if (this._hitFlashTimers.size > 0) {
+      for (const [id, t] of this._hitFlashTimers) {
+        const next = t - dt;
+        if (next <= 0) this._hitFlashTimers.delete(id);
+        else this._hitFlashTimers.set(id, next);
+      }
+    }
+    // Advance per-tag entity sprite animations.
+    for (const anim of this._entityAnims.values()) {
+      anim.accum += dt;
+      const frameDur = 1 / anim.fps;
+      while (anim.accum >= frameDur) {
+        anim.accum -= frameDur;
+        anim.frame = (anim.frame + 1) % anim.frames;
+      }
+      anim.texture.offset.x = anim.frame / anim.frames;
     }
   }
 
@@ -225,6 +259,61 @@ export class SpritePool {
     const mat = this._matFor(tag as string);
     mat.map = texture;
     mat.needsUpdate = true;
+  }
+
+  /**
+   * Register an animated sprite-sheet for an entity tag (buff pickup,
+   * obstacle, or enemy). The texture is sliced horizontally into `frames`
+   * equal-width frames; `tick(dt)` advances the active frame and updates
+   * `texture.offset.x` so every live mesh sharing this tag's material
+   * renders the same animated frame.
+   *
+   * @param tag    - Entity tag.
+   * @param texture - Loaded `THREE.Texture`. Filtering is reconfigured for
+   *                  crisp pixel-art rendering.
+   * @param frames  - Number of frames in the horizontal strip.
+   * @param frameW  - Width of one frame in pixels.
+   * @param frameH  - Height of one frame in pixels.
+   * @param fps     - Playback rate.
+   */
+  setEntitySheet(
+    tag: EntityTag,
+    texture: THREE.Texture,
+    frames: number,
+    frameW: number,
+    frameH: number,
+    fps: number,
+  ): void {
+    texture.magFilter = THREE.NearestFilter;
+    texture.minFilter = THREE.NearestFilter;
+    texture.generateMipmaps = false;
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.wrapS = THREE.ClampToEdgeWrapping;
+    texture.wrapT = THREE.ClampToEdgeWrapping;
+    texture.repeat.set(1 / frames, 1);
+    texture.offset.set(0, 0);
+    texture.needsUpdate = true;
+    const material = new THREE.MeshBasicMaterial({
+      map: texture,
+      transparent: true,
+      depthWrite: false,
+    });
+    // Replace the cached per-tag material so `_matFor(tag)` returns the
+    // animated material for subsequent meshes (and existing meshes are
+    // re-pointed at it inside `_syncEntity`).
+    const prev = this._mats.get(tag as string);
+    if (prev) prev.dispose();
+    this._mats.set(tag as string, material);
+    this._entityAnims.set(tag as string, {
+      texture,
+      material,
+      frames,
+      worldW: frameW / ENTITY_PX_PER_UNIT,
+      worldH: frameH / ENTITY_PX_PER_UNIT,
+      fps,
+      accum: 0,
+      frame: 0,
+    });
   }
 
   // ─── Player ───────────────────────────────────────────────────────────────
@@ -355,19 +444,33 @@ export class SpritePool {
     }
     mesh.position.x = x;
     mesh.position.y = -y; // Y-flip
+    // Entities with a registered sprite-sheet render at the sheet's natural
+    // pixel dimensions instead of the body's collision half-extents, so the
+    // visible art is independent of the hitbox size.
+    const anim = this._entityAnims.get(spawned.tag as string);
+    let scaleX: number;
+    let scaleY: number;
+    if (anim) {
+      scaleX = anim.worldW;
+      scaleY = anim.worldH;
+      // Re-point the mesh at the (possibly hot-swapped) animated material.
+      if (mesh.material !== anim.material) mesh.material = anim.material;
+    } else {
+      scaleX = hw * 2;
+      scaleY = hh * 2;
+    }
     // Enemies face the direction they're moving; obstacles & buffs do not flip.
-    let scaleX = hw * 2;
     if (spawned.kind === "enemy") {
       const vx = (spawned.entity as unknown as { body: { velocity: { x: number } } })
         .body.velocity.x;
       if (vx < 0) scaleX = -scaleX;
     }
-    mesh.scale.set(scaleX, hh * 2, 1);
+    mesh.scale.set(scaleX, scaleY, 1);
 
     // Hit flash + i-frame blink (enemies only).
     if (spawned.kind === "enemy") {
       const flashing = (this._hitFlashTimers.get(id) ?? 0) > 0;
-      const baseMat = this._matFor(spawned.tag as string);
+      const baseMat = anim ? anim.material : this._matFor(spawned.tag as string);
       mesh.material = flashing ? this._flashMat : baseMat;
       const iFrameTimer = (spawned.entity as unknown as HasIFrames).iFrameTimer;
       mesh.visible = this._blinkVisible(iFrameTimer);
@@ -429,7 +532,7 @@ export class SpritePool {
       if (path !== null) {
         const { position, tangent } = path.projectS(planePos);
         // The corridor interior is an odd number of tiles wide
-        // (CORRIDOR_HALF_WIDTH * 2 + 1 = 9), centred on the path
+        // (CORRIDOR_HALF_WIDTH * 2 + 1 = 19), centred on the path
         // centreline. Tile cells extend from worldX to worldX+1, so
         // the geometric centre of the wall-to-wall span sits half a
         // tile *outboard* of the path centreline along the local

@@ -43,13 +43,13 @@ export interface LevelConfig {
 const LEVEL_1: LevelConfig = {
   id: 1,
   climbDir: CLIMB_DIR_VERTICAL,
-  worldWidthTiles: 12,
+  worldWidthTiles: 22,
   worldHeightTiles: 4000,
   // Player spawns at y=0 and climbs toward negative Y; reserve a small
   // buffer below the floor row for underflow.
   worldYMin: -(4000 - 8),
-  spawn: { x: 6, y: 0 },
-  corridorLateralExtent: 12,
+  spawn: { x: 11, y: 0 },
+  corridorLateralExtent: 22,
   deathPlaneStart: 3,
   deathPlaneActivationDistance: 20,
 };
@@ -88,16 +88,16 @@ const LEVEL_3: LevelConfig = {
   worldHeightTiles: 2000,
   worldYMin: -1000,
   // Spawn is centred in the addressable tile range so the corridor's
-  // lateral walls (at spawn.x ± (CORRIDOR_HALF_WIDTH + 1) ≈ ±5 tiles)
+  // lateral walls (at spawn.x ± (CORRIDOR_HALF_WIDTH + 1) ≈ ±10 tiles)
   // stay in bounds — `TileWorld._inBounds` rejects any tx < 0 and would
   // silently drop the entire left wall + left half of the seeded floor
   // cap if spawn.x were near 0.
   spawn: { x: 1000, y: 0 },
-  // Corridor interior spans CORRIDOR_HALF_WIDTH * 2 + 1 = 9 tiles, with
+  // Corridor interior spans CORRIDOR_HALF_WIDTH * 2 + 1 = 19 tiles, with
   // a single-tile wall band on each side, so wall-edge to wall-edge is
-  // 11 m. The death-plane graphic must span the full wall-to-wall width
+  // 21 m. The death-plane graphic must span the full wall-to-wall width
   // or a visible sliver of the corridor stays uncovered.
-  corridorLateralExtent: 11,
+  corridorLateralExtent: 21,
   // Death plane begins 3 m behind the spawn in path-`s` units.
   deathPlaneStart: -3,
   deathPlaneActivationDistance: 20,
