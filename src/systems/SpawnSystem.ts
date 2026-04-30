@@ -37,6 +37,15 @@ export class SpawnSystem {
 
     // Add new entities.
     for (const spawned of result.newEntities) {
+      // Allow entities that opt in via `attachBus` (e.g. Keys) to publish
+      // their own gameplay events. Avoids threading the bus through every
+      // generator / registry factory.
+      const maybeBusAware = spawned.entity as unknown as {
+        attachBus?: (bus: EventBus<GameEvents>) => void;
+      };
+      if (typeof maybeBusAware.attachBus === "function") {
+        maybeBusAware.attachBus(this._bus);
+      }
       this._liveEntities.push(spawned);
     }
 

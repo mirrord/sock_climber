@@ -39,6 +39,7 @@ import type { Enemy } from "./entities/enemies/Enemy.js";
 import type { Obstacle } from "./entities/obstacles/Obstacle.js";
 import type { Buff } from "./entities/buffs/Buff.js";
 import type { Gum } from "./entities/obstacles/Gum.js";
+import { DustBunny } from "./entities/obstacles/DustBunny.js";
 
 // ─── Three.js scene ───────────────────────────────────────────────────────
 
@@ -91,6 +92,14 @@ const PLAYER_SHEETS: ReadonlyArray<{
   // 10 frames over 0.2 s ≈ 50 fps so the animation finishes alongside the attack.
   { state: "attack", file: "attack.png", frames: 10, frameW: 128, frameH: 128, fps: 50, loop: false },
   { state: "crouchAttack", file: "crouch attack.png", frames: 10, frameW: 128, frameH: 48, fps: 50, loop: false },
+  // Aerial crouch attack: 10 frames spread across ATTACK_TABLE.AerialCrouch duration (12 / 60 s).
+  { state: "aerialCrouchAttack", file: "crouchairatk.png", frames: 10, frameW: 80, frameH: 33, fps: 50, loop: false },
+  // Jump: airborne loop (held on last frame so the apex / fall pose persists).
+  { state: "jump", file: "jump.png", frames: 9, frameW: 37, frameH: 95, fps: 14, loop: false },
+  // Wall slide: single-frame pose.
+  { state: "wallSlide", file: "wallslide.png", frames: 1, frameW: 12, frameH: 92, fps: 1, loop: false },
+  // Wall kick: 6 frames over the wallKickLockDuration (~0.1 s) → 60 fps.
+  { state: "wallKick", file: "wall kick.png", frames: 6, frameW: 45, frameH: 94, fps: 60, loop: false },
 ];
 for (const sheet of PLAYER_SHEETS) {
   _textureLoader.load(`assets/sprites/${encodeURI(sheet.file)}`, (tex) => {
@@ -147,10 +156,33 @@ interface EntitySpriteEntry {
 }
 const ENTITY_SPRITE_SHEETS: readonly EntitySpriteEntry[] = [
   { tag: "DustBunny", file: "dust bunny.png", frames: 15, frameW: 48, frameH: 48, fps: 12 },
+  { tag: "Keys",      file: "keys.png",       frames: 5,  frameW: 64, frameH: 64, fps: 10 },
+  { tag: "Lighter",   file: "lighter.png",    frames: 7,  frameW: 32, frameH: 32, fps: 10 },
 ];
 for (const sheet of ENTITY_SPRITE_SHEETS) {
   _textureLoader.load(`assets/sprites/${encodeURI(sheet.file)}`, (tex) => {
     spritePool.setEntitySheet(sheet.tag, tex, sheet.frames, sheet.frameW, sheet.frameH, sheet.fps);
+  });
+}
+
+// Variant sprite-sheets — alternate animations selected by an entity's
+// `spriteVariant` getter for the current frame (e.g. Keys swap to the
+// jingling sheet while telegraphing). Registered under arbitrary string
+// keys rather than EntityTags so they don't collide with the default
+// per-tag sheet.
+const ENTITY_SPRITE_VARIANTS: ReadonlyArray<{
+  readonly key: string;
+  readonly file: string;
+  readonly frames: number;
+  readonly frameW: number;
+  readonly frameH: number;
+  readonly fps: number;
+}> = [
+  { key: "KeysTelegraph", file: "keyjingle.png", frames: 2, frameW: 45, frameH: 69, fps: 12 },
+];
+for (const sheet of ENTITY_SPRITE_VARIANTS) {
+  _textureLoader.load(`assets/sprites/${encodeURI(sheet.file)}`, (tex) => {
+    spritePool.setEntitySheet(sheet.key, tex, sheet.frames, sheet.frameW, sheet.frameH, sheet.fps);
   });
 }
 
@@ -357,6 +389,7 @@ const SFX_ASSETS: Partial<Record<SfxId, string>> = {
   buffApplied: "wahaa.mp3",
   gumEnter: "squelch.mp3",
   gaugeFull: "whistleup.mp3",
+  keysJingle: "keyjingle.mp3",
 };
 
 /**
@@ -622,6 +655,9 @@ bus.on("onSpringRelease", () => {
 });
 bus.on("onDash", () => {
   particles.emit("dust", player.body.position.x, player.body.position.y);
+});
+bus.on("onKeysTelegraph", ({ x, y }) => {
+  particles.emit("soundWave", x, y);
 });
 
 // ─── Hit-flash visual feedback ────────────────────────────────────────
@@ -923,13 +959,19 @@ const loop = createLoop({
       } else if (se.kind === "obstacle") {
         const obstacle = se.entity as Obstacle;
         obstacle.update(dt);
-        // Gum is a stat-mod trigger; everything else is contact damage.
+        // Gum is a stat-mod trigger; DustBunny is one-shot explosion;
+        // everything else is contact damage.
         if (se.tag === "Gum") {
           const gum = obstacle as Gum;
           const wasInside = gum.isPlayerInside;
           gum.processPlayer(player);
           if (!wasInside && gum.isPlayerInside) {
             bus.emit("onGumEnter", {});
+          }
+        } else if (se.tag === "DustBunny") {
+          const db = obstacle as DustBunny;
+          if (db.processPlayer(player)) {
+            particles.emit("dust", db.body.position.x, db.body.position.y);
           }
         } else {
           obstacle.applyContactDamage(player);

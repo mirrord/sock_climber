@@ -148,4 +148,10 @@ export type GameEvents = {
   onPickerOpen: Record<string, never>;
   /** Emitted when the patch picker closes (selection made). Resumes simulation. */
   onPickerClose: Record<string, never>;
+  /**
+   * Emitted by a Keys enemy on the frame it enters its Telegraph state.
+   * Payload carries the enemy's world position so audio + particle effects
+   * can localise themselves to the source.
+   */
+  onKeysTelegraph: { x: number; y: number };
 };

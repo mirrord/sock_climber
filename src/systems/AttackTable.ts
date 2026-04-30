@@ -23,6 +23,14 @@ export interface AttackData {
    * Only set for aerial-crouch attacks; `undefined` = no damp.
    */
   aerialCrouchDamp?: number;
+  /**
+   * When `true`, the hitbox damages targets on both sides of the player and
+   * the horizontal knockback is applied per-target away from the player
+   * (sign of `target.x - player.x`) instead of in the facing direction.
+   * The player's reactive horizontal recoil is also suppressed since the
+   * attack has no single direction.
+   */
+  bothSides?: boolean;
 }
 
 /** Total duration of an attack in seconds. */
@@ -48,18 +56,22 @@ export const ATTACK_TABLE: Readonly<Record<string, AttackData>> = {
     knockbackX: 4,
     knockbackY: -2,
   },
-  /** Aerial crouch — hitbox extends below; damps descent during active frames. */
+  /** Aerial crouch — wide horizontal sweep that hits enemies on both sides; damps descent during active frames. */
   AerialCrouch: {
     startup: 1 / 60,
     active: 5 / 60,
     recovery: 6 / 60,
     offsetX: 0,
-    offsetY: 0.5, // below player
-    halfW: 0.4,
-    halfH: 0.5,
+    offsetY: 0.1,
+    // Sprite is 80×33 px (≈1.25 × 0.5 world units). Hitbox roughly matches
+    // the visible sweep so enemies flanking the player on either side are
+    // caught by a single AABB test.
+    halfW: 0.625,
+    halfH: 0.4,
     damage: 1,
-    knockbackX: 0,
-    knockbackY: 2, // downward knockback on target
+    knockbackX: 3,
+    knockbackY: -1,
     aerialCrouchDamp: 0.1, // reduce descent speed to 10% during active frames
+    bothSides: true,
   },
 } as const;

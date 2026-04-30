@@ -102,7 +102,12 @@ export class CombatSystem {
         const overlapY = Math.abs(hbY - target.position.y) < data.halfH + target.halfExtents.y;
 
         if (overlapX && overlapY) {
-          const kbX = data.knockbackX * facing;
+          // Both-sides attacks (e.g. AerialCrouch sweep) push each target
+          // away from the player along X regardless of facing.
+          const kbDir = data.bothSides
+            ? (target.position.x >= player.body.position.x ? 1 : -1)
+            : facing;
+          const kbX = data.knockbackX * kbDir;
           const hit = target.takeDamage(data.damage, kbX, data.knockbackY);
           if (hit) {
             this._attack.hitTargets.add(target.id);
@@ -112,8 +117,11 @@ export class CombatSystem {
             // could embed enemies inside geometry).
             // Apply a small horizontal recoil to the player, opposite the
             // attack direction. Subtle by design — gives weight to hits
-            // without disrupting platforming flow.
-            player.body.velocity.x -= facing * CombatSystem.PLAYER_RECOIL_VX;
+            // without disrupting platforming flow. Skipped for both-sides
+            // attacks since they have no single direction.
+            if (!data.bothSides) {
+              player.body.velocity.x -= facing * CombatSystem.PLAYER_RECOIL_VX;
+            }
             this._bus.emit("onHit", { entityId: target.id, damage: data.damage });
             if (target.hp <= 0) {
               this._bus.emit("onKill", { entityId: target.id });

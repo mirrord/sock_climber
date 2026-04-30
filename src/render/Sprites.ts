@@ -277,7 +277,7 @@ export class SpritePool {
    * @param fps     - Playback rate.
    */
   setEntitySheet(
-    tag: EntityTag,
+    tag: EntityTag | string,
     texture: THREE.Texture,
     frames: number,
     frameW: number,
@@ -349,6 +349,8 @@ export class SpritePool {
       isCrouching: player.isCrouching,
       isGrounded: player.locomotion === "Grounded",
       velocityX: player.body.velocity.x,
+      isWallSliding: player.locomotion === "WallSliding",
+      isWallKicking: player.wallKickLockTimer > 0,
     });
     let baseMat: THREE.Material;
     if (def !== null) {
@@ -447,7 +449,19 @@ export class SpritePool {
     // Entities with a registered sprite-sheet render at the sheet's natural
     // pixel dimensions instead of the body's collision half-extents, so the
     // visible art is independent of the hitbox size.
-    const anim = this._entityAnims.get(spawned.tag as string);
+    //
+    // An entity may optionally expose `spriteVariant` (a string returned by
+    // a getter or method) to render an alternate sheet for the current
+    // frame — e.g. Keys returns `"KeysTelegraph"` while telegraphing so
+    // the jingle animation plays. The variant key falls back to the tag
+    // if it isn't registered with `setEntitySheet`.
+    const variant = (spawned.entity as unknown as { spriteVariant?: string })
+      .spriteVariant;
+    const animKey =
+      variant !== undefined && this._entityAnims.has(variant)
+        ? variant
+        : (spawned.tag as string);
+    const anim = this._entityAnims.get(animKey);
     let scaleX: number;
     let scaleY: number;
     if (anim) {

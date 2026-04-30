@@ -19,8 +19,12 @@ import * as THREE from "three";
 export type PlayerAnimState =
   | "idle"
   | "walk"
+  | "jump"
+  | "wallSlide"
+  | "wallKick"
   | "crouch"
   | "crouchAttack"
+  | "aerialCrouchAttack"
   | "attack";
 
 /**
@@ -43,6 +47,10 @@ export interface PlayerAnimInputs {
   readonly isCrouching: boolean;
   readonly isGrounded: boolean;
   readonly velocityX: number;
+  /** True while the player is in the wall-slide locomotion state. */
+  readonly isWallSliding?: boolean;
+  /** True for the brief input-lock window after a wall kick fires. */
+  readonly isWallKicking?: boolean;
 }
 
 /**
@@ -125,12 +133,16 @@ export class PlayerAnimator {
 
   /** Pick the desired state from current player inputs. */
   pickState(inputs: PlayerAnimInputs): PlayerAnimState {
+    if (inputs.isAttacking && inputs.isCrouching && !inputs.isGrounded) {
+      return "aerialCrouchAttack";
+    }
     if (inputs.isAttacking && inputs.isCrouching) return "crouchAttack";
     if (inputs.isAttacking) return "attack";
+    if (inputs.isWallKicking) return "wallKick";
+    if (inputs.isWallSliding) return "wallSlide";
     if (inputs.isCrouching) return "crouch";
-    if (inputs.isGrounded && Math.abs(inputs.velocityX) > WALK_VX_THRESHOLD) {
-      return "walk";
-    }
+    if (!inputs.isGrounded) return "jump";
+    if (Math.abs(inputs.velocityX) > WALK_VX_THRESHOLD) return "walk";
     return "idle";
   }
 

@@ -19,7 +19,8 @@ export type SfxId =
   | "springRelease"
   | "buffApplied"
   | "gumEnter"
-  | "gaugeFull";
+  | "gaugeFull"
+  | "keysJingle";
 
 /**
  * SfxRegistry — maps {@link SfxId} to a pre-decoded `AudioBuffer`.

@@ -1,3 +1,4 @@
+import type { EventBus, GameEvents } from "../../core/EventBus.js";
 import { Enemy } from "./Enemy.js";
 
 /** AI states for the Keys enemy. */
@@ -10,6 +11,11 @@ export type KeysState = "Idle" | "Telegraph" | "Jump";
  * - `Idle`      → waits `IDLE_TIME` seconds, then enters `Telegraph`.
  * - `Telegraph` → telegraphs (jingle) for `TELEGRAPH_TIME` seconds, then jumps.
  * - `Jump`      → airborne arc; returns to `Idle` on landing or timeout.
+ *
+ * On entering `Telegraph`, emits `onKeysTelegraph` on the attached
+ * {@link EventBus} (if any). The audio + render layers consume the event
+ * to play the jingle SFX and spawn a sound-wave particle burst on either
+ * side of the enemy.
  */
 export class Keys extends Enemy {
   static readonly IDLE_TIME = 1.5;
@@ -20,6 +26,7 @@ export class Keys extends Enemy {
 
   private _state: KeysState = "Idle";
   private _timer = Keys.IDLE_TIME;
+  private _bus: EventBus<GameEvents> | null = null;
 
   constructor(position: { x: number; y: number }) {
     super({ position, halfW: 0.3, halfH: 0.3, maxHp: 2, gaugeReward: 1 });
@@ -27,6 +34,23 @@ export class Keys extends Enemy {
 
   get state(): KeysState {
     return this._state;
+  }
+
+  /**
+   * Render-side sprite variant key. Returns `"KeysTelegraph"` while the
+   * jingle animation should play, otherwise `undefined` so the renderer
+   * falls back to the default `Keys` sprite-sheet.
+   */
+  get spriteVariant(): string | undefined {
+    return this._state === "Telegraph" ? "KeysTelegraph" : undefined;
+  }
+
+  /**
+   * Attach an event bus so this enemy can publish telegraph notifications.
+   * Called by `SpawnSystem` when this enemy enters the live entity list.
+   */
+  attachBus(bus: EventBus<GameEvents>): void {
+    this._bus = bus;
   }
 
   protected override onSpawn(): void {
@@ -43,6 +67,10 @@ export class Keys extends Enemy {
         if (this._timer <= 0) {
           this._state = "Telegraph";
           this._timer = Keys.TELEGRAPH_TIME;
+          this._bus?.emit("onKeysTelegraph", {
+            x: this.body.position.x,
+            y: this.body.position.y,
+          });
         }
         break;
 

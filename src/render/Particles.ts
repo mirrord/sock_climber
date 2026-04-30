@@ -26,6 +26,22 @@ const SPRING_VEL = [
   { vx: 1.5, vy: -2.6 },
 ] as const;
 
+/**
+ * Sound wave — 6 particles, three on each side of the source, fanning
+ * outward horizontally with slight vertical spread. Used to visualise an
+ * audible "ping" emitted from an entity (e.g. Keys telegraph). Particles
+ * accelerate apart so the burst reads as concentric ripples even though
+ * the underlying primitives are simple squares.
+ */
+const SOUND_WAVE_VEL = [
+  { vx: -2.5, vy: 0.0 },
+  { vx: -3.5, vy: 0.6 },
+  { vx: -3.5, vy: -0.6 },
+  { vx: 2.5, vy: 0.0 },
+  { vx: 3.5, vy: 0.6 },
+  { vx: 3.5, vy: -0.6 },
+] as const;
+
 /** Particle lifetime in seconds. */
 const LIFETIME = 0.3;
 
@@ -98,12 +114,18 @@ export class ParticleSystem {
   /**
    * Emit a particle burst at the given world position.
    *
-   * @param effect - `"dust"` (4 particles) or `"springPuff"` (6 particles).
+   * @param effect - `"dust"` (4 particles), `"springPuff"` (6 particles),
+   *                 or `"soundWave"` (6 particles fanning left + right).
    * @param worldX - Burst origin X in world units.
    * @param worldY - Burst origin Y in world units (Y+ = down).
    */
-  emit(effect: "dust" | "springPuff", worldX: number, worldY: number): void {
-    const vels = effect === "dust" ? DUST_VEL : SPRING_VEL;
+  emit(effect: "dust" | "springPuff" | "soundWave", worldX: number, worldY: number): void {
+    const vels =
+      effect === "dust"
+        ? DUST_VEL
+        : effect === "springPuff"
+          ? SPRING_VEL
+          : SOUND_WAVE_VEL;
     const screenY = -worldY; // Y-flip: world Y+ = down → Three.js Y+ = up
 
     for (const vel of vels) {
