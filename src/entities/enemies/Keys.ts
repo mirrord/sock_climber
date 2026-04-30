@@ -38,11 +38,13 @@ export class Keys extends Enemy {
 
   /**
    * Render-side sprite variant key. Returns `"KeysTelegraph"` while the
-   * jingle animation should play, otherwise `undefined` so the renderer
-   * falls back to the default `Keys` sprite-sheet.
+   * jingle animation should play, `"KeysJump"` while airborne, otherwise
+   * `undefined` so the renderer falls back to the default `Keys` sheet.
    */
   get spriteVariant(): string | undefined {
-    return this._state === "Telegraph" ? "KeysTelegraph" : undefined;
+    if (this._state === "Telegraph") return "KeysTelegraph";
+    if (this._state === "Jump") return "KeysJump";
+    return undefined;
   }
 
   /**

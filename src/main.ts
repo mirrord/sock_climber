@@ -158,6 +158,7 @@ const ENTITY_SPRITE_SHEETS: readonly EntitySpriteEntry[] = [
   { tag: "DustBunny", file: "dust bunny.png", frames: 15, frameW: 48, frameH: 48, fps: 12 },
   { tag: "Keys",      file: "keys.png",       frames: 5,  frameW: 64, frameH: 64, fps: 10 },
   { tag: "Lighter",   file: "lighter.png",    frames: 7,  frameW: 32, frameH: 32, fps: 10 },
+  { tag: "Gum",       file: "gum.png",        frames: 6,  frameW: 64, frameH: 32, fps: 6  },
 ];
 for (const sheet of ENTITY_SPRITE_SHEETS) {
   _textureLoader.load(`assets/sprites/${encodeURI(sheet.file)}`, (tex) => {
@@ -178,7 +179,8 @@ const ENTITY_SPRITE_VARIANTS: ReadonlyArray<{
   readonly frameH: number;
   readonly fps: number;
 }> = [
-  { key: "KeysTelegraph", file: "keyjingle.png", frames: 2, frameW: 45, frameH: 69, fps: 12 },
+  { key: "KeysTelegraph", file: "keyjingle.png", frames: 2,  frameW: 45, frameH: 69, fps: 12 },
+  { key: "KeysJump",      file: "keyjump.png",   frames: 16, frameW: 64, frameH: 64, fps: 24 },
 ];
 for (const sheet of ENTITY_SPRITE_VARIANTS) {
   _textureLoader.load(`assets/sprites/${encodeURI(sheet.file)}`, (tex) => {

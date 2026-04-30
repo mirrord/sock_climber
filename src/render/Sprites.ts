@@ -368,7 +368,16 @@ export class SpritePool {
       // back-edge X = `renderX - facing * anchorW/2` yields the offset
       // below.
       const anchorW = this._playerAnimator.anchorWorldW;
-      const xOffset = (player.facing * (def.worldW - anchorW)) / 2;
+      // Default: anchor by back edge (relative to facing). For the wall-slide
+      // sprite the strip should hug the facing side (the wall the player is
+      // pressed against), so flip the offset sign in that state.
+      const anchorToFront =
+        this._playerAnimator.state === "jump" ||
+        this._playerAnimator.state === "wallSlide" ||
+        this._playerAnimator.state === "wallKick";
+      const xOffset = anchorToFront
+        ? (player.facing * (anchorW - def.worldW)) / 2
+        : (player.facing * (def.worldW - anchorW)) / 2;
       this._playerMesh.position.x = renderX + xOffset;
       this._playerMesh.position.y = -(renderY + yOffset);
       this._playerMesh.scale.set(player.facing * def.worldW, def.worldH, 1);
