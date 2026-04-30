@@ -38,6 +38,14 @@ export interface EnemyOptions {
  * Subclasses own their AI state machine via `updateAI(dt, playerX, playerY)`.
  */
 export abstract class Enemy implements Entity, Damageable {
+  /**
+   * Duration (seconds) the AI is suspended after taking a hit, allowing the
+   * knockback velocity imparted by `takeDamage` to actually move the body
+   * (and resolve against walls via the physics step) instead of being
+   * immediately overwritten by the AI's own velocity assignments.
+   */
+  static readonly HIT_STUN_DURATION = 0.15;
+
   readonly id: number;
 
   /** AABB physics body. Advanced by the physics resolver after each step. */
@@ -50,6 +58,9 @@ export abstract class Enemy implements Entity, Damageable {
   readonly contactHitbox: Hitbox;
 
   protected _health: Health;
+
+  /** Remaining hit-stun in seconds; while > 0, `updateAI` is skipped. */
+  protected _hitStunTimer = 0;
 
   /** Upgrade gauge fill awarded to the player when this enemy dies. */
   readonly gaugeReward: number;
@@ -114,9 +125,14 @@ export abstract class Enemy implements Entity, Damageable {
   takeDamage(damage: number, knockbackX: number, knockbackY: number): boolean {
     if (this._health.iFrameTimer > 0) return false;
     this._health.current = Math.max(0, this._health.current - damage);
-    this.body.velocity.x += knockbackX;
-    this.body.velocity.y += knockbackY;
-    if (damage > 0) this._health.iFrameTimer = this._health.iFrameDuration;
+    // Overwrite (not add) so AI-driven velocity from this same step does not
+    // dominate the knockback impulse.
+    this.body.velocity.x = knockbackX;
+    this.body.velocity.y = knockbackY;
+    if (damage > 0) {
+      this._health.iFrameTimer = this._health.iFrameDuration;
+      this._hitStunTimer = Enemy.HIT_STUN_DURATION;
+    }
     return true;
   }
 
@@ -158,6 +174,7 @@ export abstract class Enemy implements Entity, Damageable {
   spawn(): void {
     this._health.current = this._health.containers;
     this._health.iFrameTimer = 0;
+    this._hitStunTimer = 0;
     this.body.velocity.x = 0;
     this.body.velocity.y = 0;
     this.onSpawn();
@@ -182,6 +199,12 @@ export abstract class Enemy implements Entity, Damageable {
   update(dt: number, playerX = 0, playerY = 0): void {
     if (this._health.iFrameTimer > 0) {
       this._health.iFrameTimer = Math.max(0, this._health.iFrameTimer - dt);
+    }
+    if (this._hitStunTimer > 0) {
+      this._hitStunTimer = Math.max(0, this._hitStunTimer - dt);
+      // While stunned, let the knockback velocity carry the body through the
+      // physics step. Skip AI so it does not overwrite that velocity.
+      return;
     }
     if (this.isAlive && this.revealed) this.updateAI(dt, playerX, playerY);
   }

@@ -102,6 +102,10 @@ export class CombatSystem {
           const hit = target.takeDamage(data.damage, kbX, data.knockbackY);
           if (hit) {
             this._attack.hitTargets.add(target.id);
+            // Knockback is now applied as velocity inside `target.takeDamage`;
+            // the target's hit-stun then lets the physics step carry it back
+            // and resolve cleanly against walls (no positional teleport that
+            // could embed enemies inside geometry).
             // Apply a small horizontal recoil to the player, opposite the
             // attack direction. Subtle by design — gives weight to hits
             // without disrupting platforming flow.

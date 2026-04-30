@@ -350,14 +350,13 @@ describe("Player — wall kick", () => {
     player.update(DT, makeSnap({ axes: { moveX: 1 } }));
     expect(player.body.velocity.x).toBeCloseTo(kickVX, 5);
 
-    // Tick past the lock window, then opposing input flips direction while
-    // preserving the kick's speed magnitude (wall-kick momentum).
+    // Tick past the lock window with no input — wall-kick momentum is
+    // dropped, leaving the player at rest horizontally.
     const ticks = Math.ceil(DEFAULT_PLAYER_STATS.wallKickLockDuration / DT) + 1;
     for (let i = 0; i < ticks; i++) {
       player.update(DT, makeSnap());
     }
-    player.update(DT, makeSnap({ axes: { moveX: 1 } }));
-    expect(player.body.velocity.x).toBeCloseTo(Math.abs(kickVX), 5);
+    expect(player.body.velocity.x).toBeCloseTo(0, 5);
   });
 
   it("wall kick + physics integration: player bounces off wall", () => {
@@ -807,7 +806,7 @@ describe("Player — dash interactions", () => {
     }
   });
 
-  it("dash-wall-kick raises the air-speed cap to dashSpeed until surface contact", () => {
+  it("dash-wall-kick zeros vx at lock expiration but keeps the elevated air-speed cap", () => {
     const player = new Player({ x: 5, y: 5 });
     player.body.flags.onGround = false;
     player.body.flags.onWallL = true;
@@ -818,27 +817,46 @@ describe("Player — dash interactions", () => {
     player.update(DT, makeSnap({ pressed: ["Jump"], down: ["Dash", "Jump"] }));
     expect(player.body.velocity.x).toBeCloseTo(dashSpeed, 3);
 
-    // Leave wall and tick past the input lock with no input — standard
-    // air-accel decelerates the player toward 0, but the elevated cap is
-    // still in effect.
+    // Leave wall and tick past the input lock with no input — vx is zeroed
+    // on lock expiration so the player does not coast.
     player.body.flags.onWallL = false;
     const lockTicks = Math.ceil(DEFAULT_PLAYER_STATS.wallKickLockDuration / DT) + 1;
     for (let i = 0; i < lockTicks; i++) player.update(DT, makeSnap());
-    for (let i = 0; i < 60; i++) player.update(DT, makeSnap());
-    expect(player.body.velocity.x).toBeCloseTo(0, 3);
+    expect(player.body.velocity.x).toBeCloseTo(0, 5);
 
-    // Holding into a direction accelerates the player up to dashSpeed (the
-    // elevated cap), not the normal maxSpeed.
+    // Holding into a direction now accelerates up to dashSpeed (the elevated
+    // cap is preserved until surface contact), not the normal maxSpeed.
     for (let i = 0; i < 120; i++) {
       player.update(DT, makeSnap({ axes: { moveX: 1 } }));
     }
     expect(player.body.velocity.x).toBeCloseTo(dashSpeed, 3);
 
-    // Holding the opposite direction reverses the player up to -dashSpeed.
+    // Reversing into the opposite direction also accelerates up to -dashSpeed.
     for (let i = 0; i < 120; i++) {
       player.update(DT, makeSnap({ axes: { moveX: -1 } }));
     }
     expect(player.body.velocity.x).toBeCloseTo(-dashSpeed, 3);
+  });
+
+  it("dash-wall-kick: with no input held after the lock, the player does not move horizontally", () => {
+    const player = new Player({ x: 5, y: 5 });
+    player.body.flags.onGround = false;
+    player.body.flags.onWallL = true;
+    player.body.velocity.y = 1;
+    player.update(DT, makeSnap());
+
+    player.update(DT, makeSnap({ pressed: ["Jump"], down: ["Dash", "Jump"] }));
+
+    // Tick past the input lock so air-control re-engages.
+    player.body.flags.onWallL = false;
+    const lockTicks = Math.ceil(DEFAULT_PLAYER_STATS.wallKickLockDuration / DT) + 1;
+    for (let i = 0; i < lockTicks; i++) player.update(DT, makeSnap());
+
+    // No input — vx stays at 0 indefinitely (target vx = 0 within the cap).
+    for (let i = 0; i < 60; i++) {
+      player.update(DT, makeSnap());
+      expect(player.body.velocity.x).toBeCloseTo(0, 5);
+    }
   });
 
   it("dash-wall-kick elevated cap is restored to maxSpeed after surface contact", () => {

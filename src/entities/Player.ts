@@ -62,11 +62,11 @@ export class Player implements Entity {
    */
   private _dashMomentumLock = false;
   /**
-   * True while the player is airborne after performing any wall kick (with
-   * or without dash held). Plain wall kicks retain the kick's speed magnitude
-   * across direction flips. Dash wall kicks treat the kick speed as a *cap*
-   * (not a lock), allowing normal air control within that envelope. Cleared
-   * on landing or fresh wall contact.
+   * True while the wall-kick input lockout is active. Suppresses horizontal
+   * authority so the kicked velocity is preserved verbatim until the lock
+   * expires. The flag is cleared automatically when the lock timer reaches
+   * zero (and `velocity.x` is zeroed at the same time) so normal air-control
+   * resumes from rest. Also cleared on landing or fresh wall contact.
    */
   private _wallKickMomentum = false;
   /** Magnitude of the most recent wall-kick horizontal velocity (m/s). */
@@ -230,8 +230,23 @@ export class Player implements Entity {
     if (this._coyoteTimer > 0) this._coyoteTimer = Math.max(0, this._coyoteTimer - dt);
     if (this._jumpBufferTimer > 0)
       this._jumpBufferTimer = Math.max(0, this._jumpBufferTimer - dt);
-    if (this._wallKickLockTimer > 0)
+    if (this._wallKickLockTimer > 0) {
       this._wallKickLockTimer = Math.max(0, this._wallKickLockTimer - dt);
+      if (this._wallKickLockTimer === 0 && this._wallKickMomentum) {
+        // Lock just expired: drop horizontal velocity to zero so the player
+        // does not coast sideways. For dash wall kicks (kickSpeed > maxSpeed)
+        // the momentum flag is retained so the elevated air-speed cap stays
+        // in effect until surface contact — held input within the elevated
+        // envelope is honoured by the horizontal-movement block below.
+        // For plain wall kicks the momentum flag is cleared, so normal
+        // air-control resumes from rest.
+        this.body.velocity.x = 0;
+        if (this._wallKickSpeed <= s.maxSpeed) {
+          this._wallKickMomentum = false;
+          this._wallKickSpeed = 0;
+        }
+      }
+    }
     if (this._dashCooldownTimer > 0)
       this._dashCooldownTimer = Math.max(0, this._dashCooldownTimer - dt);
     if (this._health.iFrameTimer > 0)
@@ -448,40 +463,30 @@ export class Player implements Entity {
     } else if (this._dashMomentumLock) {
       // Dash-jump: full horizontal authority lock until landing/wall.
     } else if (this._wallKickMomentum) {
-      // Wall-kick (with or without dash): during the input lockout the
+      // Wall kick (with or without dash): during the input lockout the
       // kicked velocity is preserved verbatim — no horizontal authority —
       // so the player travels meaningfully away from the wall before being
       // able to reverse course.
       //
-      // After the lock expires:
-      //   • Plain wall kick (kick speed ≤ maxSpeed): the kick magnitude is
-      //     preserved across direction flips (legacy behavior).
-      //   • Dash wall kick (kick speed > maxSpeed): the player's air-speed
-      //     *cap* is raised to the kick speed (in both directions) until they
-      //     contact a surface. Within that envelope, normal air-accel applies,
-      //     so the player can hold into or against the kick direction and
-      //     control their speed up to the elevated cap.
+      // After the lock expires this branch is only reached for *dash* wall
+      // kicks (plain wall kicks clear the momentum flag at expiration).
+      // The dash wall kick raises the air-speed *cap* to the kick speed
+      // (in both directions) until the player contacts a surface. Within
+      // that envelope, normal air-accel applies — held input accelerates
+      // toward ±cap; no input decelerates toward 0. The flag is cleared
+      // on landing or fresh wall contact (see locomotion block).
       if (this._wallKickLockTimer <= 0) {
         const inputX = snap.axes.moveX;
-        if (this._wallKickSpeed > s.maxSpeed) {
-          // Elevated air-speed cap — normal air control within ±cap.
-          const cap = this._wallKickSpeed;
-          const targetVX = inputX * cap;
-          const diff = targetVX - this.body.velocity.x;
-          const maxChange = s.airAccel * dt;
-          if (Math.abs(diff) <= maxChange) {
-            this.body.velocity.x = targetVX;
-          } else {
-            this.body.velocity.x += Math.sign(diff) * maxChange;
-          }
-          if (inputX !== 0) this._facing = inputX > 0 ? 1 : -1;
-        } else if (inputX !== 0) {
-          // Plain wall kick: legacy magnitude-preserving flip.
-          const sign: 1 | -1 = inputX > 0 ? 1 : -1;
-          const mag = Math.abs(this.body.velocity.x);
-          this.body.velocity.x = sign * mag;
-          this._facing = sign;
+        const cap = this._wallKickSpeed;
+        const targetVX = inputX * cap;
+        const diff = targetVX - this.body.velocity.x;
+        const maxChange = s.airAccel * dt;
+        if (Math.abs(diff) <= maxChange) {
+          this.body.velocity.x = targetVX;
+        } else {
+          this.body.velocity.x += Math.sign(diff) * maxChange;
         }
+        if (inputX !== 0) this._facing = inputX > 0 ? 1 : -1;
       }
     } else if (this._wallKickLockTimer <= 0) {
       const accel = this._locomotion === "Grounded" ? s.groundAccel : s.airAccel;
