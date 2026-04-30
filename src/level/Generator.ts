@@ -26,6 +26,7 @@ import {
 import { poissonSample } from "./Sampler.js";
 import { CLIMB_DIR_VERTICAL, type ClimbDir } from "./Axis.js";
 import { createHorizontalGenerator } from "./HorizontalGenerator.js";
+import { createSnakeGenerator } from "./SnakeGenerator.js";
 import type { PlayerStats } from "../entities/components/Stats.js";
 import { DEFAULT_PLAYER_STATS } from "../entities/components/Stats.js";
 
@@ -130,6 +131,13 @@ export interface GeneratorOptions {
     maxTy: number;
   };
   /**
+   * World-space spawn position. Currently consumed only by the snake
+   * (path) generator, which uses it as the origin of its `Path` so the
+   * corridor is centred on the player's spawn rather than world origin.
+   * The vertical and horizontal generators ignore this field.
+   */
+  spawn?: { x: number; y: number };
+  /**
    * Minimum climb height (in metres / world units) below which enemy entities
    * are not allowed to spawn. Measured from the player's spawn altitude
    * (Y = 0); since Y+ = down, an enemy may only spawn when its world-space
@@ -219,6 +227,9 @@ export function createGenerator(opts: GeneratorOptions): Generator {
   const climbDir: ClimbDir = opts.climbDir ?? CLIMB_DIR_VERTICAL;
   if (climbDir.axis === "x") {
     return createHorizontalGenerator(opts);
+  }
+  if (climbDir.axis === "path") {
+    return createSnakeGenerator(opts);
   }
 
   const LOOKAHEAD = opts.lookahead ?? 80;

@@ -67,28 +67,46 @@ export class DeathPlaneSystem {
    * @param dt                        - Fixed step in seconds.
    * @param playerBody                - The player's physics body.
    * @param deathPlaneSpeedMultiplier - Scale factor from player stats; floored at 0.1.
+   * @param playerProgress            - Required when the configured climb
+   *   axis is `"path"`. Pre-computed path-`s` value for the player; the
+   *   system has no way to derive it from `playerBody` because the
+   *   relationship between world position and arc length is owned by
+   *   the live `Path`. Ignored for `"x"` / `"y"` axes.
    */
-  update(dt: number, playerBody: Body, deathPlaneSpeedMultiplier = 1): void {
+  update(
+    dt: number,
+    playerBody: Body,
+    deathPlaneSpeedMultiplier = 1,
+    playerProgress?: number,
+  ): void {
     if (this._dead) return;
 
     const multiplier = Math.max(0.1, deathPlaneSpeedMultiplier);
     // Plane chases the player along -sign of the climb direction:
     //  level 1 (sign=-1): plane Y decreases (rises upward).
     //  level 2 (sign=+1): plane X increases (advances rightward).
+    //  level 3 (path):    plane `s` increases monotonically.
     this._planePos += this._dir.sign * this._speed * multiplier * dt;
 
-    // The player's trailing edge along the climb axis is the side facing
-    // the death plane:
-    //  level 1 (sign=-1): trailing edge = position.y + halfExtents.y (bottom).
-    //  level 2 (sign=+1): trailing edge = position.x - halfExtents.x (left).
-    const axis = this._dir.axis;
-    const playerCoord = playerBody.position[axis];
-    const playerHalf = playerBody.halfExtents[axis];
-    const playerTrailing = playerCoord - this._dir.sign * playerHalf;
+    let playerTrailing: number;
+    if (this._dir.axis === "path") {
+      // In path mode the player's arc length is supplied by the
+      // caller; the player's body has no half-extent along `s`.
+      playerTrailing = playerProgress ?? 0;
+    } else {
+      const axis = this._dir.axis;
+      const playerCoord = playerBody.position[axis];
+      const playerHalf = playerBody.halfExtents[axis];
+      // The player's trailing edge along the climb axis is the side
+      // facing the death plane:
+      //  level 1 (sign=-1): trailing edge = position.y + halfExtents.y.
+      //  level 2 (sign=+1): trailing edge = position.x - halfExtents.x.
+      playerTrailing = playerCoord - this._dir.sign * playerHalf;
+    }
 
     // Death condition: plane has passed the player's trailing edge.
     //  level 1 (sign=-1): die when playerTrailing >= planePos.
-    //  level 2 (sign=+1): die when playerTrailing <= planePos.
+    //  level 2/3 (sign=+1): die when playerTrailing <= planePos.
     const passed =
       this._dir.sign < 0
         ? playerTrailing >= this._planePos

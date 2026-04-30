@@ -1,6 +1,7 @@
 import type { LevelId } from "../ui/LevelSelect.js";
 import {
   CLIMB_DIR_HORIZONTAL,
+  CLIMB_DIR_PATH,
   CLIMB_DIR_VERTICAL,
   type ClimbDir,
 } from "./Axis.js";
@@ -72,11 +73,38 @@ const LEVEL_2: LevelConfig = {
   deathPlaneActivationDistance: 20,
 };
 
-/** All level configurations, keyed by `LevelId`. Levels 3 & 4 are placeholders. */
+/**
+ * Level 3 — "The Snaking Corridor". Climbs along a procedurally
+ * generated piecewise-linear path through 2-D world space (see
+ * `docs/LEVEL_3_PLAN.md`). The TileWorld is large enough to contain
+ * any plausible snake path; the corridor itself is narrow.
+ */
+const LEVEL_3: LevelConfig = {
+  id: 3,
+  climbDir: CLIMB_DIR_PATH,
+  // Path stays within ±1000 tiles of origin in practice; 2000-square
+  // envelope leaves headroom and keeps the Uint8Array under 4 MB.
+  worldWidthTiles: 2000,
+  worldHeightTiles: 2000,
+  worldYMin: -1000,
+  // Spawn is centred in the addressable tile range so the corridor's
+  // lateral walls (at spawn.x ± (CORRIDOR_HALF_WIDTH + 1) ≈ ±5 tiles)
+  // stay in bounds — `TileWorld._inBounds` rejects any tx < 0 and would
+  // silently drop the entire left wall + left half of the seeded floor
+  // cap if spawn.x were near 0.
+  spawn: { x: 1000, y: 0 },
+  // Corridor is 8 tiles wide (CORRIDOR_HALF_WIDTH * 2 in SnakeGenerator).
+  corridorLateralExtent: 8,
+  // Death plane begins 3 m behind the spawn in path-`s` units.
+  deathPlaneStart: -3,
+  deathPlaneActivationDistance: 20,
+};
+
+/** All level configurations, keyed by `LevelId`. Level 4 is a placeholder. */
 export const LEVEL_CONFIGS: Record<LevelId, LevelConfig> = {
   1: LEVEL_1,
   2: LEVEL_2,
-  // Placeholders so the type stays exhaustive — UI gates them as disabled.
-  3: LEVEL_1,
+  3: LEVEL_3,
+  // Placeholder so the type stays exhaustive — UI gates it as disabled.
   4: LEVEL_1,
 };

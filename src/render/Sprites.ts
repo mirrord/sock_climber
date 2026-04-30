@@ -4,6 +4,7 @@ import type { SpawnedEntity } from "../level/Generator.js";
 import type { TileWorld } from "../physics/TileWorld.js";
 import type { EntityTag } from "../level/Chunks.js";
 import { CLIMB_DIR_VERTICAL, type ClimbDir } from "../level/Axis.js";
+import type { Path } from "../level/Path.js";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -327,7 +328,12 @@ export class SpritePool {
    *                    vertically to indicate the plane is about to start
    *                    moving. Set to false once the plane is in motion.
    */
-  syncDeathPlane(planePos: number, scene: THREE.Scene, rumbling = false): void {
+  syncDeathPlane(
+    planePos: number,
+    scene: THREE.Scene,
+    rumbling = false,
+    path: Path | null = null,
+  ): void {
     if (!this._planeMesh) {
       this._planeMesh = new THREE.Mesh(this._planeGeo, this._planeMat);
       this._planeMesh.position.z = Z_LAYER.deathPlane;
@@ -346,10 +352,34 @@ export class SpritePool {
       // Vertical climb: mesh is a horizontal bar. Position X = lateral centre, Y = -planePos (Y-flip).
       this._planeMesh.position.x = this._planeCenterLateral + xJitter;
       this._planeMesh.position.y = -(planePos + this._planePosOffset) + yJitter;
-    } else {
+    } else if (this._planeDir.axis === "x") {
       // Horizontal climb: mesh is a vertical strip (rotated 90°). Position X = planePos, Y = -lateral centre.
       this._planeMesh.position.x = planePos + this._planePosOffset + xJitter;
       this._planeMesh.position.y = -this._planeCenterLateral + yJitter;
+    } else {
+      // Path climb (level 3): project the death-plane `s` to world
+      // space via the live Path. The plane mesh is rotated so its
+      // long edge is perpendicular to the local path tangent.
+      if (path !== null) {
+        const { position, tangent } = path.projectS(planePos);
+        this._planeMesh.position.x = position.x + xJitter;
+        this._planeMesh.position.y = -position.y + yJitter;
+        // Geometry is (lateralExtent, planeThickness) — the mesh's
+        // local X axis is the long edge. We want that long edge to
+        // run perpendicular to the tangent, with the texture's
+        // "front" (outer half-pixel) pointing in the direction the
+        // plane is chasing the player.
+        //
+        // Render space flips physics-Y, so the visual tangent is
+        // (tangent.x, -tangent.y). Atan2(tx, -ty) gives a rotation
+        // that, when applied to the default horizontal mesh, aligns
+        // it perpendicular to the tangent in render space:
+        //   tangent (0,-1) → 0      (horizontal plane, north chase)
+        //   tangent (1, 0) → +π/2   (vertical plane, east chase)
+        //   tangent (0, 1) → π      (horizontal flipped, south chase)
+        //   tangent (-1,0) → -π/2   (vertical flipped, west chase)
+        this._planeMesh.rotation.z = Math.atan2(tangent.x, -tangent.y);
+      }
     }
   }
 
@@ -380,12 +410,15 @@ export class SpritePool {
     // planeThickness tall). For horizontal climb the mesh is a vertical
     // strip (planeThickness wide × lateralExtent tall) — same image,
     // with its texture rotated 90° so its long edge is parallel to the
-    // death wall while preserving aspect ratio.
+    // death wall while preserving aspect ratio. For path-mode (level 3)
+    // the mesh is built as a horizontal bar; the per-frame rotation in
+    // `syncDeathPlane` aligns it perpendicular to the local path
+    // tangent.
     this._planeGeo.dispose();
     this._planeGeo =
-      climbDir.axis === "y"
-        ? new THREE.PlaneGeometry(lateralExtent, planeThickness)
-        : new THREE.PlaneGeometry(planeThickness, lateralExtent);
+      climbDir.axis === "x"
+        ? new THREE.PlaneGeometry(planeThickness, lateralExtent)
+        : new THREE.PlaneGeometry(lateralExtent, planeThickness);
 
     // Rotate the texture itself for horizontal climb so the image's long
     // edge runs along the corridor's lateral (Y) axis. Rotating the mesh
@@ -393,7 +426,7 @@ export class SpritePool {
     // band, which is what previously caused the death plane to fail to
     // span the full corridor height in level 2.
     texture.center.set(0.5, 0.5);
-    texture.rotation = climbDir.axis === "y" ? 0 : -Math.PI / 2;
+    texture.rotation = climbDir.axis === "x" ? -Math.PI / 2 : 0;
     texture.needsUpdate = true;
 
     // Replace material with a transparent textured one (PNG has alpha).
@@ -410,9 +443,12 @@ export class SpritePool {
     if (this._planeMesh) {
       this._planeMesh.geometry = this._planeGeo;
       this._planeMesh.material = this._planeMat;
-      // Mesh itself is never rotated — the texture rotation above handles
-      // image orientation while keeping the geometry's world-space size.
-      this._planeMesh.rotation.z = 0;
+      // For x/y climb the mesh is never rotated (texture rotation
+      // handles image orientation). For path mode the rotation is
+      // recomputed each frame in syncDeathPlane.
+      if (climbDir.axis !== "path") {
+        this._planeMesh.rotation.z = 0;
+      }
     }
   }
 
@@ -433,6 +469,7 @@ export class SpritePool {
     scene: THREE.Scene,
     cameraWorldClimb: number,
     climbDir: ClimbDir = CLIMB_DIR_VERTICAL,
+    cameraWorldLateral = 0,
   ): void {
     if (!this._tileMesh) {
       this._tileMesh = new THREE.InstancedMesh(
@@ -471,7 +508,7 @@ export class SpritePool {
           }
         }
       }
-    } else {
+    } else if (climbDir.axis === "x") {
       // Climb axis = X: iterate the visible band of columns, full corridor
       // height per column.  The corridor is only ~12 tiles tall in level 2
       // so a single full scan is cheap.
@@ -481,6 +518,24 @@ export class SpritePool {
       const tyHi = world.yMin + world.height - 1;
       for (let tx = minTx; tx <= maxTx && count < MAX_TILE_INSTANCES; tx++) {
         for (let ty = tyLo; ty <= tyHi && count < MAX_TILE_INSTANCES; ty++) {
+          if (world.solidAt(tx, ty)) {
+            this._dummy.position.set(tx + 0.5, -(ty + 0.5), 0);
+            this._dummy.updateMatrix();
+            this._tileMesh.setMatrixAt(count, this._dummy.matrix);
+            count++;
+          }
+        }
+      }
+    } else {
+      // Path-mode (level 3): the camera moves freely in 2-D world
+      // space; iterate a square neighbourhood around the camera centre.
+      const halfWView = Math.ceil(HALF_H * 2 + TILE_ROW_BUFFER);
+      const minTx = Math.floor(cameraWorldLateral - halfWView);
+      const maxTx = Math.ceil(cameraWorldLateral + halfWView);
+      const minTy = minClimb;
+      const maxTy = maxClimb;
+      for (let ty = minTy; ty <= maxTy && count < MAX_TILE_INSTANCES; ty++) {
+        for (let tx = minTx; tx <= maxTx && count < MAX_TILE_INSTANCES; tx++) {
           if (world.solidAt(tx, ty)) {
             this._dummy.position.set(tx + 0.5, -(ty + 0.5), 0);
             this._dummy.updateMatrix();

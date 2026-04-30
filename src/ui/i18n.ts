@@ -28,7 +28,7 @@ export const TEXT = {
     levels: {
       1: "Level 1 — The Laundry Pile",
       2: "Level 2 — The Sock Drawer",
-      3: "Level 3 — ???",
+      3: "Level 3 — The Snaking Corridor",
       4: "Level 4 — ???",
     },
   },

@@ -87,6 +87,15 @@ export class GameCamera {
   }
 
   /**
+   * Camera centre coordinate along the lateral axis (perpendicular to
+   * the climb axis) in world space. For level 1 this is camera X; for
+   * level 2 camera Y; for level 3 (path mode) world X.
+   */
+  get worldLateral(): number {
+    return this._camWorldLateral;
+  }
+
+  /**
    * Coordinate of the leading edge of the viewport along the climb axis
    * (world space). For level 1 this is the most-negative Y currently on
    * screen (top edge); for level 2 the most-positive X (right edge). Used
@@ -119,6 +128,19 @@ export class GameCamera {
    * @param deathPlanePos - Current death-plane position along climb axis.
    */
   follow(targetX: number, targetY: number, deathPlanePos: number): void {
+    // Path-mode (level 3): the camera tracks the player in 2-D world
+    // space. No deadzone or death-plane clamp — the death plane is
+    // expressed in path-`s`, not in world coordinates, and would
+    // require projecting the plane back to world space to clamp
+    // against. Cosmetic at most; safe to skip in the MVP.
+    if (this._dir.axis === "path") {
+      this._camWorldClimb += (targetY - this._camWorldClimb) * LERP;
+      this._camWorldLateral += (targetX - this._camWorldLateral) * LERP;
+      this._cam.position.set(this._camWorldLateral, -this._camWorldClimb, 10);
+      this._cam.updateProjectionMatrix();
+      return;
+    }
+
     const target = this._dir.axis === "y" ? targetY : targetX;
     const lateralTarget = this._dir.axis === "y" ? targetX : targetY;
 

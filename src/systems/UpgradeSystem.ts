@@ -66,13 +66,17 @@ export class UpgradeSystem {
    * Call once per fixed step. Adds climb-derived fill since the last call.
    * The picker is no longer auto-opened here — the player must invoke it
    * explicitly via {@link tryOpenPicker} (bound to the `ApplyPatch` input).
+   *
+   * For path-axis climb directions (level 3) `pathProgress` must be
+   * supplied — the bare body position is opaque to this system.
    */
-  update(player: Player): void {
+  update(player: Player, pathProgress?: number): void {
     // ─── Climb-based fill ──────────────────────────────────────────────
     // Forward climb progress depends on the active climb direction:
     // level 1 (axis="y", sign=-1) → progress = -y; level 2 (axis="x",
-    // sign=+1) → progress = +x. Only forward gains add to the gauge.
-    const progress = climbProgress(player.body.position, this._dir);
+    // sign=+1) → progress = +x; level 3 (axis="path") → caller-supplied
+    // arc length. Only forward gains add to the gauge.
+    const progress = climbProgress(player.body.position, this._dir, pathProgress);
     if (this._lastClimbProgress === null) {
       this._lastClimbProgress = progress;
     } else if (progress > this._lastClimbProgress) {

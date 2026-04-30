@@ -41,15 +41,21 @@ export class ScoreSystem {
   /**
    * Update climb distance from the player's current world position.
    *
-   * Accepts either a single number (player Y, level-1 backward-compat — only
-   * meaningful when this system was constructed with the default vertical
-   * climb direction) or a `{x, y}` position (preferred; works for any
-   * climb axis).
+   * Accepts either a single number (player Y, level-1 backward-compat —
+   * only meaningful when this system was constructed with the default
+   * vertical climb direction) or a `{x, y}` position (preferred; works
+   * for `"x"` / `"y"` climb axes).
+   *
+   * For path-axis climb directions (level 3) `pathProgress` must be
+   * supplied — the bare position is opaque to this system.
    */
-  update(playerPos: number | { x: number; y: number }): void {
+  update(
+    playerPos: number | { x: number; y: number },
+    pathProgress?: number,
+  ): void {
     const pos =
       typeof playerPos === "number" ? { x: 0, y: playerPos } : playerPos;
-    const dist = Math.max(0, climbProgress(pos, this._dir));
+    const dist = Math.max(0, climbProgress(pos, this._dir, pathProgress));
     if (dist > this._maxDistance) {
       this._maxDistance = dist;
       // Emit whenever distance crosses a new whole-metre threshold.

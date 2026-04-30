@@ -7,7 +7,7 @@
  * and the direction the death plane chases).
  */
 
-export type ClimbAxis = "x" | "y";
+export type ClimbAxis = "x" | "y" | "path";
 
 /** Axis + sign describing the direction the player climbs. */
 export interface ClimbDir {
@@ -15,7 +15,8 @@ export interface ClimbDir {
   axis: ClimbAxis;
   /**
    * Direction along `axis` that constitutes forward progress.
-   * `-1` for level 1 (climbing UP = -Y); `+1` for level 2 (climbing right = +X).
+   * `-1` for level 1 (climbing UP = -Y); `+1` for level 2 (climbing right = +X);
+   * always `+1` for the path axis (level 3 — `s` is always increasing).
    */
   sign: -1 | 1;
 }
@@ -26,8 +27,23 @@ export const CLIMB_DIR_VERTICAL: ClimbDir = { axis: "y", sign: -1 };
 /** Level 2: climb rightward along world +X. */
 export const CLIMB_DIR_HORIZONTAL: ClimbDir = { axis: "x", sign: 1 };
 
-/** The world axis perpendicular to the climb axis. */
+/**
+ * Level 3: climb along a piecewise-linear path through 2-D world space.
+ * Progress is measured in path-space arc length `s` rather than along a
+ * fixed world axis. Callsites that need to convert a world position to
+ * `s` must do so via the live `Path` (see `src/level/Path.ts`); the
+ * helpers here treat the value as opaque and pass it through.
+ */
+export const CLIMB_DIR_PATH: ClimbDir = { axis: "path", sign: 1 };
+
+/**
+ * The world axis perpendicular to the climb axis. For path-mode levels
+ * (level 3) there is no single perpendicular axis — the lateral
+ * direction varies along the path. Callers in path mode should not rely
+ * on this helper; we return `"x"` as a defensive default.
+ */
 export function lateralAxis(dir: ClimbDir): ClimbAxis {
+  if (dir.axis === "path") return "x";
   return dir.axis === "y" ? "x" : "y";
 }
 
@@ -38,7 +54,15 @@ export function lateralAxis(dir: ClimbDir): ClimbAxis {
  *
  *  - Level 1: progress = -y (player at y=-50 has progressed 50 m).
  *  - Level 2: progress = +x (player at x=50 has progressed 50 m).
+ *  - Level 3 (path axis): the world position is opaque to this helper;
+ *    callers must precompute path-`s` and pass it as `pathProgress`.
+ *    Returns `0` if `pathProgress` is omitted in path mode.
  */
-export function climbProgress(pos: { x: number; y: number }, dir: ClimbDir): number {
+export function climbProgress(
+  pos: { x: number; y: number },
+  dir: ClimbDir,
+  pathProgress?: number,
+): number {
+  if (dir.axis === "path") return pathProgress ?? 0;
   return dir.sign * pos[dir.axis];
 }

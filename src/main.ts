@@ -12,6 +12,7 @@ import { Player } from "./entities/Player.js";
 import { TileWorld } from "./physics/TileWorld.js";
 import { step } from "./physics/Resolver.js";
 import { createGenerator } from "./level/Generator.js";
+import type { Path } from "./level/Path.js";
 import { LEVEL_CONFIGS } from "./level/LevelConfig.js";
 import { climbProgress, lateralAxis } from "./level/Axis.js";
 import {
@@ -70,6 +71,31 @@ _textureLoader.load("assets/objects/laundry pile.png", (tex) => {
   applyDeathPlaneTexture();
 });
 
+// ─── Level background textures ────────────────────────────────────────────
+// Preload all room images shipped under public/assets/levels/. One is
+// chosen at random on each `onGameStart` (see `resetGame()`) and assigned
+// to `scene.background`. Textures decode asynchronously; until at least
+// one has finished loading the scene falls back to its default colour.
+const LEVEL_BACKGROUND_IDS = [
+  "arcade",
+  "basement",
+  "bathroom",
+  "kitchen",
+  "mudroom",
+] as const;
+const _levelBackgrounds: THREE.Texture[] = [];
+for (const id of LEVEL_BACKGROUND_IDS) {
+  _textureLoader.load(`assets/levels/${id}.png`, (tex) => {
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.minFilter = THREE.LinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    tex.generateMipmaps = false;
+    _levelBackgrounds.push(tex);
+  });
+}
+/** Default scene background colour, restored when no image is active. */
+const DEFAULT_SCENE_BACKGROUND = new THREE.Color(0x111111);
+
 /**
  * Push the cached death-plane texture into the sprite pool sized to the
  * active level's lateral extent. Safe to call before the texture has
@@ -77,11 +103,18 @@ _textureLoader.load("assets/objects/laundry pile.png", (tex) => {
  */
 function applyDeathPlaneTexture(): void {
   if (_deathPlaneTexture === null) return;
+  const axis = activeLevel.climbDir.axis;
+  // Lateral centre is only consulted by the renderer for "x" / "y"
+  // climb axes — for path mode the death plane mesh's world position
+  // is recomputed every frame from the live `Path`.
+  const lateralCenter =
+    axis === "x"
+      ? activeLevel.corridorLateralExtent / 2 + activeLevel.worldYMin
+      : activeLevel.corridorLateralExtent / 2;
   spritePool.setDeathPlaneTexture(
     _deathPlaneTexture,
     activeLevel.corridorLateralExtent,
-    activeLevel.corridorLateralExtent / 2 +
-      (activeLevel.climbDir.axis === "x" ? activeLevel.worldYMin : 0),
+    lateralCenter,
     activeLevel.climbDir,
   );
 }
@@ -141,13 +174,28 @@ function seedWorldBoundary(): void {
     world.fillRect(0, 2, W, 1, true);
     world.fillRect(0, yMin, 1, 3 - yMin, true);
     world.fillRect(W - 1, yMin, 1, 3 - yMin, true);
-  } else {
+  } else if (activeLevel.climbDir.axis === "x") {
     // Ceiling row.
     world.fillRect(0, yMin, W, 1, true);
     // Floor row.
     world.fillRect(0, 2, W, 1, true);
     // Trailing wall column at x = 0 spanning the corridor height.
     world.fillRect(0, yMin, 1, 3 - yMin, true);
+  } else {
+    // Path-mode (level 3): the corridor itself is carved by the
+    // SnakeGenerator, but the generator only places walls along the
+    // corridor going forward (north of spawn). The south end is
+    // open, so the player would fall infinitely without a manually
+    // seeded back cap.
+    //
+    // Cap: a solid floor row spanning the full corridor width
+    // (matching the wall positions at x = ±(halfW + 1) = ±5) plus
+    // several rows of solid south of it so even if the player
+    // somehow penetrates the floor they remain entombed instead of
+    // falling forever.
+    const cx = Math.floor(activeLevel.spawn.x);
+    const halfWPlusWall = 5; // CORRIDOR_HALF_WIDTH (4) + 1 wall tile.
+    world.fillRect(cx - halfWPlusWall, 1, halfWPlusWall * 2 + 1, 8, true);
   }
 }
 
@@ -370,7 +418,22 @@ let generator = createGenerator({
   worldWidth: activeLevel.worldWidthTiles,
   worldYMin: activeLevel.worldYMin,
   spawnSafeZone: PLAYER_SPAWN_SAFE_ZONE,
+  spawn: activeLevel.spawn,
 });
+
+/**
+ * The live `Path` from a `SnakeGenerator` (level 3 only). `null` for
+ * levels whose generator has no path. Used by gameplay systems to
+ * estimate the player's arc-length progress and by the renderer to
+ * project the death plane to world space.
+ */
+function activePath(): Path | null {
+  // The SnakeGenerator's return shape includes a `path` getter; older
+  // generators don't. Avoid depending on the union type here so a
+  // missing `path` simply yields `null`.
+  const maybe = generator as unknown as { path?: Path };
+  return maybe.path ?? null;
+}
 let spawnSystem = new SpawnSystem(generator, world, bus);
 const combatSystem = new CombatSystem(bus);
 
@@ -531,6 +594,7 @@ function resetGame(): void {
     worldWidth: activeLevel.worldWidthTiles,
     worldYMin: activeLevel.worldYMin,
     spawnSafeZone: PLAYER_SPAWN_SAFE_ZONE,
+    spawn: activeLevel.spawn,
   });
 
   // Rebuild axis-aware systems.
@@ -551,6 +615,16 @@ function resetGame(): void {
   // Re-skin the death plane to the active level's lateral extent /
   // orientation. Safe to call before the texture has decoded.
   applyDeathPlaneTexture();
+
+  // Pick a random preloaded room image as the scene backdrop. If none
+  // have decoded yet (first run, very fast start) fall back to the
+  // default solid colour.
+  if (_levelBackgrounds.length > 0) {
+    const idx = rng.int(0, _levelBackgrounds.length - 1);
+    scene.background = _levelBackgrounds[idx]!;
+  } else {
+    scene.background = DEFAULT_SCENE_BACKGROUND;
+  }
 
   // Respawn player at the configured spawn position.
   player.spawn();
@@ -580,6 +654,7 @@ function onQuit(): void {
   pause.hide();
   hud.hide();
   renderer.clearCanvas();
+  scene.background = DEFAULT_SCENE_BACKGROUND;
   title.show();
   playMusic("title");
 }
@@ -681,6 +756,12 @@ const loop = createLoop({
     const cameraLeadingEdge = camera.viewLeadingEdge;
     const climbAxis = activeLevel.climbDir.axis;
     const climbSign = activeLevel.climbDir.sign;
+    /**
+     * In path-mode levels the climb axis is not a world coordinate, so
+     * the leading-edge comparison below cannot be used. Reveal enemies
+     * by world-space proximity to the player instead.
+     */
+    const PATH_REVEAL_RADIUS = 14;
     _seenBuffIds.clear();
 
     for (let i = 0; i < live.length; i++) {
@@ -690,13 +771,21 @@ const loop = createLoop({
         // Reveal once the enemy's centre has crossed past the leading edge
         // of the camera (entered the visible play area). Sign-aware so the
         // same comparison works for level 1 (leading edge is the smaller Y)
-        // and level 2 (leading edge is the larger X).
-        if (
-          !enemy.revealed &&
-          climbSign * enemy.body.position[climbAxis] <=
+        // and level 2 (leading edge is the larger X). For path-mode
+        // levels we fall back to a Euclidean-distance check.
+        if (!enemy.revealed) {
+          if (climbAxis === "path") {
+            const ex = enemy.body.position.x - px;
+            const ey = enemy.body.position.y - py;
+            if (ex * ex + ey * ey <= PATH_REVEAL_RADIUS * PATH_REVEAL_RADIUS) {
+              enemy.revealed = true;
+            }
+          } else if (
+            climbSign * enemy.body.position[climbAxis] <=
             climbSign * cameraLeadingEdge
-        ) {
-          enemy.revealed = true;
+          ) {
+            enemy.revealed = true;
+          }
         }
         enemy.update(dt, px, py);
         step(enemy.body, world, dt);
@@ -757,30 +846,45 @@ const loop = createLoop({
     //    travelled `activeLevel.deathPlaneActivationDistance` metres along
     //    the climb direction. Once activated it stays active for the
     //    remainder of the run.
+    //
+    //    For path-mode levels we precompute path-`s` once and pass it
+    //    through to every system that needs to compare against it.
+    const path = activePath();
+    const playerPathS =
+      path !== null ? path.estimateS(player.body.position) : undefined;
     if (
       !deathPlaneActivated &&
-      climbProgress(player.body.position, activeLevel.climbDir) >=
+      climbProgress(player.body.position, activeLevel.climbDir, playerPathS) >=
         activeLevel.deathPlaneActivationDistance
     ) {
       deathPlaneActivated = true;
     }
     if (deathPlaneActivated) {
-      deathPlaneSystem.update(dt, player.body, player.effectiveStats.deathPlaneSpeedMultiplier);
+      deathPlaneSystem.update(
+        dt,
+        player.body,
+        player.effectiveStats.deathPlaneSpeedMultiplier,
+        playerPathS,
+      );
     }
 
     // 5. Level generation — advance ahead of camera. The generator's
     //    `advance` API takes climb-axis world tile coordinates regardless
     //    of orientation; we read the camera and death plane through their
-    //    axis-agnostic accessors.
-    const cameraTile = Math.floor(camera.worldClimb / TILE_SIZE);
+    //    axis-agnostic accessors. For path-mode levels both arguments
+    //    are path-`s` values floored to whole metres.
+    const generatorPos =
+      activeLevel.climbDir.axis === "path"
+        ? Math.floor(playerPathS ?? 0)
+        : Math.floor(camera.worldClimb / TILE_SIZE);
     const deathPlaneTile = Math.floor(deathPlaneSystem.planePos / TILE_SIZE);
-    spawnSystem.advance(cameraTile, deathPlaneTile);
+    spawnSystem.advance(generatorPos, deathPlaneTile);
 
     // 6. Upgrade picker.
-    upgradeSystem.update(player);
+    upgradeSystem.update(player, playerPathS);
 
     // 7. Score — track furthest progress along the climb direction.
-    scoreSystem.update(player.body.position);
+    scoreSystem.update(player.body.position, playerPathS);
 
     // 8. Advance particles. Music crossfades are advanced above the
     //    alive/paused guard so transitions to/from title and game-over
@@ -810,8 +914,19 @@ const loop = createLoop({
     // Sync entity meshes.
     spritePool.syncPlayer(player, scene, renderX, renderY);
     spritePool.syncAll(spawnSystem.liveEntities, scene);
-    spritePool.syncDeathPlane(deathPlaneSystem.planePos, scene, !deathPlaneActivated);
-    spritePool.syncTiles(world, scene, camera.worldClimb, activeLevel.climbDir);
+    spritePool.syncDeathPlane(
+      deathPlaneSystem.planePos,
+      scene,
+      !deathPlaneActivated,
+      activePath(),
+    );
+    spritePool.syncTiles(
+      world,
+      scene,
+      camera.worldClimb,
+      activeLevel.climbDir,
+      camera.worldLateral,
+    );
 
     // Debug AABB wireframes (only when ?debug=1).
     if (debugOverlay.enabled) {
