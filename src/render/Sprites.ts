@@ -35,13 +35,13 @@ const TAG_COLOR: Readonly<Record<string, number>> = {
   DustBunny: 0x999999,
   Lighter: 0xff8800,
   Pen: 0x00aaaa,
-  // Buffs (all share a gold tint)
-  LowGravitySock: 0xffd700,
-  SpeedSock: 0xffd700,
-  SlowFloodSock: 0xffd700,
-  HighJumpSock: 0xffd700,
-  PowerSock: 0xffd700,
-  RapidStrikeSock: 0xffd700,
+  // Buffs — white so loaded sprite textures render unmodulated.
+  LowGravitySock: 0xffffff,
+  SpeedSock: 0xffffff,
+  SlowFloodSock: 0xffffff,
+  HighJumpSock: 0xffffff,
+  PowerSock: 0xffffff,
+  RapidStrikeSock: 0xffffff,
 };
 
 /** Fallback colour when a tag is not found in the palette (bright magenta = obvious placeholder). */
@@ -144,6 +144,15 @@ export class SpritePool {
   private _planePosOffset = 0;
   /** Climb direction the death plane is rendered for. */
   private _planeDir: ClimbDir = CLIMB_DIR_VERTICAL;
+  /**
+   * Smoothed mesh rotation for path-mode (level 3). The raw target
+   * rotation derived from the local path tangent snaps instantaneously
+   * at every bend; we exponentially blend toward the target each frame
+   * so the plane visibly "rotates" through corners. `null` until the
+   * first path-mode `syncDeathPlane` call, at which point it latches
+   * to the target with no blend (avoids a spurious spin on spawn).
+   */
+  private _planeRotation: number | null = null;
 
   // ─── Hit-flash / blink API ───────────────────────────────────────────
 
@@ -211,11 +220,11 @@ export class SpritePool {
       this._tileMat.needsUpdate = true;
       return;
     }
-    const mat = this._mats.get(tag as string);
-    if (mat) {
-      mat.map = texture;
-      mat.needsUpdate = true;
-    }
+    // Create the material on demand so textures applied before the first
+    // entity of this tag spawns still take effect when meshes appear.
+    const mat = this._matFor(tag as string);
+    mat.map = texture;
+    mat.needsUpdate = true;
   }
 
   // ─── Player ───────────────────────────────────────────────────────────────
@@ -419,23 +428,57 @@ export class SpritePool {
       // long edge is perpendicular to the local path tangent.
       if (path !== null) {
         const { position, tangent } = path.projectS(planePos);
-        this._planeMesh.position.x = position.x + xJitter;
-        this._planeMesh.position.y = -position.y + yJitter;
+        // The corridor interior is an odd number of tiles wide
+        // (CORRIDOR_HALF_WIDTH * 2 + 1 = 9), centred on the path
+        // centreline. Tile cells extend from worldX to worldX+1, so
+        // the geometric centre of the wall-to-wall span sits half a
+        // tile *outboard* of the path centreline along the local
+        // perpendicular. Without this offset the death-plane image
+        // appears shifted toward one wall.
+        //
+        // Perp in path space is (-tangent.y, tangent.x); the renderer
+        // flips world Y, so the perpendicular in render space is
+        // (-tangent.y, -tangent.x).
+        const LATERAL_TILE_OFFSET = 0.5;
+        const perpRenderX = -tangent.y;
+        const perpRenderY = -tangent.x;
+        this._planeMesh.position.x =
+          position.x + perpRenderX * LATERAL_TILE_OFFSET + xJitter;
+        this._planeMesh.position.y =
+          -position.y + perpRenderY * LATERAL_TILE_OFFSET + yJitter;
         // Geometry is (lateralExtent, planeThickness) — the mesh's
-        // local X axis is the long edge. We want that long edge to
-        // run perpendicular to the tangent, with the texture's
-        // "front" (outer half-pixel) pointing in the direction the
-        // plane is chasing the player.
+        // local +Y axis is the "front" / leading edge of the texture.
+        // We want that leading edge to point along the local tangent
+        // (the direction the plane is chasing) in render space.
         //
         // Render space flips physics-Y, so the visual tangent is
-        // (tangent.x, -tangent.y). Atan2(tx, -ty) gives a rotation
-        // that, when applied to the default horizontal mesh, aligns
-        // it perpendicular to the tangent in render space:
-        //   tangent (0,-1) → 0      (horizontal plane, north chase)
-        //   tangent (1, 0) → +π/2   (vertical plane, east chase)
-        //   tangent (0, 1) → π      (horizontal flipped, south chase)
-        //   tangent (-1,0) → -π/2   (vertical flipped, west chase)
-        this._planeMesh.rotation.z = Math.atan2(tangent.x, -tangent.y);
+        // `t_r = (tangent.x, -tangent.y)`. A rotation θ around +Z maps
+        // the mesh's +Y_local to `(-sin θ, cos θ)`. Setting that equal
+        // to `t_r` gives `θ = atan2(-tangent.x, -tangent.y)`:
+        //   tangent (0,-1) → 0       (north chase, horizontal bar)
+        //   tangent (1, 0) → -π/2    (east chase, leading edge → +X)
+        //   tangent (0, 1) → π       (south chase, leading edge → -Y)
+        //   tangent (-1,0) → +π/2    (west chase, leading edge → -X)
+        //
+        // (The previous formula `atan2(tangent.x, -tangent.y)` had the
+        // wrong sign, which made the plane appear to turn the wrong
+        // way through bends.)
+        const target = Math.atan2(-tangent.x, -tangent.y);
+        if (this._planeRotation === null) {
+          this._planeRotation = target;
+        } else {
+          // Shortest-arc delta so we never spin "the long way round"
+          // when the target wraps across ±π.
+          let delta = target - this._planeRotation;
+          while (delta > Math.PI) delta -= 2 * Math.PI;
+          while (delta < -Math.PI) delta += 2 * Math.PI;
+          // Exponential blend factor: ~12% per frame ≈ visible turn
+          // over ~10 frames (~165 ms at 60 fps). Frame-rate-dependent
+          // but the death plane only rotates infrequently (at bends)
+          // so the slight variation is unnoticeable in practice.
+          this._planeRotation += delta * 0.12;
+        }
+        this._planeMesh.rotation.z = this._planeRotation;
       }
     }
   }
@@ -507,6 +550,10 @@ export class SpritePool {
         this._planeMesh.rotation.z = 0;
       }
     }
+    // Drop any stale smoothed rotation so the first path-mode sync
+    // after a level switch latches to the new tangent without blending
+    // through whatever angle the previous level happened to leave us at.
+    this._planeRotation = null;
   }
 
   // ─── Tiles ────────────────────────────────────────────────────────────────

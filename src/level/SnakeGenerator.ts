@@ -225,8 +225,8 @@ export function createSnakeGenerator(opts: GeneratorOptions): SnakeGenerator {
   const builder = new PathBuilder({
     rng,
     start: { x: spawn.x, y: spawn.y },
-    minSegmentLength: 30,
-    maxSegmentLength: 60,
+    minSegmentLength: 20,
+    maxSegmentLength: 50,
     corridorHalfWidth: CORRIDOR_HALF_WIDTH,
   });
   const path = builder.path;
@@ -253,9 +253,15 @@ export function createSnakeGenerator(opts: GeneratorOptions): SnakeGenerator {
   /**
    * Carve the interior of the corridor at every integer-`s` step in
    * `[s0, s1]` so wall placement can refuse to overwrite traversable
-   * cells. Adds tiles to the `interior` set in-place.
+   * cells. Adds tiles to the global `interior` set in-place and, if
+   * provided, also to `outChunkInterior` so the caller can drive a
+   * neighbour-walk wall pass restricted to this chunk's cells.
    */
-  function carveInterior(s0: number, s1: number): void {
+  function carveInterior(
+    s0: number,
+    s1: number,
+    outChunkInterior?: Set<string>,
+  ): void {
     const step = 0.5;
     for (let s = s0; s <= s1; s += step) {
       const { position, tangent } = path.projectS(s, 0);
@@ -265,7 +271,9 @@ export function createSnakeGenerator(opts: GeneratorOptions): SnakeGenerator {
       for (let n = -CORRIDOR_HALF_WIDTH; n <= CORRIDOR_HALF_WIDTH; n++) {
         const wx = position.x + px * n;
         const wy = position.y + py * n;
-        interior.add(tileKey(Math.floor(wx), Math.floor(wy)));
+        const k = tileKey(Math.floor(wx), Math.floor(wy));
+        interior.add(k);
+        if (outChunkInterior) outChunkInterior.add(k);
       }
     }
   }
@@ -279,11 +287,29 @@ export function createSnakeGenerator(opts: GeneratorOptions): SnakeGenerator {
     const sEnd = sStart + CHUNK_S_LENGTH;
     nextChunkS = sEnd;
 
-    // Make sure the path covers this whole chunk.
-    builder.extendTo(sEnd + CORRIDOR_HALF_WIDTH * 2);
+    // Make sure the path covers this whole chunk plus a generous
+    // lookahead. The wall pass walks every cell in `chunkInterior`
+    // and places solids at any 8-neighbour that isn't already in the
+    // global `interior` set. At the chunk's leading edge those
+    // neighbours include cells that belong to the *next* chunk's
+    // corridor; if those cells haven't been carved yet they get
+    // walled, sealing the corridor with a ceiling at the chunk seam.
+    // Pre-carving a slab of future interior here guarantees the wall
+    // walk sees those cells as already-interior and skips them.
+    const FUTURE_CARVE = CORRIDOR_HALF_WIDTH * 2 + 4;
+    builder.extendTo(sEnd + FUTURE_CARVE + 2);
 
-    // Pre-carve interior so wall pass can avoid clobbering it.
-    carveInterior(sStart, sEnd);
+    // Pre-carve interior for THIS chunk into `chunkInterior` (and the
+    // global `interior`). The carve range is wider than the chunk's
+    // logical span so the leading/trailing wall ring sees neighbouring
+    // interior on both sides.
+    const chunkInterior = new Set<string>();
+    carveInterior(sStart - 2, sEnd + 2, chunkInterior);
+    // Pre-carve the *next* chunk's leading slab into the global
+    // `interior` only. Excluded from `chunkInterior` so the wall pass
+    // won't walk those cells (and won't try to wall *their* future
+    // neighbours, which would just push the seam problem forward).
+    carveInterior(sEnd + 2, sEnd + FUTURE_CARVE);
 
     const chunkRng = rng.clone();
     rng.next();
@@ -291,19 +317,28 @@ export function createSnakeGenerator(opts: GeneratorOptions): SnakeGenerator {
     const tiles: PlacedTile[] = [];
 
     // ── Walls ────────────────────────────────────────────────────────
-    // Place solid tiles in a 1-tile-thick band just outside the
-    // corridor's lateral half-width on both sides. The band needs to
-    // be sampled finely enough that diagonals (future work) don't
-    // leave gaps; for cardinals 0.25-`s` is plenty.
-    const wallOffset = CORRIDOR_HALF_WIDTH + 1;
-    for (let s = sStart; s <= sEnd; s += 0.25) {
-      const { position, tangent } = path.projectS(s, 0);
-      const px = -tangent.y;
-      const py = tangent.x;
-      for (const sign of [-1, 1]) {
-        const wx = position.x + px * wallOffset * sign;
-        const wy = position.y + py * wallOffset * sign;
-        placeSolidUnchecked(Math.floor(wx), Math.floor(wy), tiles);
+    // Walk every interior cell carved for this chunk and place a solid
+    // tile at any 8-neighbour that isn't itself interior. This is
+    // gap-proof at outer-bend corners — a perpendicular-sweep approach
+    // misses the diagonal cell at a 90° turn because neither segment's
+    // sample positions reach it, even though it sits between two
+    // interior cells. A neighbour walk visits it directly.
+    //
+    // Bandwidth is exactly one tile (the immediate ring around the
+    // interior), which matches the previous design's intent without
+    // the corner blind-spot.
+    for (const key of chunkInterior) {
+      const comma = key.indexOf(",");
+      const tx = Number(key.slice(0, comma));
+      const ty = Number(key.slice(comma + 1));
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          const ntx = tx + dx;
+          const nty = ty + dy;
+          if (interior.has(tileKey(ntx, nty))) continue;
+          placeSolidUnchecked(ntx, nty, tiles);
+        }
       }
     }
 
@@ -314,6 +349,26 @@ export function createSnakeGenerator(opts: GeneratorOptions): SnakeGenerator {
     const platformCandidates: PlatformCandidate[] = [];
     const interiorN = CORRIDOR_HALF_WIDTH * 2 - 1; // exclude the wall row
     const placedKeys = new Set<string>();
+
+    // Synthetic "floor" reachability seeds spaced along this chunk's
+    // centreline. Without these the chain breaks the first time a
+    // chunk happens to produce zero accepted candidates: `lastPlatforms`
+    // would freeze on a now-distant chunk and every subsequent
+    // candidate would fail the `dx > maxDx` test forever (since the
+    // corridor bends away in world space). Seeds anchor reachability
+    // to the local corridor floor at every bend, so generation
+    // continues indefinitely.
+    const seedStride = Math.max(1, Math.floor(arcBounds.maxDx / 2));
+    const reachabilitySeeds: PlatformCandidate[] = [];
+    for (let s = sStart; s <= sEnd; s += seedStride) {
+      const proj = path.projectS(s, 0);
+      reachabilitySeeds.push({
+        tx: Math.floor(proj.position.x),
+        ty: Math.floor(proj.position.y),
+        width: 1,
+      });
+    }
+    const reachabilityPool = [...lastPlatforms, ...reachabilitySeeds];
 
     // Cheap manual sampling — Poisson in path-space wouldn't add value
     // for an MVP since the corridor is narrow.
@@ -348,7 +403,7 @@ export function createSnakeGenerator(opts: GeneratorOptions): SnakeGenerator {
       }
       if (blocked) continue;
 
-      if (!hasReachablePredecessor(candidate, lastPlatforms, arcBounds)) {
+      if (!hasReachablePredecessor(candidate, reachabilityPool, arcBounds)) {
         continue;
       }
 
@@ -367,9 +422,13 @@ export function createSnakeGenerator(opts: GeneratorOptions): SnakeGenerator {
       }
     }
 
-    if (platformCandidates.length > 0) {
-      lastPlatforms = platformCandidates;
-    }
+    // Update lastPlatforms for the next chunk. If this chunk produced
+    // no real candidates, fall back to the synthetic centreline seeds
+    // so the next chunk still has a reachable predecessor pool to chain
+    // from — otherwise generation would stall after the first empty
+    // chunk and never recover.
+    lastPlatforms =
+      platformCandidates.length > 0 ? platformCandidates : reachabilitySeeds;
 
     // ── Entities ─────────────────────────────────────────────────────
     const entities: SpawnedEntity[] = [];

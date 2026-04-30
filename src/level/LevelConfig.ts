@@ -93,8 +93,11 @@ const LEVEL_3: LevelConfig = {
   // silently drop the entire left wall + left half of the seeded floor
   // cap if spawn.x were near 0.
   spawn: { x: 1000, y: 0 },
-  // Corridor is 8 tiles wide (CORRIDOR_HALF_WIDTH * 2 in SnakeGenerator).
-  corridorLateralExtent: 8,
+  // Corridor interior spans CORRIDOR_HALF_WIDTH * 2 + 1 = 9 tiles, with
+  // a single-tile wall band on each side, so wall-edge to wall-edge is
+  // 11 m. The death-plane graphic must span the full wall-to-wall width
+  // or a visible sliver of the corridor stays uncovered.
+  corridorLateralExtent: 11,
   // Death plane begins 3 m behind the spawn in path-`s` units.
   deathPlaneStart: -3,
   deathPlaneActivationDistance: 20,

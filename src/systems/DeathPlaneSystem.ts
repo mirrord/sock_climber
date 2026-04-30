@@ -2,6 +2,25 @@ import type { EventBus, GameEvents } from "../core/EventBus.js";
 import type { Body } from "../physics/Body.js";
 import { CLIMB_DIR_VERTICAL, type ClimbDir } from "../level/Axis.js";
 
+/**
+ * Optional path-mode context supplied per-frame so the death plane can
+ * be a finite 2-D region (limited to the corridor walls) rather than
+ * an infinite half-space along path-`s`.
+ */
+export interface PathDeathPlaneContext {
+  /** World position of the plane's centre (= path.projectS(planePos).position). */
+  planeWorld: { x: number; y: number };
+  /** Unit tangent of the path at the plane (= path.projectS(planePos).tangent). */
+  tangent: { x: number; y: number };
+  /**
+   * Lateral half-width of the corridor at the plane in metres. The
+   * death zone extends ±this distance perpendicular to `tangent`.
+   * Player AABB half-extent is added to this internally so a player
+   * touching the wall on either side is still killed.
+   */
+  corridorHalfWidth: number;
+}
+
 /** Construction options for `DeathPlaneSystem`. All values in SI units. */
 export interface DeathPlaneOptions {
   /**
@@ -19,6 +38,15 @@ export interface DeathPlaneOptions {
   segCrossBump?: number;
   /** Speed increase per `onPatchApplied` event in m/s. Default: 0.2. */
   patchBump?: number;
+  /**
+   * Rubber-band activation distance in metres. When the plane is
+   * farther than this from the player along the chase axis, its
+   * effective advance speed is scaled by `distance / threshold` so it
+   * catches up. The scaling is transient (recomputed every frame) and
+   * never reduces speed below 1×. Default: 100. Set to `Infinity` (or
+   * any non-positive / non-finite value) to disable rubber-banding.
+   */
+  rubberBandThreshold?: number;
 }
 
 /**
@@ -41,6 +69,8 @@ export class DeathPlaneSystem {
   private _speed: number;
   private readonly _segCrossBump: number;
   private readonly _patchBump: number;
+  private readonly _rubberBandThreshold: number;
+  private _rubberBandMultiplier = 1;
   private _dead = false;
   private readonly _bus: EventBus<GameEvents>;
 
@@ -51,6 +81,11 @@ export class DeathPlaneSystem {
     this._speed = opts.baseSpeed ?? 1.5;
     this._segCrossBump = opts.segCrossBump ?? 0.1;
     this._patchBump = opts.patchBump ?? 0.2;
+    const rb = opts.rubberBandThreshold ?? 100;
+    // Treat non-positive / non-finite thresholds as "disabled" by
+    // collapsing them to +Infinity so the `distance > threshold`
+    // comparison can never trigger.
+    this._rubberBandThreshold = rb > 0 && Number.isFinite(rb) ? rb : Infinity;
 
     bus.on("onSegmentCross", () => {
       this._speed += this._segCrossBump;
@@ -72,21 +107,76 @@ export class DeathPlaneSystem {
    *   system has no way to derive it from `playerBody` because the
    *   relationship between world position and arc length is owned by
    *   the live `Path`. Ignored for `"x"` / `"y"` axes.
+   * @param pathContext               - Optional path-mode context. When
+   *   supplied (and the climb axis is `"path"`) the kill check uses a
+   *   2-D test in world space: the player must be on the trailing
+   *   side of the plane along `tangent` AND within `corridorHalfWidth`
+   *   metres of the plane's centre laterally. Without this, the
+   *   path-mode kill check falls back to the 1-D arc-length test
+   *   against `playerProgress`.
    */
   update(
     dt: number,
     playerBody: Body,
     deathPlaneSpeedMultiplier = 1,
     playerProgress?: number,
+    pathContext?: PathDeathPlaneContext,
   ): void {
     if (this._dead) return;
 
     const multiplier = Math.max(0.1, deathPlaneSpeedMultiplier);
+
+    // Rubber-band: compute the player's distance from the plane along
+    // the chase axis. When the gap exceeds `_rubberBandThreshold`,
+    // scale this frame's advance by `distance / threshold` so the
+    // plane closes the gap. Floor at 1× (never slow the plane down).
+    const distance = this._distanceToPlayer(
+      playerBody,
+      playerProgress,
+      pathContext,
+    );
+    this._rubberBandMultiplier =
+      distance > this._rubberBandThreshold
+        ? distance / this._rubberBandThreshold
+        : 1;
+
     // Plane chases the player along -sign of the climb direction:
     //  level 1 (sign=-1): plane Y decreases (rises upward).
     //  level 2 (sign=+1): plane X increases (advances rightward).
     //  level 3 (path):    plane `s` increases monotonically.
-    this._planePos += this._dir.sign * this._speed * multiplier * dt;
+    this._planePos +=
+      this._dir.sign * this._speed * multiplier * this._rubberBandMultiplier * dt;
+
+    // Path-mode 2-D kill test: the death zone is the rectangle on the
+    // trailing side of the plane, bounded laterally by the corridor
+    // walls. A player who has somehow strayed outside the corridor
+    // (e.g. clipped through a wall) survives until they re-enter.
+    if (this._dir.axis === "path" && pathContext !== undefined) {
+      const dx = playerBody.position.x - pathContext.planeWorld.x;
+      const dy = playerBody.position.y - pathContext.planeWorld.y;
+      const tx = pathContext.tangent.x;
+      const ty = pathContext.tangent.y;
+      // Forward distance along the chase tangent (positive = ahead of
+      // the plane in the direction it is travelling; negative =
+      // behind / inside the death zone).
+      const forward = dx * tx + dy * ty;
+      // Lateral distance perpendicular to the tangent.
+      const lateral = dx * -ty + dy * tx;
+      const playerHalf = Math.max(
+        playerBody.halfExtents.x,
+        playerBody.halfExtents.y,
+      );
+      // Add the player's larger half-extent to the lateral limit so an
+      // AABB grazing either wall still gets killed; require the
+      // player's leading edge (centre + playerHalf) to have crossed
+      // the plane along the tangent.
+      const lateralLimit = pathContext.corridorHalfWidth + playerHalf;
+      if (forward <= playerHalf && Math.abs(lateral) <= lateralLimit) {
+        this._dead = true;
+        this._bus.emit("onPlayerDeath", { reason: "drowned" });
+      }
+      return;
+    }
 
     let playerTrailing: number;
     if (this._dir.axis === "path") {
@@ -140,10 +230,54 @@ export class DeathPlaneSystem {
     return this._speed;
   }
 
+  /** Configured rubber-band activation distance in metres. */
+  get rubberBandThreshold(): number {
+    return this._rubberBandThreshold;
+  }
+
+  /**
+   * Most recent rubber-band scaling applied during `update`. Always
+   * `>= 1`. Equals `1` when the player is within `rubberBandThreshold`
+   * metres of the plane (or before any update has run).
+   */
+  get rubberBandMultiplier(): number {
+    return this._rubberBandMultiplier;
+  }
+
+  /**
+   * Compute the player's signed distance ahead of the plane along the
+   * chase axis. Result is clamped at zero — once the player is at or
+   * behind the plane the kill check takes over and rubber-banding is
+   * irrelevant.
+   */
+  private _distanceToPlayer(
+    playerBody: Body,
+    playerProgress: number | undefined,
+    pathContext: PathDeathPlaneContext | undefined,
+  ): number {
+    if (this._dir.axis === "path") {
+      if (pathContext !== undefined) {
+        const dx = playerBody.position.x - pathContext.planeWorld.x;
+        const dy = playerBody.position.y - pathContext.planeWorld.y;
+        // `forward` is positive when the player is ahead of the plane
+        // along the chase tangent.
+        const forward = dx * pathContext.tangent.x + dy * pathContext.tangent.y;
+        return Math.max(0, forward);
+      }
+      return Math.max(0, (playerProgress ?? this._planePos) - this._planePos);
+    }
+    const axis = this._dir.axis;
+    return Math.max(
+      0,
+      this._dir.sign * (playerBody.position[axis] - this._planePos),
+    );
+  }
+
   /** Reset plane position and speed to their initial values for a new run. */
   reset(opts: DeathPlaneOptions = {}): void {
     this._planePos = opts.start ?? opts.startY ?? 20;
     this._speed = opts.baseSpeed ?? 1.5;
+    this._rubberBandMultiplier = 1;
     this._dead = false;
   }
 }

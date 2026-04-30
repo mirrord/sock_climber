@@ -80,8 +80,12 @@ export class PathBuilder {
     for (const dir of order) {
       // Doubling back is degenerate (path immediately re-enters itself).
       if (dir.x === -prev.x && dir.y === -prev.y) continue;
-      // Continuing in the same direction collapses the bend into a
-      // straight extension — fine, the Path merges them automatically.
+      // Skip continuing straight — the corridor must actually turn at
+      // each bend so the player encounters the level's signature
+      // direction changes. Straight extensions are still possible by
+      // chaining a 90° turn followed by another 90° turn back, but
+      // back-to-back same-direction segments are disallowed here.
+      if (dir.x === prev.x && dir.y === prev.y) continue;
       const length = this._rng.int(this._minLen, this._maxLen);
       const tail = this.path.tailPosition;
       if (this._wouldIntersect(tail, dir, length)) continue;
@@ -89,9 +93,10 @@ export class PathBuilder {
       this._occupySegment(tail, dir, length);
       return;
     }
-    // Every candidate intersected. Force a continuation in the same
-    // direction (rare — straight extensions almost never collide
-    // because they grow into freshly unoccupied space).
+    // Every turn candidate intersected. Force a continuation in the
+    // same direction as a last resort so the builder always makes
+    // progress (rare — only happens when both perpendicular turns
+    // would re-enter the occupied corridor).
     const length = this._rng.int(this._minLen, this._maxLen);
     const tail = this.path.tailPosition;
     this.path.appendSegment(prev, length);

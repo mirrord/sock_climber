@@ -106,6 +106,52 @@ for (const sheet of PLAYER_SHEETS) {
   });
 }
 
+// ─── Buff pickup sprites ──────────────────────────────────────────────────
+// Six pickup images (four socks + two underwears) are paired one-to-one
+// with the six temporary-buff entity tags. The pairing is randomised on
+// startup so each session feels a little different; rendering uses the
+// shared per-tag material in `SpritePool`, so each tag keeps a single
+// consistent sprite for the whole session.
+const BUFF_TAGS: ReadonlyArray<import("./level/Chunks.js").EntityTag> = [
+  "LowGravitySock",
+  "SpeedSock",
+  "SlowFloodSock",
+  "HighJumpSock",
+  "PowerSock",
+  "RapidStrikeSock",
+];
+const BUFF_SPRITE_FILES: readonly string[] = [
+  "demetrius sock.png",
+  "girl sock.png",
+  "green sock.png",
+  "smart sock.png",
+  "underwear.png",
+  "underwhere.png",
+];
+{
+  // Fisher–Yates shuffle of the sprite files (Math.random — pairing is
+  // cosmetic only and does not need to be deterministic with the level
+  // RNG seed).
+  const shuffled = BUFF_SPRITE_FILES.slice();
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const tmp = shuffled[i] as string;
+    shuffled[i] = shuffled[j] as string;
+    shuffled[j] = tmp;
+  }
+  for (let i = 0; i < BUFF_TAGS.length; i++) {
+    const tag = BUFF_TAGS[i] as import("./level/Chunks.js").EntityTag;
+    const file = shuffled[i] as string;
+    _textureLoader.load(`assets/sprites/${encodeURI(file)}`, (tex) => {
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.minFilter = THREE.LinearFilter;
+      tex.magFilter = THREE.LinearFilter;
+      tex.generateMipmaps = false;
+      spritePool.setTexture(tag, tex);
+    });
+  }
+}
+
 // ─── Level background textures ────────────────────────────────────────────
 // Preload all room images shipped under public/assets/levels/. One is
 // chosen at random on each `onGameStart` (see `resetGame()`) and assigned
@@ -940,11 +986,27 @@ const loop = createLoop({
       deathPlaneActivated = true;
     }
     if (deathPlaneActivated) {
+      // Path mode: project the plane's `s` to world space once so the
+      // death-plane kill check can use a finite 2-D rectangle bounded
+      // by the corridor walls (matching the on-screen graphic) rather
+      // than an infinite half-space along path-`s`.
+      const pathContext =
+        path !== null
+          ? (() => {
+              const proj = path.projectS(deathPlaneSystem.planePos);
+              return {
+                planeWorld: proj.position,
+                tangent: proj.tangent,
+                corridorHalfWidth: activeLevel.corridorLateralExtent / 2,
+              };
+            })()
+          : undefined;
       deathPlaneSystem.update(
         dt,
         player.body,
         player.effectiveStats.deathPlaneSpeedMultiplier,
         playerPathS,
+        pathContext,
       );
     }
 

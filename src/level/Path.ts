@@ -186,30 +186,45 @@ export class Path {
    * acceptable for HUD / death-plane purposes.
    */
   estimateS(pos: Vec2): number {
-    // Try to advance the anchor forward through any segments the
-    // projection has already exited.
-    while (this._anchor < this._segments.length - 1) {
-      const seg = this._segments[this._anchor]!;
-      const localS = this._projectOnto(pos, seg);
-      if (localS > seg.sEnd) {
-        this._anchor++;
-        continue;
+    // Walk a small window of segments around the cached anchor and
+    // pick the one whose **clamped** centreline projection is closest
+    // to `pos` in world space. This is robust at sharp corners where
+    // a pure anchor-advance heuristic would get stuck: e.g. for a
+    // 90° N→E bend, a player walking east along the new segment has
+    // a constant projection onto the previous N segment (always
+    // exactly `seg.sEnd`) and so a "advance only when localS > sEnd"
+    // rule never fires. The closest-clamped-distance metric instead
+    // immediately picks the new segment as soon as the player moves
+    // off the corner, and the anchor latches onto it.
+    const segs = this._segments;
+    const N = segs.length;
+    if (N === 0) return 0;
+    // Window large enough to hop a few segments per frame even after
+    // a teleport / respawn, while keeping the per-frame cost O(1).
+    const WINDOW = 4;
+    const lo = Math.max(0, this._anchor - WINDOW);
+    const hi = Math.min(N - 1, this._anchor + WINDOW);
+    let bestSeg = this._anchor;
+    let bestDist2 = Infinity;
+    let bestS = 0;
+    for (let i = lo; i <= hi; i++) {
+      const seg = segs[i]!;
+      const proj = this._projectOnto(pos, seg);
+      const clamped = Math.max(seg.sStart, Math.min(seg.sEnd, proj));
+      const ds = clamped - seg.sStart;
+      const wx = seg.origin.x + seg.direction.x * ds;
+      const wy = seg.origin.y + seg.direction.y * ds;
+      const dx = pos.x - wx;
+      const dy = pos.y - wy;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < bestDist2) {
+        bestDist2 = d2;
+        bestSeg = i;
+        bestS = clamped;
       }
-      break;
     }
-    // Equally, retreat if we've fallen behind.
-    while (this._anchor > 0) {
-      const seg = this._segments[this._anchor]!;
-      const localS = this._projectOnto(pos, seg);
-      if (localS < seg.sStart) {
-        this._anchor--;
-        continue;
-      }
-      break;
-    }
-    const seg = this._segments[this._anchor]!;
-    const localS = this._projectOnto(pos, seg);
-    return Math.max(seg.sStart, Math.min(seg.sEnd, localS));
+    this._anchor = bestSeg;
+    return bestS;
   }
 
   /**

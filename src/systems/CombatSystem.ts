@@ -75,7 +75,11 @@ export class CombatSystem {
       return;
     }
 
-    this._attack.elapsed += dt;
+    // Scale time progression by attackSpeedMultiplier so faster-attack buffs
+    // (e.g. RapidStrikeSock) shorten every attack phase proportionally. A
+    // multiplier of 2 makes the attack progress at 2x speed; <1 slows it.
+    const speed = player.effectiveStats.attackSpeedMultiplier;
+    this._attack.elapsed += dt * speed;
     const elapsed = this._attack.elapsed;
     const inActive = elapsed >= data.startup && elapsed < data.startup + data.active;
 

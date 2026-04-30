@@ -278,12 +278,14 @@ export class Player implements Entity {
       this._locomotion = "Airborne";
     }
 
-    // Touching any wall refunds the air-dash budget (per design: dashes are
-    // restored on contact with a wall or floor). This runs in addition to
-    // the grounded reset above to also cover the airborne wall-cling case.
-    // Wall contact also clears the dash-jump momentum lock.
+    // Touching any wall refunds both the air-dash and air-jump budgets
+    // (per design: dashes and jumps are restored on contact with a wall or
+    // floor). This runs in addition to the grounded reset above to also
+    // cover the airborne wall-cling case. Wall contact also clears the
+    // dash-jump momentum lock.
     if (onWallL || onWallR) {
       this._airDashesUsed = 0;
+      this._airJumpsUsed = 0;
       this._dashMomentumLock = false;
       this._wallKickMomentum = false;
       this._wallKickSpeed = 0;
@@ -340,13 +342,17 @@ export class Player implements Entity {
         // the kick's speed magnitude across direction changes (see
         // horizontal movement block).
         const kickDirX: 1 | -1 = onWallL ? 1 : -1;
-        const horizSpeed = dashHeld ? dashSpeed : s.wallKickVX;
+        // Wall-kick speeds and lock duration are intentionally read from the
+        // base stats (not effectiveStats) so temporary buffs (e.g. low gravity,
+        // high jump) cannot inadvertently lengthen the wall-kick input lock or
+        // alter the kick magnitude.
+        const horizSpeed = dashHeld ? dashSpeed : this.stats.wallKickVX;
         this.body.velocity.x = kickDirX * horizSpeed;
-        this.body.velocity.y = s.wallKickVY;
+        this.body.velocity.y = this.stats.wallKickVY;
         this._jumpBufferTimer = 0;
         this._wallKickMomentum = true;
         this._wallKickSpeed = horizSpeed;
-        this._wallKickLockTimer = s.wallKickLockDuration;
+        this._wallKickLockTimer = this.stats.wallKickLockDuration;
         this._facing = kickDirX;
         this._locomotion = "Airborne";
         jumpedThisFrame = true;
@@ -444,8 +450,9 @@ export class Player implements Entity {
           this.body.velocity.x += this._springDirX * impulse;
           this.body.velocity.y += this._springDirY * impulse;
           // Lock horizontal authority briefly so the run controller does not
-          // immediately overwrite the spring's horizontal velocity.
-          this._wallKickLockTimer = s.wallKickLockDuration;
+          // immediately overwrite the spring's horizontal velocity. Read from
+          // base stats so buffs cannot extend this lock.
+          this._wallKickLockTimer = this.stats.wallKickLockDuration;
           this._bus?.emit("onSpringRelease", {});
         }
         this._springCharge = 0;
