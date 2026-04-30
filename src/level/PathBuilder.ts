@@ -6,19 +6,25 @@
  * appends segments to the path (alternating between sharp 90° turns
  * and straight extensions) until `path.totalLength >= s`.
  *
- * MVP scope (matches `docs/LEVEL_3_PLAN.md` §11 step 2):
- *   - Direction set restricted to the cardinal 4 (E, N, W, S).
- *   - Bends are sharp 90° corners — no curved arcs or chamfers.
+ * Direction set:
+ *   - Full 8-direction grid (cardinals + diagonals) sourced from
+ *     `DIRECTIONS_8` in `Path.ts`. Combined with the "no doubling
+ *     back / no continuing straight" guards in `_appendNext` this
+ *     leaves six valid candidates at each bend (45°/90°/135° left or
+ *     right turns).
+ *   - Bends are sharp corners — no curved arcs or chamfers.
  *   - Initial segment is forced to N (up) so the player starts climbing.
  *   - Self-intersection is avoided by checking each candidate segment's
  *     swept corridor against the cumulative occupancy grid.
- *
- * Diagonals and 45°/135°/180° bend kinds are deferred to future work.
  */
 import type { RNG } from "../core/RNG.js";
-import { Path, type Vec2 } from "./Path.js";
+import { Path, DIRECTIONS_8, type Vec2 } from "./Path.js";
 
-/** The four cardinal directions used in the MVP path builder. */
+/**
+ * The four cardinal directions. Retained for reference / tests; the
+ * builder itself draws from `DIRECTIONS_8` so the corridor can also
+ * bend along diagonals.
+ */
 export const CARDINAL_4: readonly Vec2[] = [
   { x: 1, y: 0 }, // E
   { x: 0, y: -1 }, // N
@@ -104,20 +110,20 @@ export class PathBuilder {
   }
 
   /**
-   * Deterministic shuffle of CARDINAL_4 seeded by the next RNG draw.
+   * Deterministic shuffle of `DIRECTIONS_8` seeded by the next RNG draw.
    *
    * The shuffled order stands as-is: continuing straight never collides
    * (the path grows into fresh space), so biasing `prev` to the front
    * would make the builder pick straight every time and the corridor
-   * would never turn. Plan §3.2 specifies a uniform draw across all
-   * directions; a uniform shuffle gives that without disabling turns.
+   * would never turn. A uniform shuffle gives a uniform draw across all
+   * directions without disabling turns.
    *
    * @param _prev Previous direction — kept for signature symmetry; not
    *   currently consulted because the doubling-back guard lives in
    *   `_appendNext`.
    */
   private _directionOrder(_prev: Vec2): Vec2[] {
-    const order = CARDINAL_4.slice();
+    const order = DIRECTIONS_8.slice();
     // Fisher–Yates with the builder's RNG so the choice is reproducible.
     for (let i = order.length - 1; i > 0; i--) {
       const j = this._rng.int(0, i);
@@ -138,13 +144,16 @@ export class PathBuilder {
     // Skip the first ~2*halfW metres of the new segment because the
     // corner naturally re-occupies the previous segment's terminus.
     const skip = w * 2;
-    for (let s = skip; s <= length; s++) {
+    // Sub-unit stepping along both axes so diagonal segments — whose
+    // perpendicular `(-d.y, d.x)` is itself diagonal — don't skip
+    // over tile cells between integer samples.
+    const step = 0.5;
+    for (let s = skip; s <= length; s += step) {
       const cx = tail.x + dir.x * s;
       const cy = tail.y + dir.y * s;
-      // Sweep the cross-section perpendicular to `dir`.
       const px = -dir.y; // perp x
       const py = dir.x; // perp y
-      for (let n = -w; n <= w; n++) {
+      for (let n = -w; n <= w; n += step) {
         const wx = cx + px * n;
         const wy = cy + py * n;
         const tx = Math.floor(wx);
@@ -160,15 +169,15 @@ export class PathBuilder {
     const w = this._halfW;
     const px = -dir.y;
     const py = dir.x;
-    // Slightly fine-grained sampling so diagonals (future work) don't
-    // leave gaps. For cardinals 1-tile steps already saturate.
+    // Sub-unit stepping along both axes so diagonal segments don't
+    // leave gaps in the occupancy grid (cardinals already saturate).
     const step = 0.5;
     for (let s = 0; s <= length; s += step) {
       const cx = origin.x + dir.x * s;
       const cy = origin.y + dir.y * s;
       // Pad by one tile of buffer in the perpendicular direction so
       // future segments can't slip in flush against this one.
-      for (let n = -w - 1; n <= w + 1; n++) {
+      for (let n = -w - 1; n <= w + 1; n += step) {
         const wx = cx + px * n;
         const wy = cy + py * n;
         this._occupied.add(`${Math.floor(wx)},${Math.floor(wy)}`);

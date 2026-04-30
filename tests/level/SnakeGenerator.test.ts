@@ -83,4 +83,22 @@ describe("PathBuilder — corridor changes direction", () => {
     }
     expect(directionChanges).toBeGreaterThan(0);
   });
+
+  it("uses diagonal segment directions in addition to cardinals", () => {
+    // Aggregate across several seeds so the assertion isn't sensitive
+    // to a single seed happening to draw cardinals only.
+    let diagonalCount = 0;
+    for (const seed of [1, 2, 3, 4, 5]) {
+      const builder = new PathBuilder({
+        rng: createRNG(seed),
+        start: { x: 0, y: 0 },
+      });
+      builder.extendTo(2000);
+      for (const seg of builder.path.segments) {
+        const d = seg.direction;
+        if (d.x !== 0 && d.y !== 0) diagonalCount++;
+      }
+    }
+    expect(diagonalCount).toBeGreaterThan(0);
+  });
 });

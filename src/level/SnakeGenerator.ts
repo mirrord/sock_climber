@@ -267,8 +267,12 @@ export function createSnakeGenerator(opts: GeneratorOptions): SnakeGenerator {
       const { position, tangent } = path.projectS(s, 0);
       const px = -tangent.y;
       const py = tangent.x;
-      // Inclusive of the centreline ± half-width.
-      for (let n = -CORRIDOR_HALF_WIDTH; n <= CORRIDOR_HALF_WIDTH; n++) {
+      // Inclusive of the centreline ± half-width. Sub-unit `n` stepping
+      // so diagonal segments (whose perpendicular is itself diagonal)
+      // don't leave un-carved interior cells between integer samples;
+      // the wall-placement neighbour walk depends on `interior` being
+      // complete or it will plant solid tiles inside the corridor.
+      for (let n = -CORRIDOR_HALF_WIDTH; n <= CORRIDOR_HALF_WIDTH; n += step) {
         const wx = position.x + px * n;
         const wy = position.y + py * n;
         const k = tileKey(Math.floor(wx), Math.floor(wy));
