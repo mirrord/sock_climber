@@ -12,3 +12,10 @@ export { DEFAULT_PLAYER_STATS } from "./components/Stats.js";
 
 export type { LocomotionState } from "./Player.js";
 export { Player } from "./Player.js";
+
+export {
+  getBody,
+  getIFrameTimer,
+  getSpriteVariant,
+  attachBusIfSupported,
+} from "./access.js";

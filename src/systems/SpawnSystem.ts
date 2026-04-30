@@ -2,6 +2,7 @@ import type { EventBus, GameEvents } from "../core/EventBus.js";
 import type { Generator, SpawnedEntity } from "../level/Generator.js";
 import { applyTilesToWorld } from "../level/Generator.js";
 import type { TileWorld } from "../physics/TileWorld.js";
+import { attachBusIfSupported } from "../entities/access.js";
 
 /**
  * SpawnSystem — bridges the level `Generator` into the live entity list.
@@ -40,12 +41,7 @@ export class SpawnSystem {
       // Allow entities that opt in via `attachBus` (e.g. Keys) to publish
       // their own gameplay events. Avoids threading the bus through every
       // generator / registry factory.
-      const maybeBusAware = spawned.entity as unknown as {
-        attachBus?: (bus: EventBus<GameEvents>) => void;
-      };
-      if (typeof maybeBusAware.attachBus === "function") {
-        maybeBusAware.attachBus(this._bus);
-      }
+      attachBusIfSupported(spawned.entity, this._bus);
       this._liveEntities.push(spawned);
     }
 
@@ -94,12 +90,7 @@ export class SpawnSystem {
    * opt-in hook used by `advance()`.
    */
   addEntity(spawned: SpawnedEntity): void {
-    const maybeBusAware = spawned.entity as unknown as {
-      attachBus?: (bus: EventBus<GameEvents>) => void;
-    };
-    if (typeof maybeBusAware.attachBus === "function") {
-      maybeBusAware.attachBus(this._bus);
-    }
+    attachBusIfSupported(spawned.entity, this._bus);
     this._liveEntities.push(spawned);
   }
 

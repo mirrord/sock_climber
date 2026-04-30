@@ -11,8 +11,11 @@ import * as THREE from "three";
  * The animator does not own the player mesh; it produces the per-frame
  * material/size which `SpritePool.syncPlayer` applies.
  *
- * Other states (jump, fall, dash, hurt, …) will be added in a future step.
- * Until then they fall back to `idle`.
+ * Falls back to `idle` when a `pickState`-selected sheet has not been
+ * registered. The fall pose is intentionally folded into `jump` (the
+ * airborne sheet holds on its last frame); `dash` and `hurt` are not
+ * registered as separate sheets and currently render as their underlying
+ * locomotion state.
  */
 
 /** Logical animation state. */
@@ -51,6 +54,12 @@ export interface PlayerAnimInputs {
   readonly isWallSliding?: boolean;
   /** True for the brief input-lock window after a wall kick fires. */
   readonly isWallKicking?: boolean;
+  /**
+   * Seconds of post-hit invulnerability remaining. When > 0 the animator
+   * may select a `hurt` sheet (currently falls back to the underlying
+   * locomotion state because no hurt sheet is registered).
+   */
+  readonly iFrameTimer?: number;
 }
 
 /**

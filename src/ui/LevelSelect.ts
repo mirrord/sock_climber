@@ -2,30 +2,32 @@ import { el, setText, setVisible } from "./dom.js";
 import { TEXT } from "./i18n.js";
 
 /**
- * Level identifiers selectable from the LevelSelect screen.
- *
- * Only level `1` is currently playable. Levels `2`–`4` are placeholder
- * entries: the buttons render in a disabled "Coming Soon" state and do not
- * fire the `onLevelSelected` callback when clicked.
+ * Level identifiers selectable from the LevelSelect screen. All four
+ * levels are currently playable; selecting one fires `onLevelSelected`
+ * with the chosen id.
  */
 export type LevelId = 1 | 2 | 3 | 4;
 
-/** Levels considered playable. Used to gate button enablement. */
+/**
+ * Levels considered playable. Used to gate button enablement. New
+ * unfinished levels can be excluded here to render their slot as a
+ * disabled "Coming Soon" placeholder without removing the layout entry.
+ */
 const PLAYABLE_LEVELS: ReadonlySet<LevelId> = new Set<LevelId>([1, 2, 3, 4]);
 
 /**
  * LevelSelect — level selection overlay shown between the title screen and
  * gameplay. Replaces the direct title→game transition so the player can
- * eventually pick from multiple levels.
+ * pick from multiple levels.
  *
- * Currently only Level 1 is implemented; Levels 2–4 render as disabled
- * placeholders. A Back button returns to the title screen via the
- * `onBack` callback.
+ * Any level not present in `PLAYABLE_LEVELS` renders as a disabled
+ * placeholder; non-playable entries are skipped during gamepad navigation
+ * so focus can never land on one. A Back button returns to the title
+ * screen via the `onBack` callback.
  *
  * Gamepad navigation: D-pad up/down (buttons 12/13) or left-stick Y moves
  * focus between buttons; A (button 0) or Start (button 9) confirms; B
- * (button 1) acts as Back. Disabled placeholders are skipped during
- * navigation so focus can never land on a non-playable entry.
+ * (button 1) acts as Back.
  */
 export class LevelSelect {
   private readonly _overlay: HTMLElement;
@@ -113,8 +115,8 @@ export class LevelSelect {
 
     container.appendChild(this._overlay);
 
-    // Land focus on the first enabled entry (Level 1 today; defensively
-    // walk forward in case the playable set ever changes).
+    // Land focus on the first enabled entry. Defensively walks forward
+    // in case some levels are excluded from `PLAYABLE_LEVELS`.
     this._focusIndex = this._firstEnabledIndex();
   }
 

@@ -9,6 +9,7 @@ import { createRealClock, createLoop, createEventBus, createRNG } from "./core/i
 import type { GameEvents } from "./core/index.js";
 import { Input, loadBindings } from "./input/index.js";
 import { Player } from "./entities/Player.js";
+import { getBody } from "./entities/access.js";
 import { TileWorld } from "./physics/TileWorld.js";
 import { step } from "./physics/Resolver.js";
 import { createGenerator } from "./level/Generator.js";
@@ -77,7 +78,9 @@ _textureLoader.load("assets/objects/laundry pile.png", (tex) => {
 
 // ─── Player sprite-sheet animations ───────────────────────────────────────
 // Each entry: state → (file, frameCount, frameW, frameH, fps, loop).
-// Other states (jump / fall / dash / hurt / …) will be added later.
+// `jump` doubles as the fall sheet (held on the last frame at apex).
+// `dash` and `hurt` have no dedicated sheets; they render as the
+// underlying locomotion state via the animator's idle-fallback.
 const PLAYER_SHEETS: ReadonlyArray<{
   state: import("./render/index.js").PlayerAnimState;
   file: string;
@@ -552,11 +555,8 @@ let generator = createGenerator({
  * project the death plane to world space.
  */
 function activePath(): Path | null {
-  // The SnakeGenerator's return shape includes a `path` getter; older
-  // generators don't. Avoid depending on the union type here so a
-  // missing `path` simply yields `null`.
-  const maybe = generator as unknown as { path?: Path };
-  return maybe.path ?? null;
+  // `Generator.path` is optional; only `SnakeGenerator` populates it.
+  return generator.path ?? null;
 }
 let spawnSystem = new SpawnSystem(generator, world, bus);
 const combatSystem = new CombatSystem(bus);
@@ -1291,9 +1291,9 @@ const loop = createLoop({
       const bodies = [player.body];
       for (const e of spawnSystem.liveEntities) {
         if (e.kind !== "buff") {
-          // enemies and obstacles expose a public body property
-          const asHasBody = e.entity as unknown as { body: (typeof player)["body"] };
-          bodies.push(asHasBody.body);
+          // Enemies, obstacles, and projectiles always expose `body`.
+          const body = getBody(e.entity);
+          if (body !== null) bodies.push(body);
         }
       }
       debugOverlay.sync(bodies, scene);

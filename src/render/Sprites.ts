@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { Player } from "../entities/Player.js";
+import { getBody, getIFrameTimer, getSpriteVariant } from "../entities/access.js";
 import type { SpawnedEntity } from "../level/Generator.js";
 import type { TileWorld } from "../physics/TileWorld.js";
 import type { EntityTag } from "../level/Chunks.js";
@@ -68,18 +69,6 @@ const Z_LAYER = {
 } as const;
 
 // ─── Local interfaces for structural typing (avoids deep entity imports) ──────
-
-interface HasBody {
-  readonly body: {
-    readonly position: { x: number; y: number };
-    readonly halfExtents: { x: number; y: number };
-  };
-}
-
-/** Structural type for any entity exposing an i-frame timer (player or enemies). */
-interface HasIFrames {
-  readonly iFrameTimer: number;
-}
 
 interface BuffLike {
   readonly id: number;
@@ -473,8 +462,7 @@ export class SpritePool {
     // frame — e.g. Keys returns `"KeysTelegraph"` while telegraphing so
     // the jingle animation plays. The variant key falls back to the tag
     // if it isn't registered with `setEntitySheet`.
-    const variant = (spawned.entity as unknown as { spriteVariant?: string })
-      .spriteVariant;
+    const variant = getSpriteVariant(spawned.entity);
     const animKey =
       variant !== undefined && this._entityAnims.has(variant)
         ? variant
@@ -493,9 +481,8 @@ export class SpritePool {
     }
     // Enemies face the direction they're moving; obstacles & buffs do not flip.
     if (spawned.kind === "enemy") {
-      const vx = (spawned.entity as unknown as { body: { velocity: { x: number } } })
-        .body.velocity.x;
-      if (vx < 0) scaleX = -scaleX;
+      const enemyBody = getBody(spawned.entity);
+      if (enemyBody !== null && enemyBody.velocity.x < 0) scaleX = -scaleX;
     }
     mesh.scale.set(scaleX, scaleY, 1);
 
@@ -504,7 +491,7 @@ export class SpritePool {
       const flashing = (this._hitFlashTimers.get(id) ?? 0) > 0;
       const baseMat = anim ? anim.material : this._matFor(spawned.tag as string);
       mesh.material = flashing ? this._flashMat : baseMat;
-      const iFrameTimer = (spawned.entity as unknown as HasIFrames).iFrameTimer;
+      const iFrameTimer = getIFrameTimer(spawned.entity);
       mesh.visible = this._blinkVisible(iFrameTimer);
     }
   }
@@ -803,7 +790,8 @@ export class SpritePool {
       const b = spawned.entity as unknown as BuffLike;
       return { id: b.id, x: b.position.x, y: b.position.y, hw: b.halfW, hh: b.halfH };
     }
-    const body = (spawned.entity as unknown as HasBody).body;
+    // Non-buff entities (enemies, obstacles, projectiles) always have a body.
+    const body = getBody(spawned.entity)!;
     return {
       id: spawned.entity.id,
       x: body.position.x,

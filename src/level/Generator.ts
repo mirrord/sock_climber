@@ -172,6 +172,14 @@ export interface Generator {
 
   /** All chunks currently alive in the world. */
   readonly chunks: readonly GeneratedChunk[];
+
+  /**
+   * Optional path representation. Only populated by `SnakeGenerator`
+   * (level 3); other generators omit it. Renderer and gameplay systems
+   * may use it to project the death plane and estimate arc-length
+   * progress.
+   */
+  readonly path?: import("./Path.js").Path;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
