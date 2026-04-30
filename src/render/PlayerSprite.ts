@@ -1,0 +1,191 @@
+import * as THREE from "three";
+
+/**
+ * PlayerAnimator — sprite-sheet driven animation state machine for the player.
+ *
+ * Each animation is a horizontal strip of equally-sized frames. Frames are
+ * cropped from the source texture using `texture.offset.x` (each frame is
+ * `1 / frames` of the sheet width). Rendering pixel-art crisply requires
+ * `NearestFilter` and disabling mipmaps.
+ *
+ * The animator does not own the player mesh; it produces the per-frame
+ * material/size which `SpritePool.syncPlayer` applies.
+ *
+ * Other states (jump, fall, dash, hurt, …) will be added in a future step.
+ * Until then they fall back to `idle`.
+ */
+
+/** Logical animation state. */
+export type PlayerAnimState =
+  | "idle"
+  | "walk"
+  | "crouch"
+  | "crouchAttack"
+  | "attack";
+
+/**
+ * Per-state runtime data — built once when a sheet is registered.
+ * @internal
+ */
+export interface AnimDef {
+  readonly texture: THREE.Texture;
+  readonly material: THREE.MeshBasicMaterial;
+  readonly frames: number;
+  readonly worldW: number;
+  readonly worldH: number;
+  readonly fps: number;
+  readonly loop: boolean;
+}
+
+/** Inputs read by the animator each tick to pick the active state. */
+export interface PlayerAnimInputs {
+  readonly isAttacking: boolean;
+  readonly isCrouching: boolean;
+  readonly isGrounded: boolean;
+  readonly velocityX: number;
+}
+
+/**
+ * Pixels-per-world-unit reference. The 64×64 idle frame represents a
+ * 1×1 world-unit area, so all other frame dimensions in pixels divide
+ * through this constant to derive the rendered world size.
+ */
+const PX_PER_UNIT = 64;
+
+/** |vx| above this counts as "moving" for picking the walk state. */
+const WALK_VX_THRESHOLD = 0.1;
+
+export class PlayerAnimator {
+  private readonly _defs = new Map<PlayerAnimState, AnimDef>();
+  private _state: PlayerAnimState = "idle";
+  private _frame = 0;
+  private _accum = 0;
+
+  /**
+   * Register a sprite sheet for one animation state.
+   *
+   * @param state    - Logical animation state.
+   * @param texture  - Loaded `THREE.Texture`. Filtering is reconfigured for
+   *                   crisp pixel-art rendering.
+   * @param frames   - Number of frames in the horizontal strip.
+   * @param frameW   - Width of one frame in pixels.
+   * @param frameH   - Height of one frame in pixels.
+   * @param fps      - Playback rate.
+   * @param loop     - When `false`, the animation holds on the last frame.
+   */
+  setSheet(
+    state: PlayerAnimState,
+    texture: THREE.Texture,
+    frames: number,
+    frameW: number,
+    frameH: number,
+    fps: number,
+    loop: boolean,
+  ): void {
+    texture.magFilter = THREE.NearestFilter;
+    texture.minFilter = THREE.NearestFilter;
+    texture.generateMipmaps = false;
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.wrapS = THREE.ClampToEdgeWrapping;
+    texture.wrapT = THREE.ClampToEdgeWrapping;
+    texture.repeat.set(1 / frames, 1);
+    texture.offset.set(0, 0);
+    texture.needsUpdate = true;
+    const material = new THREE.MeshBasicMaterial({
+      map: texture,
+      transparent: true,
+      depthWrite: false,
+    });
+    this._defs.set(state, {
+      texture,
+      material,
+      frames,
+      worldW: frameW / PX_PER_UNIT,
+      worldH: frameH / PX_PER_UNIT,
+      fps,
+      loop,
+    });
+  }
+
+  /** True once at least one sheet has been registered. */
+  hasAny(): boolean {
+    return this._defs.size > 0;
+  }
+
+  /**
+   * Reference width (world units) used for back-edge anchoring. Equal to the
+   * registered `idle` sheet's width when present, otherwise falls back to
+   * the first registered sheet. Sprites wider than this stay aligned by
+   * their back edge (relative to facing) so attack/crouch frames do not
+   * appear to shift the character backwards mid-animation.
+   */
+  get anchorWorldW(): number {
+    return this._defs.get("idle")?.worldW ?? this._defs.values().next().value?.worldW ?? 1;
+  }
+
+  /** Pick the desired state from current player inputs. */
+  pickState(inputs: PlayerAnimInputs): PlayerAnimState {
+    if (inputs.isAttacking && inputs.isCrouching) return "crouchAttack";
+    if (inputs.isAttacking) return "attack";
+    if (inputs.isCrouching) return "crouch";
+    if (inputs.isGrounded && Math.abs(inputs.velocityX) > WALK_VX_THRESHOLD) {
+      return "walk";
+    }
+    return "idle";
+  }
+
+  /**
+   * Advance the animation timer and update the active state.
+   *
+   * Falls back to `idle` if the desired state's sheet has not been loaded
+   * yet, so the player still renders during asynchronous texture decode.
+   *
+   * @returns The active `AnimDef` (texture + material + sizing), or `null`
+   *          if no sheets have been registered.
+   */
+  update(dt: number, inputs: PlayerAnimInputs): AnimDef | null {
+    if (this._defs.size === 0) return null;
+    const desired = this.pickState(inputs);
+    const def = this._defs.get(desired) ?? this._defs.get("idle") ?? null;
+    if (def === null) return null;
+
+    const effectiveState = this._defs.has(desired) ? desired : "idle";
+    if (effectiveState !== this._state) {
+      const prev = this._state;
+      this._state = effectiveState;
+      this._accum = 0;
+      // Special case: when leaving the crouch-attack into a held crouch,
+      // skip straight to the crouch sheet's final frame (the fully
+      // crouched pose) rather than replaying the crouch-down animation
+      // from frame 0.
+      if (prev === "crouchAttack" && effectiveState === "crouch") {
+        this._frame = Math.max(0, def.frames - 1);
+      } else {
+        this._frame = 0;
+      }
+    }
+
+    this._accum += dt;
+    const frameDur = 1 / def.fps;
+    while (this._accum >= frameDur) {
+      this._accum -= frameDur;
+      this._frame++;
+    }
+    if (def.loop) {
+      this._frame = this._frame % def.frames;
+    } else if (this._frame >= def.frames) {
+      this._frame = def.frames - 1;
+    }
+    def.texture.offset.x = this._frame / def.frames;
+    return def;
+  }
+
+  // ─── Read-only accessors (testing / debugging) ─────────────────────────
+
+  get state(): PlayerAnimState {
+    return this._state;
+  }
+  get frame(): number {
+    return this._frame;
+  }
+}

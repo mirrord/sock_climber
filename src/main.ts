@@ -22,6 +22,7 @@ import {
   ScoreSystem,
   SpawnSystem,
 } from "./systems/index.js";
+import { ATTACK_TABLE } from "./systems/AttackTable.js";
 import { HUD, PatchPicker, Pause, Settings, Title, LevelSelect, GameOver } from "./ui/index.js";
 import type { LevelId } from "./ui/index.js";
 import { Renderer, GameCamera, SpritePool, ParticleSystem, DebugOverlay } from "./render/index.js";
@@ -70,6 +71,40 @@ _textureLoader.load("assets/objects/laundry pile.png", (tex) => {
   _deathPlaneTexture = tex;
   applyDeathPlaneTexture();
 });
+
+// ─── Player sprite-sheet animations ───────────────────────────────────────
+// Each entry: state → (file, frameCount, frameW, frameH, fps, loop).
+// Other states (jump / fall / dash / hurt / …) will be added later.
+const PLAYER_SHEETS: ReadonlyArray<{
+  state: import("./render/index.js").PlayerAnimState;
+  file: string;
+  frames: number;
+  frameW: number;
+  frameH: number;
+  fps: number;
+  loop: boolean;
+}> = [
+  { state: "idle", file: "idle.png", frames: 8, frameW: 64, frameH: 64, fps: 8, loop: true },
+  { state: "walk", file: "walk.png", frames: 7, frameW: 64, frameH: 64, fps: 14, loop: true },
+  { state: "crouch", file: "crouch.png", frames: 6, frameW: 64, frameH: 96, fps: 12, loop: false },
+  // Attack frames spread across the full ATTACK_TABLE.Normal duration (12 / 60 s).
+  // 10 frames over 0.2 s ≈ 50 fps so the animation finishes alongside the attack.
+  { state: "attack", file: "attack.png", frames: 10, frameW: 128, frameH: 128, fps: 50, loop: false },
+  { state: "crouchAttack", file: "crouch attack.png", frames: 10, frameW: 128, frameH: 48, fps: 50, loop: false },
+];
+for (const sheet of PLAYER_SHEETS) {
+  _textureLoader.load(`assets/sprites/${encodeURI(sheet.file)}`, (tex) => {
+    spritePool.playerAnimator.setSheet(
+      sheet.state,
+      tex,
+      sheet.frames,
+      sheet.frameW,
+      sheet.frameH,
+      sheet.fps,
+      sheet.loop,
+    );
+  });
+}
 
 // ─── Level background textures ────────────────────────────────────────────
 // Preload all room images shipped under public/assets/levels/. One is
@@ -684,6 +719,51 @@ let prevPlayerY = 0;
 /** Wall-clock timestamp (ms) of the previous render frame; null on first call. */
 let lastRenderMs: number | null = null;
 
+// ─── Dev-only attack hitbox debug visualisation ───────────────────────────
+// A translucent red rectangle is rendered at the active hitbox AABB during
+// the attack's `active` window. Only constructed under `import.meta.env.DEV`
+// so production bundles incur zero overhead.
+const _attackHitboxMesh: THREE.Mesh | null = import.meta.env.DEV
+  ? (() => {
+      const m = new THREE.Mesh(
+        new THREE.PlaneGeometry(1, 1),
+        new THREE.MeshBasicMaterial({
+          color: 0xff0000,
+          transparent: true,
+          opacity: 0.4,
+          depthWrite: false,
+        }),
+      );
+      m.position.z = 1.5; // above the player mesh so it stays visible
+      m.visible = false;
+      scene.add(m);
+      return m;
+    })()
+  : null;
+
+function syncAttackHitboxDebug(): void {
+  if (_attackHitboxMesh === null) return;
+  const id = combatSystem.currentAttackId;
+  const data = id !== "" ? ATTACK_TABLE[id] : undefined;
+  if (data === undefined) {
+    _attackHitboxMesh.visible = false;
+    return;
+  }
+  const elapsed = combatSystem.attackElapsed;
+  const inActive = elapsed >= data.startup && elapsed < data.startup + data.active;
+  if (!inActive) {
+    _attackHitboxMesh.visible = false;
+    return;
+  }
+  const facing = player.facing;
+  const hbX = player.body.position.x + data.offsetX * facing;
+  const hbY = player.body.position.y + data.offsetY;
+  _attackHitboxMesh.position.x = hbX;
+  _attackHitboxMesh.position.y = -hbY; // Y-flip
+  _attackHitboxMesh.scale.set(data.halfW * 2, data.halfH * 2, 1);
+  _attackHitboxMesh.visible = true;
+}
+
 const loop = createLoop({
   clock,
   stepHz: 120,
@@ -912,7 +992,7 @@ const loop = createLoop({
     spritePool.tick(renderDt);
 
     // Sync entity meshes.
-    spritePool.syncPlayer(player, scene, renderX, renderY);
+    spritePool.syncPlayer(player, scene, renderX, renderY, renderDt, combatSystem.isAttacking);
     spritePool.syncAll(spawnSystem.liveEntities, scene);
     spritePool.syncDeathPlane(
       deathPlaneSystem.planePos,
@@ -940,6 +1020,12 @@ const loop = createLoop({
       }
       debugOverlay.sync(bodies, scene);
     }
+
+    // Dev-only attack hitbox visualisation. Renders a translucent red
+    // square covering the active hitbox of the in-progress attack so we
+    // can see exactly where the AoE is. Only present in `npm run dev`
+    // builds (Vite strips this branch in production).
+    syncAttackHitboxDebug();
 
     renderer.render(scene, camera.threeCamera);
   },

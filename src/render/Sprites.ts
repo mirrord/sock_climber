@@ -5,6 +5,7 @@ import type { TileWorld } from "../physics/TileWorld.js";
 import type { EntityTag } from "../level/Chunks.js";
 import { CLIMB_DIR_VERTICAL, type ClimbDir } from "../level/Axis.js";
 import type { Path } from "../level/Path.js";
+import { PlayerAnimator } from "./PlayerSprite.js";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -101,6 +102,8 @@ export class SpritePool {
 
   // ─── Player mesh ──────────────────────────────────────────────────────────
   private _playerMesh: THREE.Mesh | null = null;
+  /** Animation state machine — empty until `playerAnimator.setSheet` calls. */
+  private readonly _playerAnimator = new PlayerAnimator();
 
   // ─── Death plane mesh ─────────────────────────────────────────────────────
   private _planeMesh: THREE.Mesh | null = null;
@@ -220,29 +223,83 @@ export class SpritePool {
   /**
    * Update (or create) the player mesh.
    *
-   * @param player  - Player entity; facing direction and half-extents are read.
-   * @param scene   - Three.js scene.
-   * @param renderX - Interpolated world X.
-   * @param renderY - Interpolated world Y (Y+ = down in world space).
+   * @param player       - Player entity; facing direction and half-extents are read.
+   * @param scene        - Three.js scene.
+   * @param renderX      - Interpolated world X.
+   * @param renderY      - Interpolated world Y (Y+ = down in world space).
+   * @param dt           - Render-frame delta time (seconds). Used to advance
+   *                       the sprite-sheet animation. Defaults to 0 so unit
+   *                       tests that omit it still work.
+   * @param isAttacking  - True when `CombatSystem.isAttacking` for the
+   *                       current frame. Drives `attack` / `crouchAttack`.
    */
-  syncPlayer(player: Player, scene: THREE.Scene, renderX: number, renderY: number): void {
+  syncPlayer(
+    player: Player,
+    scene: THREE.Scene,
+    renderX: number,
+    renderY: number,
+    dt = 0,
+    isAttacking = false,
+  ): void {
     if (!this._playerMesh) {
       this._playerMesh = new THREE.Mesh(this._geoUnit, this._matFor("Player"));
       this._playerMesh.position.z = Z_LAYER.player;
       scene.add(this._playerMesh);
     }
-    const hw = player.body.halfExtents.x;
-    const hh = player.body.halfExtents.y;
-    this._playerMesh.position.x = renderX;
-    this._playerMesh.position.y = -renderY; // Y-flip
-    this._playerMesh.scale.set(player.facing * hw * 2, hh * 2, 1);
+    const def = this._playerAnimator.update(dt, {
+      isAttacking,
+      isCrouching: player.isCrouching,
+      isGrounded: player.locomotion === "Grounded",
+      velocityX: player.body.velocity.x,
+    });
+    let baseMat: THREE.Material;
+    if (def !== null) {
+      baseMat = def.material;
+      // Anchor by feet: bottom of sprite aligns with bottom of body so
+      // taller crouch / attack sheets stay visually planted on the ground.
+      const halfH = player.body.halfExtents.y;
+      const yOffset = halfH - def.worldH / 2;
+      // Anchor by back edge (relative to facing): wider attack / crouch
+      // frames keep the same back-edge X as the idle sprite, so the
+      // character does not appear to shift backwards on attack startup
+      // and forwards again on attack end. The mesh is centred at its
+      // local origin, so a sprite of width `worldW` has its back edge at
+      // `meshX - facing * worldW/2`. Solving for meshX given the desired
+      // back-edge X = `renderX - facing * anchorW/2` yields the offset
+      // below.
+      const anchorW = this._playerAnimator.anchorWorldW;
+      const xOffset = (player.facing * (def.worldW - anchorW)) / 2;
+      this._playerMesh.position.x = renderX + xOffset;
+      this._playerMesh.position.y = -(renderY + yOffset);
+      this._playerMesh.scale.set(player.facing * def.worldW, def.worldH, 1);
+    } else {
+      // Fallback: solid-colour rectangle sized to the body (legacy path).
+      const hw = player.body.halfExtents.x;
+      const hh = player.body.halfExtents.y;
+      baseMat = this._matFor("Player");
+      this._playerMesh.position.x = renderX;
+      this._playerMesh.position.y = -renderY;
+      this._playerMesh.scale.set(player.facing * hw * 2, hh * 2, 1);
+    }
 
-    // Hit-flash overlay swaps in a white material; restore tag material when done.
-    const flashing = this._playerHitFlashTimer > 0;
-    const baseMat = this._matFor("Player");
+    // Hit-flash overlay swaps in a white material; restore animation
+    // material when done. Only apply the flash when the player is rendered
+    // as the legacy solid-colour rectangle — the white material has no
+    // texture, so swapping it in over a sprite-sheet animation would
+    // briefly render a bare white square. The i-frame blink below still
+    // provides hit feedback for the sprite-driven path.
+    const flashing = def === null && this._playerHitFlashTimer > 0;
     this._playerMesh.material = flashing ? this._flashMat : baseMat;
     // I-frame blink: hide on odd phases.
     this._playerMesh.visible = this._blinkVisible(player.iFrameTimer);
+  }
+
+  /**
+   * Animator used to drive player sprite-sheet animations. Call
+   * `setSheet(...)` for each loaded texture during startup.
+   */
+  get playerAnimator(): PlayerAnimator {
+    return this._playerAnimator;
   }
 
   // ─── Entity sync (enemies / obstacles / buffs) ────────────────────────────
