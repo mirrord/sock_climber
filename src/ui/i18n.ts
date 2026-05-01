@@ -63,9 +63,15 @@ export const TEXT = {
 
 Director         Brice Howard
 Music            Sarah Howard
+Sound FX         Dane Howard
 Art              Mostly Brice Howard, with contributions from Sarah Howard and ChatGPT
 Programming      Dane Howard & various Claudes
 QA               Weena Mercator
+Acting           Sock Sampson
+Emotional Support   Linus the Cat
+
+Special thanks to Mark Duchesne for playtesting notes
+
 `,
     hint: "Press any button to return to the main menu",
   },
