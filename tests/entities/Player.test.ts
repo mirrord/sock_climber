@@ -787,7 +787,7 @@ describe("Player — dash interactions", () => {
     expect(player.body.velocity.x).toBeCloseTo(dashSpeed, 3);
   });
 
-  it("dash-jump momentum persists in the air (no air-accel decay)", () => {
+  it("dash-jump allows MMX-style instant turnaround at full speed", () => {
     const player = new Player({ x: 5, y: 5 });
     player.body.flags.onGround = true;
     // Dash-jump rightward.
@@ -797,12 +797,19 @@ describe("Player — dash interactions", () => {
     );
     expect(player.body.velocity.x).toBeCloseTo(dashSpeed, 3);
 
-    // Airborne: hold opposite direction. Momentum should NOT decay because
-    // dash-jump locks horizontal authority until landing/wall contact.
+    // Airborne: hold opposite direction. Velocity should immediately flip
+    // to -dashSpeed (no airAccel ramp) and stay there for the rest of the
+    // arc, mirroring MMX dash-jump turnaround.
     player.body.flags.onGround = false;
     for (let i = 0; i < 60; i++) {
       player.update(DT, makeSnap({ axes: { moveX: -1 } }));
-      expect(player.body.velocity.x).toBeCloseTo(dashSpeed, 3);
+      expect(player.body.velocity.x).toBeCloseTo(-dashSpeed, 3);
+    }
+
+    // Releasing the stick preserves the current dash velocity (no decay).
+    for (let i = 0; i < 30; i++) {
+      player.update(DT, makeSnap({ axes: { moveX: 0 } }));
+      expect(player.body.velocity.x).toBeCloseTo(-dashSpeed, 3);
     }
   });
 

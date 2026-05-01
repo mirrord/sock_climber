@@ -477,7 +477,19 @@ export class Player implements Entity {
     if (this._isDashing) {
       // Dash sets velocity directly above; do nothing here.
     } else if (this._dashMomentumLock) {
-      // Dash-jump: full horizontal authority lock until landing/wall.
+      // Dash-jump: MMX-style instant turnaround. Held directional input
+      // immediately flips horizontal velocity to ±dashSpeed (no airAccel
+      // ramp), preserving the dash's full magnitude across direction
+      // changes. Releasing the stick preserves the current dash velocity
+      // (no decel) so the player completes the arc. The lock is cleared
+      // on landing or wall contact (see locomotion block).
+      const inputX = snap.axes.moveX;
+      if (inputX !== 0) {
+        const dir = (inputX > 0 ? 1 : -1) as 1 | -1;
+        const dashSpeed = s.dashDistance / s.dashDuration;
+        this.body.velocity.x = dir * dashSpeed;
+        this._facing = dir;
+      }
     } else if (this._wallKickMomentum) {
       // Wall kick (with or without dash): during the input lockout the
       // kicked velocity is preserved verbatim — no horizontal authority —

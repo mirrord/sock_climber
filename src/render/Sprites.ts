@@ -10,7 +10,11 @@ import { PlayerAnimator } from "./PlayerSprite.js";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-/** Visible half-height of the viewport in world units. */
+/**
+ * Default visible half-extent (world units) used when callers don't supply
+ * the camera's actual climb / lateral half. Matches the legacy `HALF_H`
+ * fallback in `GameCamera`.
+ */
 const HALF_H = 10;
 /** Extra tile rows above/below the viewport to include in the tile mesh. */
 const TILE_ROW_BUFFER = 2;
@@ -698,6 +702,8 @@ export class SpritePool {
     cameraWorldClimb: number,
     climbDir: ClimbDir = CLIMB_DIR_VERTICAL,
     cameraWorldLateral = 0,
+    climbHalf: number = HALF_H,
+    lateralHalf: number = HALF_H,
   ): void {
     if (!this._tileMesh) {
       this._tileMesh = new THREE.InstancedMesh(
@@ -718,8 +724,8 @@ export class SpritePool {
     }
 
     // Visible band along the climb axis.
-    const minClimb = Math.floor(cameraWorldClimb - HALF_H - TILE_ROW_BUFFER);
-    const maxClimb = Math.ceil(cameraWorldClimb + HALF_H + TILE_ROW_BUFFER);
+    const minClimb = Math.floor(cameraWorldClimb - climbHalf - TILE_ROW_BUFFER);
+    const maxClimb = Math.ceil(cameraWorldClimb + climbHalf + TILE_ROW_BUFFER);
 
     let count = 0;
     if (climbDir.axis === "y") {
@@ -758,7 +764,7 @@ export class SpritePool {
       // Path-mode (level 3) and arena-mode (level 4, axis === "none"):
       // the camera moves freely in 2-D world space; iterate a square
       // neighbourhood around the camera centre.
-      const halfWView = Math.ceil(HALF_H * 2 + TILE_ROW_BUFFER);
+      const halfWView = Math.ceil(lateralHalf + TILE_ROW_BUFFER);
       const minTx = Math.floor(cameraWorldLateral - halfWView);
       const maxTx = Math.ceil(cameraWorldLateral + halfWView);
       const minTy = minClimb;

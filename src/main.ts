@@ -52,9 +52,34 @@ scene.background = new THREE.Color(0x111111);
 // ─── Render module ────────────────────────────────────────────────────────
 
 const renderer = new Renderer();
-let camera = new GameCamera(window.innerWidth / window.innerHeight, {
-  climbDir: LEVEL_CONFIGS[1].climbDir,
-});
+/**
+ * Compute camera options that fit the entire lateral playfield extent of a
+ * level on screen so the level edges never sit inside arbitrary in-world
+ * boundaries — they always reach the window edges. Path / arena modes do
+ * not pass lateral options (their worlds are too large to fit fully).
+ */
+function cameraOptsForLevel(cfg: typeof LEVEL_CONFIGS[1]): {
+  climbDir: typeof cfg.climbDir;
+  lateralHalfExtent?: number;
+  lateralCenter?: number;
+} {
+  if (cfg.climbDir.axis === "y") {
+    // Lateral = X axis. Tiles span [0, worldWidthTiles].
+    const half = cfg.worldWidthTiles / 2;
+    return { climbDir: cfg.climbDir, lateralHalfExtent: half, lateralCenter: half };
+  }
+  if (cfg.climbDir.axis === "x") {
+    // Lateral = Y axis. Tiles span [worldYMin, worldYMin + worldHeightTiles].
+    const half = cfg.worldHeightTiles / 2;
+    const center = cfg.worldYMin + half;
+    return { climbDir: cfg.climbDir, lateralHalfExtent: half, lateralCenter: center };
+  }
+  return { climbDir: cfg.climbDir };
+}
+let camera = new GameCamera(
+  window.innerWidth / window.innerHeight,
+  cameraOptsForLevel(LEVEL_CONFIGS[1]),
+);
 const spritePool = new SpritePool();
 const particles = new ParticleSystem(scene);
 const debugOverlay = new DebugOverlay();
@@ -798,9 +823,10 @@ function resetGame(): void {
     climbDir: activeLevel.climbDir,
     start: activeLevel.deathPlaneStart,
   });
-  camera = new GameCamera(window.innerWidth / window.innerHeight, {
-    climbDir: activeLevel.climbDir,
-  });
+  camera = new GameCamera(
+    window.innerWidth / window.innerHeight,
+    cameraOptsForLevel(activeLevel),
+  );
   deathPlaneActivated = false;
   upgradeSystem.setClimbDir(activeLevel.climbDir);
   upgradeSystem.reset();
@@ -1262,8 +1288,16 @@ const loop = createLoop({
     camera.follow(renderX, renderY, deathPlaneSystem.planePos);
 
     // Advance hit-flash timers (independent of fixed-step gameplay).
+    // While the game is paused (pause menu, settings overlay, or upgrade
+    // picker open) freeze all sprite animation by zeroing the elapsed
+    // wall-clock delta — entity sheet frames, player animator, hit-flash
+    // timers, etc. all advance from this single value.
     const nowMs = clock.now();
-    const renderDt = lastRenderMs === null ? 0 : Math.max(0, (nowMs - lastRenderMs) / 1000);
+    const animationsFrozen = paused || pickerOpen || settingsOpen;
+    const renderDt =
+      lastRenderMs === null || animationsFrozen
+        ? 0
+        : Math.max(0, (nowMs - lastRenderMs) / 1000);
     lastRenderMs = nowMs;
     spritePool.tick(renderDt);
 
@@ -1284,6 +1318,8 @@ const loop = createLoop({
       camera.worldClimb,
       activeLevel.climbDir,
       camera.worldLateral,
+      camera.climbHalfExtent,
+      camera.lateralHalfExtent,
     );
 
     // Debug AABB wireframes (only when ?debug=1).
