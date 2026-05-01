@@ -140,8 +140,14 @@ export type GameEvents = {
    * `GameOver` to trigger the celebratory glitter effect.
    */
   onNewDistanceRecord: { level: number; distance: number; previous: number };
-  /** Emitted by Title screen when the player starts a new run. */
-  onGameStart: Record<string, never>;
+  /**
+   * Emitted to start a new run. Normally the run-loop boot path calls
+   * `resetGame()` on receipt to wipe player state, the world, the upgrade
+   * system, etc. The pre-run loadout flow (level 4) emits with
+   * `skipReset: true` so the loadout patches that were just applied to
+   * the player are not immediately cleared by another `resetGame()`.
+   */
+  onGameStart: { skipReset?: boolean };
   /** Emitted to pause game simulation and show the pause menu. */
   onPause: Record<string, never>;
   /** Emitted to resume game simulation from the pause menu. */
@@ -166,6 +172,22 @@ export type GameEvents = {
    * Victory overlay and ends the run as a win.
    */
   onLevelComplete: { levelId: number };
+  /**
+   * Emitted by `BossLaundry` whenever its visible state, dizzy timer, or
+   * progress counters change. Consumed by the HUD to render the boss
+   * panel during level 4 (state label, sheet-hits/3 toward dizzy, melee
+   * strikes/12 to win, dizzy countdown). Fires once on spawn for the
+   * initial paint, then on every state transition, dryer-sheet hit, and
+   * successful melee strike.
+   */
+  onBossStateChanged: {
+    state: string;
+    sheetHits: number;
+    sheetsToDizzy: number;
+    meleeStrikes: number;
+    meleeStrikesToWin: number;
+    dizzyTimer: number;
+  };
   /**
    * Emitted by `BossLaundry` during its Throw behaviour, once per
    * spawned projectile. Carries the entity to add to the live world.

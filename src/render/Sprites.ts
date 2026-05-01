@@ -49,12 +49,14 @@ const TAG_COLOR: Readonly<Record<string, number>> = {
   PowerSock: 0xffffff,
   RapidStrikeSock: 0xffffff,
   SoftenerBuff: 0xfff8c8,
-  // Boss
-  BossLaundry: 0xddccaa,
-  BossLaundryThrow: 0xddccaa,
-  BossLaundryChase: 0xeebb88,
+  // Boss — base + non-telegraph variants render the laundry-pile texture
+  // unmodulated; telegraph + dizzy stay tinted to broadcast the dangerous
+  // / vulnerable phases.
+  BossLaundry: 0xffffff,
+  BossLaundryThrow: 0xffffff,
+  BossLaundryChase: 0xffffff,
   BossLaundryTelegraph: 0xffaa66,
-  BossLaundryJump: 0xffaa66,
+  BossLaundryJump: 0xffffff,
   BossLaundryDizzy: 0xff6688,
 };
 

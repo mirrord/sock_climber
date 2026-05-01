@@ -102,7 +102,44 @@ _textureLoader.load("assets/objects/laundry pile.png", (tex) => {
   tex.generateMipmaps = false;
   _deathPlaneTexture = tex;
   applyDeathPlaneTexture();
+  // Reuse the laundry-pile image as the boss sprite (level 4). The
+  // boss's body is 3.75 m square; we register the texture under each
+  // BossLaundry state-variant key so `spriteVariant` swaps don't fall
+  // back to the magenta placeholder. Each variant gets its own cloned
+  // texture so the death plane's LinearFilter setup is left intact.
+  registerBossSprite(tex);
 });
+
+/**
+ * One-shot helper that wires the decoded laundry-pile texture into the
+ * SpritePool as the BossLaundry sprite (and each AI-state variant). The
+ * texture is cloned per variant so the death-plane's filter / colour-
+ * space configuration on the original is preserved, and so each variant
+ * caches its own GPU upload (THREE shares a single source `Image`).
+ */
+function registerBossSprite(source: THREE.Texture): void {
+  // Boss body half-extents are 1.875 m → 3.75 m square. Pick a sprite
+  // size slightly larger than the hitbox so the silhouette reads as
+  // "boss-sized" without making melee feel cheap. Frame pixel dims are
+  // derived from ENTITY_PX_PER_UNIT (51.2) used by `setEntitySheet` to
+  // back-solve the world-units footprint.
+  const WORLD_SIZE = 4.5;
+  const PX_PER_UNIT = 51.2;
+  const framePx = Math.round(WORLD_SIZE * PX_PER_UNIT);
+  const variants: readonly string[] = [
+    "BossLaundry",
+    "BossLaundryThrow",
+    "BossLaundryChase",
+    "BossLaundryTelegraph",
+    "BossLaundryJump",
+    "BossLaundryDizzy",
+  ];
+  for (const key of variants) {
+    const clone = source.clone();
+    clone.needsUpdate = true;
+    spritePool.setEntitySheet(key, clone, 1, framePx, framePx, 1);
+  }
+}
 
 // ─── Player sprite-sheet animations ───────────────────────────────────────
 // Each entry: state → (file, frameCount, frameW, frameH, fps, loop).
@@ -704,6 +741,8 @@ const levelSelect = new LevelSelect(
     } else {
       bus.emit("onGameStart", {});
     }
+    // (level 4 emits onGameStart with skipReset:true once the loadout
+    //  picks complete; see the onPickerClose handler below.)
   },
   () => { levelSelect.hide(); title.show(); },
   document.body,
@@ -745,6 +784,7 @@ function startLoadoutFlow(): void {
   resetGame();
   // resetGame fires gauge/HP snapshots etc.; suppress the death-music
   // playback by not flipping `alive` yet. Open the first loadout pick.
+  patchPicker.setLoadoutMode(_loadoutPicksRemaining);
   upgradeSystem.openLoadoutOffer(player);
 }
 
@@ -754,11 +794,16 @@ bus.on("onPickerClose", () => {
   if (_loadoutPicksRemaining > 0) {
     _loadoutPicksRemaining -= 1;
     if (_loadoutPicksRemaining > 0) {
-      // Re-open with a fresh offer for the next pick.
+      // Re-open with a fresh offer for the next pick. Re-emits
+      // `onPickerOpen` synchronously, which restores `pickerOpen=true`
+      // before any other listener can observe the desync.
+      patchPicker.setLoadoutMode(_loadoutPicksRemaining);
       upgradeSystem.openLoadoutOffer(player);
     } else {
-      // Final pick complete — start the run.
-      bus.emit("onGameStart", {});
+      // Final pick complete — start the run. Pass skipReset so the
+      // patches just applied to the player survive into the boss arena.
+      patchPicker.setLoadoutMode(null);
+      bus.emit("onGameStart", { skipReset: true });
     }
   }
 });
@@ -801,9 +846,13 @@ let pickerOpen = false;
  */
 let _prevAttacking = false;
 
-bus.on("onGameStart", () => {
+bus.on("onGameStart", ({ skipReset }) => {
   maybeResumeAudio();
-  resetGame();
+  // Loadout flow (level 4) has already called `resetGame()` once before
+  // opening the first pre-run picker. Calling it again here would wipe
+  // the patches the player just selected — `player.spawn()` clears
+  // `_statMods` and `upgradeSystem.reset()` clears the applied set.
+  if (skipReset !== true) resetGame();
   alive = true;
   paused = false;
   pickerOpen = false;
@@ -816,7 +865,6 @@ bus.on("onGameStart", () => {
 bus.on("onPause", () => { paused = true; });
 bus.on("onResume", () => { paused = false; input.flush(); });
 bus.on("onPickerOpen", () => { pickerOpen = true; });
-bus.on("onPickerClose", () => { pickerOpen = false; input.flush(); });
 
 bus.on("onPlayerDeath", () => {
   alive = false;

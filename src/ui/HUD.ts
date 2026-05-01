@@ -20,6 +20,12 @@ export class HUD {
   private readonly _gaugeTrail: HTMLElement;
   private readonly _distanceEl: HTMLElement;
   private readonly _buffList: HTMLElement;
+  /** Boss panel (level 4 only). Hidden until the first boss event. */
+  private readonly _bossPanel: HTMLElement;
+  private readonly _bossState: HTMLElement;
+  private readonly _bossSheets: HTMLElement;
+  private readonly _bossStrikes: HTMLElement;
+  private readonly _bossDizzy: HTMLElement;
   private readonly _unsubs: Unsubscribe[] = [];
   /** Interval id for the trail-dot emitter; non-null only while bar is full. */
   private _trailIntervalId: ReturnType<typeof setInterval> | null = null;
@@ -72,11 +78,32 @@ export class HUD {
     // Active buffs
     this._buffList = el("div", ["buff-list"], { id: "hud-buffs" });
 
+    // Boss panel (level 4). Built but hidden until the first
+    // `onBossStateChanged` event fires; hidden again on level complete /
+    // game start so non-boss runs never see it.
+    this._bossPanel = el("div", ["hidden"], { id: "hud-boss" });
+    const bossHeading = el("div", ["boss-heading"]);
+    setText(bossHeading, "BOSS");
+    this._bossState = el("div", ["boss-state"]);
+    setText(this._bossState, "—");
+    this._bossSheets = el("div", ["boss-sheets"]);
+    setText(this._bossSheets, "");
+    this._bossStrikes = el("div", ["boss-strikes"]);
+    setText(this._bossStrikes, "");
+    this._bossDizzy = el("div", ["boss-dizzy"]);
+    setText(this._bossDizzy, "");
+    this._bossPanel.appendChild(bossHeading);
+    this._bossPanel.appendChild(this._bossState);
+    this._bossPanel.appendChild(this._bossSheets);
+    this._bossPanel.appendChild(this._bossStrikes);
+    this._bossPanel.appendChild(this._bossDizzy);
+
     this._root.appendChild(this._hpList);
     this._root.appendChild(this._patchList);
     this._root.appendChild(this._gaugeRoot);
     this._root.appendChild(this._distanceEl);
     this._root.appendChild(this._buffList);
+    this._root.appendChild(this._bossPanel);
     container.appendChild(this._root);
 
     // ─── Subscribe to events ────────────────────────────────────────────
@@ -115,6 +142,32 @@ export class HUD {
       }),
       bus.on("onGameStart", () => {
         this._patchList.textContent = "";
+        // Hide boss panel by default at the start of every run; it will
+        // re-reveal as soon as the boss publishes its first event.
+        setVisible(this._bossPanel, false);
+      }),
+      bus.on("onBossStateChanged", (e) => {
+        setVisible(this._bossPanel, true);
+        setText(this._bossState, e.state.toUpperCase());
+        setText(
+          this._bossSheets,
+          `Dryer sheets: ${e.sheetHits} / ${e.sheetsToDizzy}`,
+        );
+        setText(
+          this._bossStrikes,
+          `Strikes: ${e.meleeStrikes} / ${e.meleeStrikesToWin}`,
+        );
+        if (e.state === "Dizzy") {
+          setText(this._bossDizzy, `Dizzy: ${e.dizzyTimer.toFixed(1)}s`);
+        } else {
+          setText(this._bossDizzy, "");
+        }
+      }),
+      bus.on("onLevelComplete", () => {
+        setVisible(this._bossPanel, false);
+      }),
+      bus.on("onPlayerDeath", () => {
+        setVisible(this._bossPanel, false);
       }),
     );
   }

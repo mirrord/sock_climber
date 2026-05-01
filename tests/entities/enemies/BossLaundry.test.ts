@@ -106,3 +106,56 @@ describe("BossLaundry — defeat condition", () => {
     expect(events).toHaveLength(1);
   });
 });
+
+describe("BossLaundry — onBossStateChanged events", () => {
+  type BossEvent = GameEvents["onBossStateChanged"];
+
+  it("emits an initial state event on attachBus", () => {
+    // Build manually so we can observe the very first emission.
+    const boss = new BossLaundry({ x: 24, y: -8 });
+    boss.setArenaCentre(24, -8);
+    boss.setRng(createRNG(42));
+    const bus = createEventBus<GameEvents>();
+    const events: BossEvent[] = [];
+    bus.on("onBossStateChanged", (e) => events.push(e));
+    boss.attachBus(bus);
+    expect(events).toHaveLength(1);
+    expect(events[0]!.state).toBe("Idle");
+    expect(events[0]!.sheetHits).toBe(0);
+    expect(events[0]!.sheetsToDizzy).toBe(BossLaundry.SHEETS_TO_DIZZY);
+    expect(events[0]!.meleeStrikes).toBe(0);
+    expect(events[0]!.meleeStrikesToWin).toBe(BossLaundry.MELEE_STRIKES_TO_WIN);
+    expect(events[0]!.dizzyTimer).toBe(0);
+  });
+
+  it("emits on every dryer-sheet hit and on Dizzy entry", () => {
+    const { boss, bus } = makeBoss();
+    const events: BossEvent[] = [];
+    bus.on("onBossStateChanged", (e) => events.push(e));
+    boss.applyDryerSheetHit();
+    expect(events.at(-1)!.sheetHits).toBe(1);
+    expect(events.at(-1)!.state).not.toBe("Dizzy");
+    boss.applyDryerSheetHit();
+    expect(events.at(-1)!.sheetHits).toBe(2);
+    boss.applyDryerSheetHit(); // triggers Dizzy
+    const last = events.at(-1)!;
+    expect(last.state).toBe("Dizzy");
+    expect(last.sheetHits).toBe(0);
+    expect(last.dizzyTimer).toBeGreaterThan(0);
+  });
+
+  it("emits on every successful melee strike", () => {
+    const { boss, bus } = makeBoss();
+    for (let i = 0; i < BossLaundry.SHEETS_TO_DIZZY; i++) {
+      boss.applyDryerSheetHit();
+    }
+    const events: BossEvent[] = [];
+    bus.on("onBossStateChanged", (e) => events.push(e));
+    boss.takeDamage(1, 0, 0);
+    (boss as unknown as { _health: { iFrameTimer: number } })._health.iFrameTimer = 0;
+    boss.takeDamage(1, 0, 0);
+    expect(events.length).toBeGreaterThanOrEqual(2);
+    expect(events.at(-1)!.meleeStrikes).toBe(2);
+    expect(events.at(-1)!.state).toBe("Dizzy");
+  });
+});

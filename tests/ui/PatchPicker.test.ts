@@ -107,3 +107,42 @@ describe("PatchPicker", () => {
     pp.destroy();
   });
 });
+
+describe("PatchPicker — loadout mode", () => {
+  let bus: ReturnType<typeof createEventBus<GameEvents>>;
+  let upgradeSystem: UpgradeSystem;
+  let player: Player;
+  let container: HTMLElement;
+
+  beforeEach(() => {
+    bus = createEventBus<GameEvents>();
+    upgradeSystem = new UpgradeSystem(bus, createRNG(42));
+    player = makePlayer();
+    container = makeContainer();
+  });
+
+  it("setLoadoutMode hides the Skip button and shows remaining-count text in the heading", () => {
+    const pp = new PatchPicker(bus, upgradeSystem, player, container);
+    pp.setLoadoutMode(3);
+    upgradeSystem.openLoadoutOffer(player);
+
+    const heading = container.querySelector("#patch-picker h2");
+    expect(heading?.textContent).toMatch(/Choose Your Loadout/);
+    expect(heading?.textContent).toMatch(/3/);
+
+    const skip = container.querySelector<HTMLButtonElement>(".patch-skip-btn");
+    expect(skip?.classList.contains("hidden")).toBe(true);
+    pp.destroy();
+  });
+
+  it("setLoadoutMode(null) restores the default heading and shows the Skip button", () => {
+    const pp = new PatchPicker(bus, upgradeSystem, player, container);
+    pp.setLoadoutMode(2);
+    pp.setLoadoutMode(null);
+    bus.emit("onPickerOpen", {});
+
+    const skip = container.querySelector<HTMLButtonElement>(".patch-skip-btn");
+    expect(skip?.classList.contains("hidden")).toBe(false);
+    pp.destroy();
+  });
+});

@@ -22,6 +22,7 @@ import { TEXT } from "./i18n.js";
  */
 export class PatchPicker {
   private readonly _modal: HTMLElement;
+  private readonly _heading: HTMLElement;
   private readonly _buttons: [HTMLButtonElement, HTMLButtonElement, HTMLButtonElement];
   private readonly _icons: [HTMLImageElement, HTMLImageElement, HTMLImageElement];
   private readonly _names: [HTMLSpanElement, HTMLSpanElement, HTMLSpanElement];
@@ -33,6 +34,12 @@ export class PatchPicker {
   private _upgradeSystem: UpgradeSystem;
   private _player: Player;
   private _focusIndex = 0;
+  /**
+   * Picks remaining in the active pre-run loadout draft (level 4), or
+   * `null` when the picker is in normal mid-run mode. Drives the heading
+   * text and Skip-button visibility.
+   */
+  private _loadoutRemaining: number | null = null;
 
   /** Tracks which gamepad buttons were pressed last poll tick (for edge detection). */
   private _gpPrevButtons = new Set<number>();
@@ -53,6 +60,7 @@ export class PatchPicker {
     this._modal = el("div", ["hidden"], { id: "patch-picker" });
     const heading = el("h2", []);
     setText(heading, TEXT.patch.heading);
+    this._heading = heading;
     const options = el("div", ["patch-options"]);
 
     const icons: HTMLImageElement[] = [];
@@ -115,6 +123,12 @@ export class PatchPicker {
       bus.on("onPickerClose", () => {
         setVisible(this._modal, false);
         this._stopGamepadNav();
+        // Loadout mode is single-use per opening of the picker; the host
+        // re-arms it via `setLoadoutMode(remaining)` before each
+        // subsequent pre-run pick. Clearing here ensures any
+        // post-loadout mid-run picker reverts to normal mode.
+        this._loadoutRemaining = null;
+        this._applyMode();
       }),
     );
   }
@@ -125,6 +139,32 @@ export class PatchPicker {
     for (const unsub of this._unsubs) unsub();
     this._unsubs.length = 0;
     this._modal.parentElement?.removeChild(this._modal);
+  }
+
+  /**
+   * Configure the picker's display mode. Pass a non-negative integer to
+   * enter loadout mode for the next opening (heading swaps to the
+   * level-4 loadout text with the supplied picks-remaining counter, and
+   * the Skip button is hidden so the player cannot accidentally forfeit
+   * a free pick). Pass `null` to revert to the normal mid-run picker.
+   */
+  setLoadoutMode(remaining: number | null): void {
+    this._loadoutRemaining = remaining;
+    this._applyMode();
+  }
+
+  /** Push the current loadout-mode state into the heading + Skip DOM. */
+  private _applyMode(): void {
+    if (this._loadoutRemaining !== null) {
+      setText(
+        this._heading,
+        `${TEXT.loadout.heading} — ${TEXT.loadout.remaining}: ${this._loadoutRemaining}`,
+      );
+      setVisible(this._skipButton, false);
+    } else {
+      setText(this._heading, TEXT.patch.heading);
+      setVisible(this._skipButton, true);
+    }
   }
 
   // ─── Private ─────────────────────────────────────────────────────────────

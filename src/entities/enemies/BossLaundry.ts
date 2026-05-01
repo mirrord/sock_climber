@@ -69,8 +69,6 @@ export class BossLaundry extends Enemy {
   private _arenaCy = 0;
   /** Anchor position recorded at the start of a Chase orbit. */
   private _chaseAngle = 0;
-  /** Recorded ground-Y to land on for Jump. */
-  private _jumpStartY = 0;
   /** Whether `onLevelComplete` has been emitted (idempotency guard). */
   private _completeEmitted = false;
 
@@ -122,6 +120,9 @@ export class BossLaundry extends Enemy {
   /** Attach event bus so the boss can publish projectile spawns + completion. */
   attachBus(bus: EventBus<GameEvents>): void {
     this._bus = bus;
+    // Initial paint for the HUD so the boss panel appears as soon as
+    // the entity is wired up, not only after the first state change.
+    this._emitState();
   }
 
   /** Inject a deterministic RNG (called by main.ts after construction). */
@@ -157,6 +158,7 @@ export class BossLaundry extends Enemy {
     this.body.velocity.x = knockbackX * 0.25;
     this.body.velocity.y = knockbackY * 0.25;
     this._health.iFrameTimer = 0.25;
+    this._emitState();
     if (
       !this._completeEmitted &&
       this._meleeStrikesTaken >= BossLaundry.MELEE_STRIKES_TO_WIN
@@ -179,6 +181,8 @@ export class BossLaundry extends Enemy {
     this._sheetHits += 1;
     if (this._sheetHits >= BossLaundry.SHEETS_TO_DIZZY) {
       this._enterDizzy();
+    } else {
+      this._emitState();
     }
   }
 
@@ -260,6 +264,10 @@ export class BossLaundry extends Enemy {
         this.contactHitbox.active = false;
         if (this._timer <= 0) {
           this._exitDizzy();
+        } else {
+          // Republish so the HUD's dizzy countdown ticks down. Cheap
+          // (~1200 events for the full 10-second window at 120 Hz).
+          this._emitState();
         }
         break;
     }
@@ -292,9 +300,9 @@ export class BossLaundry extends Enemy {
       case "Jump":
         this._state = "JumpTelegraph";
         this._timer = BossLaundry.JUMP_TELEGRAPH_TIME;
-        this._jumpStartY = this.body.position.y;
         break;
     }
+    this._emitState();
   }
 
   private _enterDizzy(): void {
@@ -304,6 +312,7 @@ export class BossLaundry extends Enemy {
     this.body.velocity.x = 0;
     this.body.velocity.y = 0;
     this.contactHitbox.active = false;
+    this._emitState();
   }
 
   private _exitDizzy(): void {
@@ -311,6 +320,19 @@ export class BossLaundry extends Enemy {
     this._timer = BossLaundry.IDLE_TIME;
     this._sheetHits = 0;
     this.contactHitbox.active = true;
+    this._emitState();
+  }
+
+  /** Push the current state + counters onto the event bus for the HUD. */
+  private _emitState(): void {
+    this._bus?.emit("onBossStateChanged", {
+      state: this._state,
+      sheetHits: this._sheetHits,
+      sheetsToDizzy: BossLaundry.SHEETS_TO_DIZZY,
+      meleeStrikes: this._meleeStrikesTaken,
+      meleeStrikesToWin: BossLaundry.MELEE_STRIKES_TO_WIN,
+      dizzyTimer: this._state === "Dizzy" ? Math.max(0, this._timer) : 0,
+    });
   }
 
   private _launchThrow(playerX: number, playerY: number): void {
@@ -355,7 +377,7 @@ export class BossLaundry extends Enemy {
   }
 
   private _launchJump(playerX: number): void {
-    // Solve for vy that lands on `_jumpStartY` after JUMP_AIRTIME.
+    // Solve for vy that lands on the boss's current Y after JUMP_AIRTIME.
     const T = BossLaundry.JUMP_AIRTIME;
     const g = 30;
     const vy = -0.5 * g * T;
@@ -363,7 +385,6 @@ export class BossLaundry extends Enemy {
     const vx = Math.max(-12, Math.min(12, dx / T));
     this.body.velocity.x = vx;
     this.body.velocity.y = vy;
-    void this._jumpStartY;
   }
 }
 
