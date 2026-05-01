@@ -254,7 +254,10 @@ export class HUD {
   /** Build a single HP container icon (`<img>`) for the HUD. */
   private _makeHpIcon(filled: boolean): HTMLImageElement {
     const img = el("img", ["hp-container", filled ? "filled" : "empty"]);
-    img.src = filled ? "assets/objects/fullhp.png" : "assets/objects/emptyhp.png";
+    // Resolve through Vite's BASE_URL so the icons load correctly under
+    // the GitHub Pages sub-path (`/sock_climber/`) as well as in dev.
+    const base = import.meta.env.BASE_URL;
+    img.src = filled ? `${base}assets/objects/fullhp.png` : `${base}assets/objects/emptyhp.png`;
     img.alt = "";
     img.draggable = false;
     return img;
