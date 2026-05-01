@@ -127,7 +127,11 @@ const LEVEL_4_ARENA: LevelConfig = {
   worldHeightTiles: 48,
   worldYMin: -32,
   // Spawn at the bottom centre of the arena, just above the curved floor.
-  spawn: { x: 24, y: 12 },
+  // Note: y = 11 (not 12) — the floor's central dimple at row 12 is only
+  // one tile wide, so a 1 m wide player AABB centred at (24, 12) clips into
+  // the solid tiles at (23, 12) / (25, 12). Spawning one tile higher lets
+  // gravity settle the player cleanly on top of the ring.
+  spawn: { x: 24, y: 11 },
   corridorLateralExtent: 40,
   // Death plane is disabled for axis="none" (guarded in main.ts), so
   // these values are placeholders.
