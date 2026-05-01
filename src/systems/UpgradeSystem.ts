@@ -29,6 +29,13 @@ export class UpgradeSystem {
   private _isPickerOpen = false;
   private _currentOffer: PatchEntry[] | null = null;
   private readonly _appliedPatchIds = new Set<string>();
+  /**
+   * Per-patch-id apply count. Used to mint a unique stat-mod key for each
+   * application of the same patch (e.g. picking `AirDash` twice) so the
+   * stat deltas stack additively instead of overwriting each other in the
+   * player's stat-mod map.
+   */
+  private readonly _applyCounts = new Map<string, number>();
   private readonly _bus: EventBus<GameEvents>;
   private readonly _rng: RNG;
   private _dir: ClimbDir;
@@ -201,11 +208,11 @@ export class UpgradeSystem {
     } else if (this._loadoutMode) {
       // Pre-run loadout: skip the empty-container cost so the player
       // doesn't need to take damage before the run begins.
-      player.applyStatMod(entry.id, entry.statMod);
+      player.applyStatMod(this._nextStatModKey(entry.id), entry.statMod);
     } else {
       // All other patches cost one empty HP container.
       player.consumeEmptyContainer();
-      player.applyStatMod(entry.id, entry.statMod);
+      player.applyStatMod(this._nextStatModKey(entry.id), entry.statMod);
     }
 
     this._appliedPatchIds.add(entry.id);
@@ -254,6 +261,7 @@ export class UpgradeSystem {
     this._isPickerOpen = false;
     this._currentOffer = null;
     this._appliedPatchIds.clear();
+    this._applyCounts.clear();
     this._lastClimbProgress = null;
     this._gaugeFullEmitted = false;
     this._loadoutMode = false;
@@ -271,6 +279,19 @@ export class UpgradeSystem {
     if (this._gauge < 1) return;
     this._gaugeFullEmitted = true;
     this._bus.emit("onGaugeFull", {});
+  }
+
+  /**
+   * Mint a unique stat-mod key for the given patch id, incrementing the
+   * per-id apply counter. The first application uses the bare id (so
+   * existing buff/gum keying conventions still match); subsequent
+   * applications append `#N` to keep the player's stat-mod map entries
+   * distinct so multiple stacks of the same patch accumulate additively.
+   */
+  private _nextStatModKey(id: string): string {
+    const count = (this._applyCounts.get(id) ?? 0) + 1;
+    this._applyCounts.set(id, count);
+    return count === 1 ? id : `${id}#${count}`;
   }
 
   /** Sample 3 distinct eligible patches without replacement using `_rng`. */
