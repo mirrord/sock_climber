@@ -40,8 +40,8 @@ export class Headphones extends Enemy {
   constructor(position: { x: number; y: number }) {
     super({
       position,
-      halfW: 0.4,
-      halfH: 0.3,
+      halfW: 0.5,
+      halfH: 0.375,
       maxHp: 2,
       gaugeReward: 1,
       gravity: 5, // floats

@@ -20,7 +20,7 @@ export class Gum extends Obstacle {
 
   private _playerInside = false;
 
-  constructor(position: { x: number; y: number }, halfW = 0.8, halfH = 0.3) {
+  constructor(position: { x: number; y: number }, halfW = 1.0, halfH = 0.375) {
     super({ position, halfW, halfH, isTrigger: true, damage: 0 });
   }
 

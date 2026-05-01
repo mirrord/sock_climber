@@ -29,7 +29,7 @@ export class Keys extends Enemy {
   private _bus: EventBus<GameEvents> | null = null;
 
   constructor(position: { x: number; y: number }) {
-    super({ position, halfW: 0.3, halfH: 0.3, maxHp: 2, gaugeReward: 1 });
+    super({ position, halfW: 0.375, halfH: 0.375, maxHp: 2, gaugeReward: 1 });
   }
 
   get state(): KeysState {

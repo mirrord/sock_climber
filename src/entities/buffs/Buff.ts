@@ -62,8 +62,8 @@ export class Buff implements Entity {
   constructor(opts: BuffOptions) {
     this.id = nextEntityId();
     this.position = { x: opts.position.x, y: opts.position.y };
-    this.halfW = opts.halfW ?? 0.3;
-    this.halfH = opts.halfH ?? 0.3;
+    this.halfW = opts.halfW ?? 0.375;
+    this.halfH = opts.halfH ?? 0.375;
     this.duration = opts.duration;
     this.statMod = opts.statMod;
     this.modKey = opts.modKey;

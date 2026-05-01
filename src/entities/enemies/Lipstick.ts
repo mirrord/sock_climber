@@ -27,7 +27,7 @@ export class Lipstick extends Enemy {
   private _trailTimer = 0;
 
   constructor(position: { x: number; y: number }) {
-    super({ position, halfW: 0.25, halfH: 0.25, maxHp: 2, gaugeReward: 1 });
+    super({ position, halfW: 0.3125, halfH: 0.3125, maxHp: 2, gaugeReward: 1 });
   }
 
   get state(): LipstickState {

@@ -28,7 +28,7 @@ export class HUD {
   /** ms each trail dot remains in the DOM (matches CSS transition duration). */
   private static readonly _TRAIL_DOT_LIFETIME_MS = 700;
   /** Maximum drift distance (px) for a trail dot. */
-  private static readonly _TRAIL_DOT_RANGE_PX = 55;
+  private static readonly _TRAIL_DOT_RANGE_PX = 69;
 
   constructor(bus: EventBus<GameEvents>, container: HTMLElement = document.body) {
     // ─── Build DOM structure ────────────────────────────────────────────

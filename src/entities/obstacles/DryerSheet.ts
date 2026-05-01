@@ -15,8 +15,8 @@ import { Obstacle } from "./Obstacle.js";
 export class DryerSheet extends Obstacle {
   static readonly SPEED = 18; // m/s horizontal
   static readonly LIFETIME = 1.5; // seconds
-  static readonly HALF_W = 0.6;
-  static readonly HALF_H = 0.4;
+  static readonly HALF_W = 0.75;
+  static readonly HALF_H = 0.5;
 
   /** Remaining lifetime in seconds; reaches 0 → despawn. */
   private _life = DryerSheet.LIFETIME;

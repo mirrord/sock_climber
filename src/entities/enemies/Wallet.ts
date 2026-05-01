@@ -41,8 +41,8 @@ export class Wallet extends Enemy {
   constructor(position: { x: number; y: number }) {
     super({
       position,
-      halfW: 0.5,
-      halfH: 0.4,
+      halfW: 0.625,
+      halfH: 0.5,
       maxHp: 3,
       contactKnockbackX: 6,
       gaugeReward: 2,

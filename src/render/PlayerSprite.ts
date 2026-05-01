@@ -66,8 +66,12 @@ export interface PlayerAnimInputs {
  * Pixels-per-world-unit reference. The 64×64 idle frame represents a
  * 1×1 world-unit area, so all other frame dimensions in pixels divide
  * through this constant to derive the rendered world size.
+ *
+ * Reduced from 64 → 51.2 (= 64 / 1.25) to scale every registered player
+ * sprite sheet uniformly 25 % larger in world units without editing each
+ * frame size in `main.ts`.
  */
-const PX_PER_UNIT = 64;
+const PX_PER_UNIT = 51.2;
 
 /** |vx| above this counts as "moving" for picking the walk state. */
 const WALK_VX_THRESHOLD = 0.1;

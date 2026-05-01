@@ -10,8 +10,8 @@ export class Pen extends Obstacle {
   constructor(position: { x: number; y: number }) {
     super({
       position,
-      halfW: 0.2,
-      halfH: 0.5,
+      halfW: 0.25,
+      halfH: 0.625,
       damage: 1,
       knockbackX: 0,
       knockbackY: -5,

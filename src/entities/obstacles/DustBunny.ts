@@ -27,8 +27,8 @@ export class DustBunny extends Obstacle {
   constructor(position: { x: number; y: number }) {
     super({
       position,
-      halfW: 0.4,
-      halfH: 0.4,
+      halfW: 0.5,
+      halfH: 0.5,
       isTrigger: false,
       damage: DustBunny.DAMAGE,
       knockbackX: 3,

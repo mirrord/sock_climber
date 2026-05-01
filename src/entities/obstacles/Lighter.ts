@@ -17,8 +17,8 @@ export class Lighter extends Obstacle {
   constructor(position: { x: number; y: number }) {
     super({
       position,
-      halfW: 0.3,
-      halfH: 0.6,
+      halfW: 0.375,
+      halfH: 0.75,
       damage: 1,
       knockbackX: 2,
       knockbackY: -6,

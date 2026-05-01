@@ -95,8 +95,10 @@ interface EntitySpriteAnim {
   frame: number;
 }
 
-/** Pixels-per-world-unit reference for entity sprites (matches PlayerAnimator). */
-const ENTITY_PX_PER_UNIT = 64;
+/** Pixels-per-world-unit reference for entity sprites (matches PlayerAnimator).
+ *  Reduced from 64 → 51.2 (= 64 / 1.25) to scale every entity sprite sheet
+ *  uniformly 25 % larger without editing each frame size in `main.ts`. */
+const ENTITY_PX_PER_UNIT = 51.2;
 
 // ─── SpritePool ───────────────────────────────────────────────────────────────
 

@@ -77,8 +77,8 @@ export class BossLaundry extends Enemy {
   constructor(position: { x: number; y: number }) {
     super({
       position,
-      halfW: 1.5,
-      halfH: 1.5,
+      halfW: 1.875,
+      halfH: 1.875,
       maxHp: BossLaundry.MELEE_STRIKES_TO_WIN, // cosmetic; we override takeDamage
       iFrameDuration: 0.0,
       contactDamage: 2,

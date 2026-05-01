@@ -21,7 +21,7 @@ export class Phone extends Enemy {
   private _timer = Phone.VIBRATE_TIME;
 
   constructor(position: { x: number; y: number }) {
-    super({ position, halfW: 0.3, halfH: 0.5, maxHp: 2, gaugeReward: 1 });
+    super({ position, halfW: 0.375, halfH: 0.625, maxHp: 2, gaugeReward: 1 });
   }
 
   get state(): PhoneState {

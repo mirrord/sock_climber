@@ -48,10 +48,10 @@ export const ATTACK_TABLE: Readonly<Record<string, AttackData>> = {
     startup: 1 / 60, //  ~1 frame  at 60 fps
     active: 5 / 60, //  ~5 frames at 60 fps
     recovery: 6 / 60, //  ~6 frames at 60 fps
-    offsetX: 0.5,
+    offsetX: 0.625,
     offsetY: 0,
-    halfW: 0.5,
-    halfH: 0.4,
+    halfW: 0.625,
+    halfH: 0.5,
     damage: 1,
     knockbackX: 4,
     knockbackY: -2,
@@ -62,12 +62,12 @@ export const ATTACK_TABLE: Readonly<Record<string, AttackData>> = {
     active: 5 / 60,
     recovery: 6 / 60,
     offsetX: 0,
-    offsetY: 0.1,
+    offsetY: 0.125,
     // Sprite is 80×33 px (≈1.25 × 0.5 world units). Hitbox roughly matches
     // the visible sweep so enemies flanking the player on either side are
     // caught by a single AABB test.
-    halfW: 0.625,
-    halfH: 0.4,
+    halfW: 0.78125,
+    halfH: 0.5,
     damage: 1,
     knockbackX: 3,
     knockbackY: -1,
