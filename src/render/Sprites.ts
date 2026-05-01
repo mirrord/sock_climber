@@ -119,6 +119,18 @@ const ENTITY_PX_PER_UNIT = 51.2;
 export class SpritePool {
   // ─── Entity meshes (id → mesh) ────────────────────────────────────────────
   private readonly _meshes = new Map<number, THREE.Mesh>();
+  /** Per-buff halo meshes rendered behind the sprite for the glow effect. */
+  private readonly _buffHaloMeshes = new Map<number, THREE.Mesh>();
+  /** Shared additive material used by every buff halo. */
+  private readonly _haloMat = new THREE.MeshBasicMaterial({
+    color: 0xfff4b8,
+    transparent: true,
+    opacity: 0.35,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  /** Wall-clock seconds accumulated for the buff glow/pulse animation. */
+  private _buffPulseTime = 0;
 
   /** Reusable Set for tracking live entity IDs — prevents per-frame allocation. */
   private readonly _seenThisFrame = new Set<number>();
@@ -220,6 +232,9 @@ export class SpritePool {
         else this._hitFlashTimers.set(id, next);
       }
     }
+    // Advance buff pulse phase (purely visual; uses render-frame dt).
+    this._buffPulseTime += dt;
+
     // Advance per-tag entity sprite animations.
     for (const anim of this._entityAnims.values()) {
       anim.accum += dt;
@@ -363,6 +378,8 @@ export class SpritePool {
       velocityX: player.body.velocity.x,
       isWallSliding: player.locomotion === "WallSliding",
       isWallKicking: player.wallKickLockTimer > 0,
+      isDashing: player.isDashing,
+      iFrameTimer: player.iFrameTimer,
     });
     let baseMat: THREE.Material;
     if (def !== null) {
@@ -498,6 +515,34 @@ export class SpritePool {
       const enemyBody = getBody(spawned.entity);
       if (enemyBody !== null && enemyBody.velocity.x < 0) scaleX = -scaleX;
     }
+
+    // Buffs gently pulse in size and have a glowing halo behind them.
+    if (spawned.kind === "buff") {
+      const phase = this._buffPulseTime * Math.PI * 2 * 1.4; // ~1.4 Hz
+      const s = Math.sin(phase); // -1..1
+      const t = 0.5 + 0.5 * s; // 0..1
+      const sizePulse = 1 + 0.07 * s; // ~0.93..1.07 around base size
+      scaleX *= sizePulse;
+      scaleY *= sizePulse;
+
+      let halo = this._buffHaloMeshes.get(id);
+      if (!halo) {
+        halo = new THREE.Mesh(this._geoUnit, this._haloMat);
+        halo.position.z = zLayer - 0.05; // sit just behind the sprite
+        scene.add(halo);
+        this._buffHaloMeshes.set(id, halo);
+      }
+      // Halo follows the sprite, slightly larger and pulses opacity/scale.
+      halo.position.x = x;
+      halo.position.y = -y;
+      const baseHalo = Math.max(scaleX, scaleY) * 1.55;
+      const haloPulse = 1 + 0.18 * t; // expands outward on the bright phase
+      halo.scale.set(baseHalo * haloPulse, baseHalo * haloPulse, 1);
+      // Material is shared, but every buff halo wants the same opacity each
+      // frame so a single assignment is fine (no per-instance material).
+      this._haloMat.opacity = 0.22 + 0.28 * t;
+    }
+
     mesh.scale.set(scaleX, scaleY, 1);
 
     // Hit flash + i-frame blink (enemies only).
@@ -516,6 +561,11 @@ export class SpritePool {
     if (mesh) {
       scene.remove(mesh);
       this._meshes.delete(id);
+    }
+    const halo = this._buffHaloMeshes.get(id);
+    if (halo) {
+      scene.remove(halo);
+      this._buffHaloMeshes.delete(id);
     }
   }
 

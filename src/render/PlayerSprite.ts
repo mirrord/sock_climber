@@ -28,7 +28,11 @@ export type PlayerAnimState =
   | "crouch"
   | "crouchAttack"
   | "aerialCrouchAttack"
-  | "attack";
+  | "attack"
+  | "hurt"
+  | "dashStartup"
+  | "dash"
+  | "dashExit";
 
 /**
  * Per-state runtime data — built once when a sheet is registered.
@@ -42,6 +46,8 @@ export interface AnimDef {
   readonly worldH: number;
   readonly fps: number;
   readonly loop: boolean;
+  /** When true, the strip is played back-to-front (last frame first). */
+  readonly reversed?: boolean;
 }
 
 /** Inputs read by the animator each tick to pick the active state. */
@@ -54,6 +60,8 @@ export interface PlayerAnimInputs {
   readonly isWallSliding?: boolean;
   /** True for the brief input-lock window after a wall kick fires. */
   readonly isWallKicking?: boolean;
+  /** True while the player's dash burst is active. */
+  readonly isDashing?: boolean;
   /**
    * Seconds of post-hit invulnerability remaining. When > 0 the animator
    * may select a `hurt` sheet (currently falls back to the underlying
@@ -81,6 +89,21 @@ export class PlayerAnimator {
   private _state: PlayerAnimState = "idle";
   private _frame = 0;
   private _accum = 0;
+  /**
+   * Dash animation phase. Tracked across update() calls so the startup
+   * sheet plays once on dash entry, the dash loop sustains for the body
+   * of the dash, and the (reversed-startup) exit sheet plays once after
+   * the dash burst ends.
+   */
+  private _dashPhase: "none" | "startup" | "loop" | "exit" = "none";
+  private _wasDashing = false;
+  /**
+   * True while a one-shot `hurt` animation is playing. Triggered on the
+   * rising edge of `iFrameTimer` (i.e. the moment a hit lands) and cleared
+   * when the non-looping `hurt` sheet completes its final frame.
+   */
+  private _hurtPlaying = false;
+  private _prevIFrameTimer = 0;
 
   /**
    * Register a sprite sheet for one animation state.
@@ -126,6 +149,37 @@ export class PlayerAnimator {
       fps,
       loop,
     });
+    // Auto-derive the dash exit sheet from the dash startup sheet so the
+    // exit animation renders the same frames in reverse without a second
+    // texture asset. A cloned texture is required so its UV `offset.x`
+    // can be advanced independently of the startup sheet's offset.
+    if (state === "dashStartup") {
+      const exitTex = texture.clone();
+      exitTex.magFilter = THREE.NearestFilter;
+      exitTex.minFilter = THREE.NearestFilter;
+      exitTex.generateMipmaps = false;
+      exitTex.colorSpace = THREE.SRGBColorSpace;
+      exitTex.wrapS = THREE.ClampToEdgeWrapping;
+      exitTex.wrapT = THREE.ClampToEdgeWrapping;
+      exitTex.repeat.set(1 / frames, 1);
+      exitTex.offset.set((frames - 1) / frames, 0);
+      exitTex.needsUpdate = true;
+      const exitMat = new THREE.MeshBasicMaterial({
+        map: exitTex,
+        transparent: true,
+        depthWrite: false,
+      });
+      this._defs.set("dashExit", {
+        texture: exitTex,
+        material: exitMat,
+        frames,
+        worldW: frameW / PX_PER_UNIT,
+        worldH: frameH / PX_PER_UNIT,
+        fps,
+        loop: false,
+        reversed: true,
+      });
+    }
   }
 
   /** True once at least one sheet has been registered. */
@@ -146,12 +200,18 @@ export class PlayerAnimator {
 
   /** Pick the desired state from current player inputs. */
   pickState(inputs: PlayerAnimInputs): PlayerAnimState {
+    // Hurt one-shot has top priority — getting hit interrupts everything.
+    if (this._hurtPlaying && this._defs.has("hurt")) return "hurt";
     if (inputs.isAttacking && inputs.isCrouching && !inputs.isGrounded) {
       return "aerialCrouchAttack";
     }
     if (inputs.isAttacking && inputs.isCrouching) return "crouchAttack";
     if (inputs.isAttacking) return "attack";
     if (inputs.isWallKicking) return "wallKick";
+    // Dash phase overrides locomotion (but yields to attack / wallKick).
+    if (this._dashPhase === "startup" && this._defs.has("dashStartup")) return "dashStartup";
+    if (this._dashPhase === "loop" && this._defs.has("dash")) return "dash";
+    if (this._dashPhase === "exit" && this._defs.has("dashExit")) return "dashExit";
     if (inputs.isWallSliding) return "wallSlide";
     if (inputs.isCrouching) return "crouch";
     if (!inputs.isGrounded) return "jump";
@@ -170,6 +230,32 @@ export class PlayerAnimator {
    */
   update(dt: number, inputs: PlayerAnimInputs): AnimDef | null {
     if (this._defs.size === 0) return null;
+
+    // ─── Hurt one-shot trigger ────────────────────────────────────────────
+    // The player’s i-frame timer is reset to its full duration whenever a
+    // hit lands, so any positive jump in the timer marks a fresh hit.
+    const iFrame = inputs.iFrameTimer ?? 0;
+    if (iFrame > this._prevIFrameTimer && this._defs.has("hurt")) {
+      this._hurtPlaying = true;
+    }
+    this._prevIFrameTimer = iFrame;
+
+    // ─── Dash phase bookkeeping ─────────────────────────────────────────
+    // Drive the startup → loop → exit sequence from rising / falling edges
+    // of `inputs.isDashing`. Higher-priority states (attack / wallKick)
+    // cancel any in-progress dash phase so the exit sheet does not pop in
+    // after an interrupting action.
+    const isDashing = !!inputs.isDashing;
+    if (isDashing && !this._wasDashing) {
+      this._dashPhase = this._defs.has("dashStartup") ? "startup" : "loop";
+    } else if (!isDashing && this._wasDashing && this._dashPhase !== "none") {
+      this._dashPhase = this._defs.has("dashExit") ? "exit" : "none";
+    }
+    this._wasDashing = isDashing;
+    if (inputs.isAttacking || inputs.isWallKicking) {
+      this._dashPhase = "none";
+    }
+
     const desired = this.pickState(inputs);
     const def = this._defs.get(desired) ?? this._defs.get("idle") ?? null;
     if (def === null) return null;
@@ -199,12 +285,25 @@ export class PlayerAnimator {
       this._accum -= frameDur;
       this._frame++;
     }
+    const completed = !def.loop && this._frame >= def.frames;
     if (def.loop) {
       this._frame = this._frame % def.frames;
     } else if (this._frame >= def.frames) {
       this._frame = def.frames - 1;
     }
-    def.texture.offset.x = this._frame / def.frames;
+    const displayFrame = def.reversed ? def.frames - 1 - this._frame : this._frame;
+    def.texture.offset.x = displayFrame / def.frames;
+
+    // Advance dash phase on non-looping completions.
+    if (completed) {
+      if (effectiveState === "dashStartup" && this._dashPhase === "startup") {
+        this._dashPhase = "loop";
+      } else if (effectiveState === "dashExit" && this._dashPhase === "exit") {
+        this._dashPhase = "none";
+      } else if (effectiveState === "hurt") {
+        this._hurtPlaying = false;
+      }
+    }
     return def;
   }
 

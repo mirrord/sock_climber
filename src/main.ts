@@ -132,6 +132,14 @@ const PLAYER_SHEETS: ReadonlyArray<{
   { state: "wallSlide", file: "wallslide.png", frames: 1, frameW: 12, frameH: 92, fps: 1, loop: false },
   // Wall kick: 6 frames over the wallKickLockDuration (~0.1 s) → 60 fps.
   { state: "wallKick", file: "wall kick.png", frames: 6, frameW: 45, frameH: 94, fps: 60, loop: false },
+  // Dash startup: 4-frame pre-dash flourish; the exit sheet is auto-derived
+  // from this entry by PlayerAnimator (rendered in reverse).
+  { state: "dashStartup", file: "dash startup.png", frames: 4, frameW: 45, frameH: 68, fps: 60, loop: false },
+  // Dash sustain: 2-frame loop held for the body of the dash burst.
+  { state: "dash", file: "dash.png", frames: 2, frameW: 45, frameH: 68, fps: 20, loop: true },
+  // Hurt: one-shot hit reaction triggered on the rising edge of the
+  // player's i-frame timer. 10 frames over ~0.33 s at 30 fps.
+  { state: "hurt", file: "onhit.png", frames: 10, frameW: 41, frameH: 52, fps: 30, loop: false },
 ];
 for (const sheet of PLAYER_SHEETS) {
   _textureLoader.load(`assets/sprites/${encodeURI(sheet.file)}`, (tex) => {
@@ -167,6 +175,7 @@ const BUFF_SPRITE_SHEETS: readonly BuffSpriteEntry[] = [
   { tag: "PowerSock",      file: "demetrius sock.png", frames: 11, frameW: 32, frameH: 48, fps: 12 },
   { tag: "SlowFloodSock",  file: "underwear.png",      frames: 2,  frameW: 32, frameH: 32, fps: 4  },
   { tag: "RapidStrikeSock",file: "underwhere.png",     frames: 2,  frameW: 32, frameH: 32, fps: 4  },
+  { tag: "SoftenerBuff",   file: "dryer sheet.png",    frames: 1,  frameW: 64, frameH: 64, fps: 1  },
 ];
 for (const sheet of BUFF_SPRITE_SHEETS) {
   _textureLoader.load(`assets/sprites/${encodeURI(sheet.file)}`, (tex) => {
@@ -189,8 +198,9 @@ interface EntitySpriteEntry {
 const ENTITY_SPRITE_SHEETS: readonly EntitySpriteEntry[] = [
   { tag: "DustBunny", file: "dust bunny.png", frames: 15, frameW: 48, frameH: 48, fps: 12 },
   { tag: "Keys",      file: "keys.png",       frames: 5,  frameW: 64, frameH: 64, fps: 10 },
-  { tag: "Lighter",   file: "lighter.png",    frames: 7,  frameW: 32, frameH: 32, fps: 10 },
+  { tag: "Lighter",   file: "lighter.png",    frames: 7,  frameW: 48, frameH: 48, fps: 10 },
   { tag: "Gum",       file: "gum.png",        frames: 6,  frameW: 64, frameH: 32, fps: 6  },
+  { tag: "Wallet",    file: "wallet.png",     frames: 10, frameW: 63, frameH: 52, fps: 12 },
 ];
 for (const sheet of ENTITY_SPRITE_SHEETS) {
   _textureLoader.load(`assets/sprites/${encodeURI(sheet.file)}`, (tex) => {
@@ -810,19 +820,18 @@ bus.on("onPlayerHurt", () => {
 // ─── Active-buff edge tracking ───────────────────────────────────────
 
 /**
- * Map of currently-active buff entity ids → the buff modKey used in the
- * onBuffApplied/onBuffExpired event payloads.  Lets us emit edge events
- * without modifying the Buff base class to take a bus reference.
+ * Active buff entity ids → the live `Buff` instance. Buffs are removed
+ * from the spawn system on first contact so the on-screen pickup
+ * disappears immediately, but the timer keeps running off-list here
+ * until it expires (or `resetActiveBuffs` clears it on respawn).
  */
-const activeBuffs = new Map<number, string>();
-/** Reusable scratch list for ids whose buff is no longer present. */
+const activeBuffs = new Map<number, Buff>();
+/** Reusable scratch list for ids whose buff is no longer active. */
 const _expiredBuffIds: number[] = [];
-/** Reusable scratch set for buff ids ticked this frame (no per-frame alloc). */
-const _seenBuffIds = new Set<number>();
 
 function resetActiveBuffs(): void {
-  for (const modKey of activeBuffs.values()) {
-    bus.emit("onBuffExpired", { buffId: modKey });
+  for (const buff of activeBuffs.values()) {
+    bus.emit("onBuffExpired", { buffId: buff.modKey });
   }
   activeBuffs.clear();
 }
@@ -1099,7 +1108,6 @@ const loop = createLoop({
      * by world-space proximity to the player instead.
      */
     const PATH_REVEAL_RADIUS = 14;
-    _seenBuffIds.clear();
 
     for (let i = 0; i < live.length; i++) {
       const se = live[i]!;
@@ -1157,29 +1165,25 @@ const loop = createLoop({
         }
       } else {
         const buff = se.entity as Buff;
-        const wasActive = activeBuffs.has(buff.id);
-        buff.update(dt);
-        const collected = buff.tryCollect(player);
-        if (buff.isActive) {
-          _seenBuffIds.add(buff.id);
-          if (!wasActive) {
-            activeBuffs.set(buff.id, buff.modKey);
-            bus.emit("onBuffApplied", { buffId: buff.modKey, duration: buff.duration });
-            if (collected) {
-              bus.emit("onPickup", { itemId: buff.modKey });
-            }
-          }
+        // Buffs are picked up on first contact: apply effect, fire events,
+        // and remove the on-screen pickup. The timer keeps ticking in the
+        // off-list `activeBuffs` map below.
+        if (buff.tryCollect(player)) {
+          activeBuffs.set(buff.id, buff);
+          bus.emit("onBuffApplied", { buffId: buff.modKey, duration: buff.duration });
+          bus.emit("onPickup", { itemId: buff.modKey });
+          spawnSystem.removeById(buff.id);
         }
       }
     }
 
-    // Cull dead enemies and expired buffs.  Use a scratch array to avoid
-    // mutating the live list while iterating it above.
+    // Tick active (already-collected) buffs and cull expired ones.
     _expiredBuffIds.length = 0;
-    for (const [id, modKey] of activeBuffs) {
-      if (!_seenBuffIds.has(id)) {
+    for (const [id, buff] of activeBuffs) {
+      buff.update(dt);
+      if (!buff.isActive) {
         _expiredBuffIds.push(id);
-        bus.emit("onBuffExpired", { buffId: modKey });
+        bus.emit("onBuffExpired", { buffId: buff.modKey });
       }
     }
     for (const id of _expiredBuffIds) activeBuffs.delete(id);

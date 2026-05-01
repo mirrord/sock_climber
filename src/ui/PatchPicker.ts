@@ -72,7 +72,6 @@ export class PatchPicker {
     setText(this._skipButton, TEXT.patch.skip);
     this._skipButton.addEventListener("click", () => {
       this._upgradeSystem.skipPick();
-      setVisible(this._modal, false);
     });
 
     this._focusables = [...this._buttons, this._skipButton];
@@ -114,6 +113,7 @@ export class PatchPicker {
         this._startGamepadNav();
       }),
       bus.on("onPickerClose", () => {
+        setVisible(this._modal, false);
         this._stopGamepadNav();
       }),
     );
@@ -153,7 +153,6 @@ export class PatchPicker {
 
     btn.addEventListener("click", () => {
       this._upgradeSystem.selectPatch(index, this._player);
-      setVisible(this._modal, false);
     });
     return btn;
   }
