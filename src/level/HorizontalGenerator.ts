@@ -291,6 +291,86 @@ export function createHorizontalGenerator(opts: GeneratorOptions): Generator {
       }
     }
 
+    // ── Floor mounds & ceiling drops ────────────────────────────────────
+    // Multi-tile-wide bumps anchored to the floor (and inverted lumps
+    // hanging from the ceiling) that give the corridor real terrain
+    // variation rather than a flat tunnel with sparse pillars.
+    //
+    // Mounds are short stepped rectangles: a base row spanning `mw`
+    // tiles, plus optional narrower rows stacked on top. Heights are
+    // capped well below the corridor mid-line so the player can always
+    // jump over them, and a min-spacing rule prevents adjacent mounds
+    // from forming a wall.
+    //
+    // Each mound also appends its top row as a `PlatformCandidate` so
+    // the next chunk's reachability seed includes them and platforms
+    // can be placed over the mound.
+    const MAX_TERRAIN_H = Math.max(2, Math.floor(INTERIOR_HEIGHT / 2) - 1);
+    const moundCount = chunkRng.int(1, Math.max(1, Math.floor(chunkLen / 5)));
+    const usedFloorRanges: Array<[number, number]> = [];
+    const usedCeilRanges: Array<[number, number]> = [];
+
+    function rangesOverlap(
+      ranges: Array<[number, number]>,
+      lo: number,
+      hi: number,
+      pad: number,
+    ): boolean {
+      for (const [a, b] of ranges) {
+        if (hi + pad >= a && lo - pad <= b) return true;
+      }
+      return false;
+    }
+
+    const moundCandidates: PlatformCandidate[] = [];
+
+    for (let m = 0; m < moundCount; m++) {
+      const fromFloor = chunkRng.next() < 0.65;
+      const mw = chunkRng.int(2, 5);
+      const localX = chunkRng.int(0, Math.max(0, chunkLen - mw));
+      const worldXStart = chunkOriginX + localX;
+      const worldXEnd = worldXStart + mw - 1;
+
+      const ranges = fromFloor ? usedFloorRanges : usedCeilRanges;
+      // Require ≥2 empty tiles between mounds on the same surface so
+      // the player can run between them.
+      if (rangesOverlap(ranges, worldXStart, worldXEnd, 2)) continue;
+
+      const baseH = chunkRng.int(1, MAX_TERRAIN_H);
+      // Stepped profile: each row above the base shrinks by 0..2 tiles
+      // (left + right). Stops once the row would have <1 tile.
+      let leftEdge = worldXStart;
+      let rightEdge = worldXEnd;
+      let topRowY = fromFloor ? FLOOR_Y - 1 : CEILING_Y + 1;
+
+      for (let row = 0; row < baseH; row++) {
+        const rowY = fromFloor ? FLOOR_Y - 1 - row : CEILING_Y + 1 + row;
+        for (let x = leftEdge; x <= rightEdge; x++) {
+          tryPlaceSolid(x, rowY, tiles);
+        }
+        topRowY = rowY;
+        if (row + 1 < baseH) {
+          const shrinkL = chunkRng.int(0, 1);
+          const shrinkR = chunkRng.int(0, 1);
+          leftEdge += shrinkL;
+          rightEdge -= shrinkR;
+          if (rightEdge < leftEdge) break;
+        }
+      }
+
+      ranges.push([worldXStart, worldXEnd]);
+
+      if (fromFloor && rightEdge >= leftEdge) {
+        // Top of the mound is standable — register it as a platform
+        // candidate so reachability and entity placement can use it.
+        moundCandidates.push({
+          tx: leftEdge,
+          ty: topRowY,
+          width: rightEdge - leftEdge + 1,
+        });
+      }
+    }
+
     // ── Standable platforms ─────────────────────────────────────────────────
     // Sample candidate (lx, ly) in chunk-local space and place 2–3 tile
     // wide horizontal platforms that pass the reachability check.
@@ -323,7 +403,13 @@ export function createHorizontalGenerator(opts: GeneratorOptions): Generator {
         width: platformW,
       };
 
-      if (!hasReachablePredecessor(candidate, lastPlatforms, arcBounds)) {
+      // Mound tops in the current chunk count as predecessors too —
+      // a tall mound can be a stepping stone to a higher platform.
+      const predecessors =
+        moundCandidates.length > 0
+          ? [...lastPlatforms, ...moundCandidates]
+          : lastPlatforms;
+      if (!hasReachablePredecessor(candidate, predecessors, arcBounds)) {
         continue;
       }
 
@@ -378,6 +464,10 @@ export function createHorizontalGenerator(opts: GeneratorOptions): Generator {
 
     if (platformCandidates.length > 0) {
       lastPlatforms = platformCandidates;
+    } else if (moundCandidates.length > 0) {
+      // Mound tops are standable too — fall back to them as the
+      // reachability seed if no thin platforms got placed.
+      lastPlatforms = moundCandidates;
     }
 
     // ── Entities ────────────────────────────────────────────────────────────
