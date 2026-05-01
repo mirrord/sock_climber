@@ -1256,6 +1256,12 @@ const loop = createLoop({
           if (db.processPlayer(player)) {
             particles.emit("dust", db.body.position.x, db.body.position.y);
           }
+          // Once the bunnyboom animation has finished playing and the
+          // smoke cloud has cleared, retire the entity so its sprite
+          // doesn't hang around as an invisible/static frame.
+          if (db.hasExploded && !db.smokeActive) {
+            spawnSystem.removeById(db.id);
+          }
         } else if (se.tag === "DryerSheet") {
           // Trigger projectile — the per-frame movement is handled by
           // `obstacle.update(dt)` above. Collision against the boss and
