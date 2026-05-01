@@ -268,11 +268,9 @@ export function createGenerator(opts: GeneratorOptions): Generator {
 
   const LOOKAHEAD = opts.lookahead ?? 80;
   const GRACE_ROWS = opts.graceRows ?? 8;
-  // Tilt the mix toward tight chunks so long stretches of open
-  // walljump-only corridor are rare. Open chunks themselves now
-  // include alternating wall jutters (see Chunks.ts) so the player
-  // must engage with platforms even in "open" sections.
-  const OPEN_BIAS = opts.openBias ?? 0.45;
+  // Even split between open and tight — both profile families are now
+  // well-decorated so there's no reason to favour one over the other.
+  const OPEN_BIAS = opts.openBias ?? 0.5;
   const WORLD_WIDTH = opts.worldWidth ?? 12;
   const SPAWN_SAFE_ZONE = opts.spawnSafeZone;
   const ENEMY_SPAWN_MIN_HEIGHT = opts.enemySpawnMinHeight ?? 30;
@@ -610,9 +608,9 @@ export function createGenerator(opts: GeneratorOptions): Generator {
     // also registered as platform candidates so the reachability tracker
     // can chain off their tops.
     const overhangs: Overhang[] = [];
-    const OVERHANG_MAX_PER_CHUNK = 2;
-    const OVERHANG_ATTEMPTS = 5;
-    const OVERHANG_CHANCE = 0.55;
+    const OVERHANG_MAX_PER_CHUNK = 3;
+    const OVERHANG_ATTEMPTS = 8;
+    const OVERHANG_CHANCE = 0.72;
     const usedOverhangRows = new Set<number>();
     // Need at least 4 rows of vertical clearance from chunk edges so an
     // overhang doesn't merge awkwardly with a neighbouring chunk's wall
