@@ -141,7 +141,6 @@ export class HUD {
         this._appendPatchIcon(patchId);
       }),
       bus.on("onGameStart", () => {
-        this._patchList.textContent = "";
         // Hide boss panel by default at the start of every run; it will
         // re-reveal as soon as the boss publishes its first event.
         setVisible(this._bossPanel, false);
@@ -172,8 +171,9 @@ export class HUD {
     );
   }
 
-  /** Make the HUD visible. */
+  /** Make the HUD visible. Clears patch icons from any previous run. */
   show(): void {
+    this._patchList.textContent = "";
     setVisible(this._root, true);
   }
 

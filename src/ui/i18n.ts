@@ -59,15 +59,14 @@ export const TEXT = {
   },
   credits: {
     heading: "Credits",
-    body:
-      "Thank you for playing Sock Climber!" +
-      "" +
-      "Director         Brice Howard" +
-      "Music            Sarah Howard" +
-      "Art              There was art?" +
-      "Programming      Dane Howard & various Claudes" +
-      "QA               Weena Mercator" +
-      "",
+    body: `Thank you for playing Sock Climber!
+
+Director         Brice Howard
+Music            Sarah Howard
+Art              Mostly Brice Howard, with contributions from Sarah Howard and ChatGPT
+Programming      Dane Howard & various Claudes
+QA               Weena Mercator
+`,
     hint: "Press any button to return to the main menu",
   },
   loadout: {

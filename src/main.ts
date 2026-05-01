@@ -1046,6 +1046,7 @@ function onRestart(): void {
   alive = true;
   paused = false;
   pickerOpen = false;
+  hud.show();
   // Pick a fresh random gameplay track for this run.
   const idx = rng.int(0, GAMEPLAY_MUSIC_IDS.length - 1);
   playMusic(GAMEPLAY_MUSIC_IDS[idx]!);
