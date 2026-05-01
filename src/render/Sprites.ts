@@ -104,6 +104,23 @@ interface EntitySpriteAnim {
  *  uniformly 25 % larger without editing each frame size in `main.ts`. */
 const ENTITY_PX_PER_UNIT = 51.2;
 
+/**
+ * Soft pastel glow colours assigned per active player buff (keyed by the
+ * buff's `modKey`). The colour is rendered as an additively-blended halo
+ * mesh sitting just behind the player sprite while the buff is active.
+ * Multiple active buffs stack — additive blending naturally mixes their
+ * colours.
+ */
+const PLAYER_BUFF_GLOW_COLOR: Readonly<Record<string, number>> = {
+  SpeedSock: 0x88e0ff,         // pale cyan
+  HighJumpSock: 0xa8ffb8,      // mint green
+  LowGravitySock: 0xc8a8ff,    // soft lavender
+  PowerSock: 0xff8898,         // soft rose
+  RapidStrikeSock: 0xffb888,   // peach
+  SlowFloodSock: 0x88a8ff,     // sky blue
+  Softener: 0xfff0c8,          // warm cream
+};
+
 // ─── SpritePool ───────────────────────────────────────────────────────────────
 
 /**
@@ -131,6 +148,16 @@ export class SpritePool {
   });
   /** Wall-clock seconds accumulated for the buff glow/pulse animation. */
   private _buffPulseTime = 0;
+
+  /**
+   * Per-active-buff halo meshes drawn behind the player while a buff is
+   * applied. Keyed by the buff's `modKey`. Materials are created lazily
+   * per modKey (one per colour) and reused thereafter.
+   */
+  private readonly _playerBuffHaloMeshes = new Map<string, THREE.Mesh>();
+  private readonly _playerBuffHaloMats = new Map<string, THREE.MeshBasicMaterial>();
+  /** Reusable scratch set for diffing active player buffs across frames. */
+  private readonly _activePlayerBuffs = new Set<string>();
 
   /** Reusable Set for tracking live entity IDs — prevents per-frame allocation. */
   private readonly _seenThisFrame = new Set<number>();
@@ -430,6 +457,77 @@ export class SpritePool {
     this._playerMesh.material = flashing ? this._flashMat : baseMat;
     // I-frame blink: hide on odd phases.
     this._playerMesh.visible = this._blinkVisible(player.iFrameTimer);
+
+    // Per-buff coloured glow halos. Rendered just behind the player at
+    // the body's footprint size so the colour reads cleanly regardless
+    // of which animation sheet is active.
+    this._syncPlayerBuffHalos(player, scene);
+  }
+
+  /**
+   * Maintain one additively-blended halo mesh per active player buff with
+   * a known glow colour. Positions track the player mesh and the halo
+   * pulses gently to draw the eye. Halos for inactive buffs are removed
+   * from the scene.
+   * @internal
+   */
+  private _syncPlayerBuffHalos(player: Player, scene: THREE.Scene): void {
+    if (!this._playerMesh) return;
+    this._activePlayerBuffs.clear();
+    for (const key of player.activeStatModKeys()) {
+      if (PLAYER_BUFF_GLOW_COLOR[key] !== undefined) this._activePlayerBuffs.add(key);
+    }
+
+    const px = this._playerMesh.position.x;
+    const py = this._playerMesh.position.y;
+    const playerZ = this._playerMesh.position.z;
+    // Base halo size derived from the player's collision footprint so it
+    // doesn't balloon when wider attack frames are active.
+    const baseSize = Math.max(player.body.halfExtents.x, player.body.halfExtents.y) * 2 * 1.9;
+    const phase = this._buffPulseTime * Math.PI * 2 * 1.1; // ~1.1 Hz
+    const t = 0.5 + 0.5 * Math.sin(phase); // 0..1
+    const haloPulse = 1 + 0.12 * t;
+
+    let i = 0;
+    for (const key of this._activePlayerBuffs) {
+      let mat = this._playerBuffHaloMats.get(key);
+      if (!mat) {
+        mat = new THREE.MeshBasicMaterial({
+          color: PLAYER_BUFF_GLOW_COLOR[key],
+          transparent: true,
+          opacity: 0.4,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        });
+        this._playerBuffHaloMats.set(key, mat);
+      }
+      let halo = this._playerBuffHaloMeshes.get(key);
+      if (!halo) {
+        halo = new THREE.Mesh(this._geoUnit, mat);
+        this._playerBuffHaloMeshes.set(key, halo);
+        scene.add(halo);
+      }
+      // Stagger sibling halos very slightly in size so stacked buffs
+      // each contribute a visible coloured ring rather than collapsing
+      // into a single uniform tint.
+      const stagger = 1 + i * 0.08;
+      const size = baseSize * haloPulse * stagger;
+      halo.position.set(px, py, playerZ - 0.05 - i * 0.001);
+      halo.scale.set(size, size, 1);
+      halo.visible = this._playerMesh.visible;
+      mat.opacity = 0.28 + 0.22 * t;
+      i++;
+    }
+
+    // Remove halos for buffs that are no longer active.
+    if (this._playerBuffHaloMeshes.size > this._activePlayerBuffs.size) {
+      for (const [key, halo] of this._playerBuffHaloMeshes) {
+        if (!this._activePlayerBuffs.has(key)) {
+          scene.remove(halo);
+          this._playerBuffHaloMeshes.delete(key);
+        }
+      }
+    }
   }
 
   /**

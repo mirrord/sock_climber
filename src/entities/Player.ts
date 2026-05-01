@@ -153,6 +153,14 @@ export class Player implements Entity {
     return this._statMods.has(key);
   }
 
+  /**
+   * Iterate the keys of all currently active stat modifiers. Used by the
+   * renderer to drive per-buff visual effects (e.g. coloured glow halos).
+   */
+  activeStatModKeys(): IterableIterator<string> {
+    return this._statMods.keys();
+  }
+
   /** Rebuild `_cachedEffective` from base stats + all active mods. No allocations. */
   private _rebuildEffective(): void {
     const base = this.stats as unknown as Record<string, unknown>;
