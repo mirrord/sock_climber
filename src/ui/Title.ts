@@ -37,7 +37,8 @@ export class Title {
     setText(heading, TEXT.title.heading);
 
     const subtitle = el("p", ["title-subtitle"]);
-    setText(subtitle, TEXT.title.subtitle);
+    const subtitles = TEXT.title.subtitles;
+    setText(subtitle, subtitles[Math.floor(Math.random() * subtitles.length)]!);
 
     const startBtn = el("button", [], { id: "title-start" });
     setText(startBtn, TEXT.title.start);

@@ -16,7 +16,13 @@ export const TEXT = {
   },
   title: {
     heading: "Sock Climber",
-    subtitle: "A vertical sock-themed climber",
+    subtitles: [
+      "It's Laundry Time",
+      "A shoe-in for Vibe Jam 2026",
+      "We couldn't book Bennett Foddy",
+      "Where's the other one?",
+      "Try for a sub 3:00 time!",
+    ],
     start: "Start",
     settings: "Settings",
   },
