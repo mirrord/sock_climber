@@ -1,5 +1,14 @@
 import { el, setText, setVisible } from "./dom.js";
 import { TEXT } from "./i18n.js";
+import { isTrackedLevel } from "../systems/Records.js";
+
+/**
+ * Read-only view of the persistent records store, used by LevelSelect to
+ * display each level's best distance.
+ */
+export interface LevelRecordsView {
+  getBest(level: 1 | 2 | 3): number;
+}
 
 /**
  * Level identifiers selectable from the LevelSelect screen. All four
@@ -35,6 +44,12 @@ export class LevelSelect {
   private readonly _arrows: HTMLSpanElement[] = [];
   /** Per-button enabled flag, parallel to `_buttons`. */
   private readonly _enabled: boolean[] = [];
+  /** Per-button best-distance label element (null for non-tracked entries / Back). */
+  private readonly _recordEls: (HTMLSpanElement | null)[] = [];
+  /** Level id associated with each button slot (null for the trailing Back button). */
+  private readonly _slotLevels: (LevelId | null)[] = [];
+  /** Optional records source; when null no "Best" labels are rendered. */
+  private readonly _records: LevelRecordsView | null;
   private _focusIndex = 0;
 
   /** Tracks which gamepad buttons were pressed last poll tick (for edge detection). */
@@ -47,7 +62,9 @@ export class LevelSelect {
     onLevelSelected: (level: LevelId) => void,
     onBack: () => void,
     container: HTMLElement = document.body,
+    records: LevelRecordsView | null = null,
   ) {
+    this._records = records;
     // ─── Build DOM ──────────────────────────────────────────────────────
     // Hidden initially — title screen is shown first; this is opened by
     // main when the player presses Start on the title.
@@ -84,6 +101,16 @@ export class LevelSelect {
       setText(arrow, "▶ ");
       btn.prepend(arrow);
 
+      // "Best: N m" badge for tracked levels (1–3). Initial text is
+      // populated below via _refreshRecords() so it stays in sync with
+      // localStorage even if the store mutates between constructor and
+      // first show().
+      let recordEl: HTMLSpanElement | null = null;
+      if (this._records !== null && isTrackedLevel(levelId)) {
+        recordEl = el("span", ["level-best"]);
+        btn.appendChild(recordEl);
+      }
+
       btn.addEventListener("click", () => {
         if (!isPlayable) return;
         this._stopGamepadNav();
@@ -95,6 +122,8 @@ export class LevelSelect {
       this._buttons.push(btn);
       this._arrows.push(arrow);
       this._enabled.push(isPlayable);
+      this._recordEls.push(recordEl);
+      this._slotLevels.push(levelId);
     }
     this._overlay.appendChild(levelList);
 
@@ -112,8 +141,13 @@ export class LevelSelect {
     this._buttons.push(backBtn);
     this._arrows.push(backArrow);
     this._enabled.push(true);
+    this._recordEls.push(null);
+    this._slotLevels.push(null);
 
     container.appendChild(this._overlay);
+
+    // Populate the initial "Best" labels.
+    this._refreshRecords();
 
     // Land focus on the first enabled entry. Defensively walks forward
     // in case some levels are excluded from `PLAYABLE_LEVELS`.
@@ -124,6 +158,10 @@ export class LevelSelect {
   show(): void {
     this._focusIndex = this._firstEnabledIndex();
     this._updateArrows();
+    // Pull the latest records from the store so a freshly-set high score
+    // shows up immediately when the player returns to this screen after
+    // a run.
+    this._refreshRecords();
     setVisible(this._overlay, true);
     this._startGamepadNav();
   }
@@ -147,6 +185,25 @@ export class LevelSelect {
       if (this._enabled[i]) return i;
     }
     return 0;
+  }
+
+  /**
+   * Refresh the "Best: N m" labels from the records source. Safe to call
+   * any number of times; no-op for slots that have no associated record
+   * element (Back button, untracked levels, or no records source given).
+   */
+  private _refreshRecords(): void {
+    if (this._records === null) return;
+    for (let i = 0; i < this._recordEls.length; i++) {
+      const recEl = this._recordEls[i];
+      const lvl = this._slotLevels[i];
+      if (recEl === undefined || recEl === null) continue;
+      if (lvl === null || lvl === undefined || !isTrackedLevel(lvl)) continue;
+      const best = this._records.getBest(lvl);
+      const valueText =
+        best > 0 ? `${best} ${TEXT.hud.distanceUnit}` : TEXT.levelSelect.bestDistanceNone;
+      setText(recEl, ` ${TEXT.levelSelect.bestDistance}: ${valueText}`);
+    }
   }
 
   private _updateArrows(): void {

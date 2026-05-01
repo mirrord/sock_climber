@@ -99,4 +99,54 @@ describe("LevelSelect", () => {
     expect(container.querySelector("#level-select")?.classList.contains("hidden")).toBe(true);
     ls.destroy();
   });
+
+  describe("record display", () => {
+    it("renders no record badges when no records source is supplied", () => {
+      const ls = new LevelSelect(vi.fn(), vi.fn(), container);
+      expect(container.querySelectorAll(".level-best").length).toBe(0);
+      ls.destroy();
+    });
+
+    it("renders a record badge on levels 1-3 only when records source supplied", () => {
+      const records = { getBest: vi.fn().mockReturnValue(0) };
+      const ls = new LevelSelect(vi.fn(), vi.fn(), container, records);
+      const lvl1 = container.querySelector("#level-select-1 .level-best");
+      const lvl2 = container.querySelector("#level-select-2 .level-best");
+      const lvl3 = container.querySelector("#level-select-3 .level-best");
+      const lvl4 = container.querySelector("#level-select-4 .level-best");
+      expect(lvl1).not.toBeNull();
+      expect(lvl2).not.toBeNull();
+      expect(lvl3).not.toBeNull();
+      expect(lvl4).toBeNull();
+      ls.destroy();
+    });
+
+    it("displays the best distance with metres when > 0", () => {
+      const records = {
+        getBest: vi.fn((lvl: 1 | 2 | 3): number => (lvl === 2 ? 42 : 0)),
+      };
+      const ls = new LevelSelect(vi.fn(), vi.fn(), container, records);
+      const lvl2 = container.querySelector("#level-select-2 .level-best");
+      expect(lvl2?.textContent).toContain("42");
+      expect(lvl2?.textContent).toContain("m");
+      const lvl1 = container.querySelector("#level-select-1 .level-best");
+      // Zero record renders the placeholder em-dash, not "0 m".
+      expect(lvl1?.textContent).not.toContain("0 m");
+      ls.destroy();
+    });
+
+    it("show() refreshes record labels from the live records source", () => {
+      let best = 0;
+      const records = { getBest: vi.fn(() => best) };
+      const ls = new LevelSelect(vi.fn(), vi.fn(), container, records);
+      const badge = container.querySelector("#level-select-1 .level-best");
+      const initial = badge?.textContent ?? "";
+
+      best = 99;
+      ls.show();
+      expect(badge?.textContent).toContain("99");
+      expect(badge?.textContent).not.toBe(initial);
+      ls.destroy();
+    });
+  });
 });

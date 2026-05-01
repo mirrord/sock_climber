@@ -22,6 +22,8 @@ import {
   UpgradeSystem,
   ScoreSystem,
   SpawnSystem,
+  RecordsStore,
+  isTrackedLevel,
 } from "./systems/index.js";
 import { ATTACK_TABLE } from "./systems/AttackTable.js";
 import { HUD, PatchPicker, Pause, Settings, Title, LevelSelect, GameOver, Victory } from "./ui/index.js";
@@ -600,6 +602,25 @@ let deathPlaneSystem = new DeathPlaneSystem(bus, {
 let deathPlaneActivated = false;
 const upgradeSystem = new UpgradeSystem(bus, rng, activeLevel.climbDir);
 const scoreSystem = new ScoreSystem(bus, activeLevel.climbDir);
+const recordsStore = new RecordsStore();
+
+// Persist the run's distance as a new high score when the player dies
+// on a tracked level (1–3). The boss arena (level 4) is excluded —
+// distance is not a meaningful measure there. When a new high score
+// is achieved, emit `onNewDistanceRecord` so the GameOver overlay can
+// trigger its celebratory glitter effect.
+bus.on("onPlayerDeath", () => {
+  if (!isTrackedLevel(selectedLevel)) return;
+  const summary = scoreSystem.getSummary();
+  const previous = recordsStore.getBest(selectedLevel);
+  if (recordsStore.record(selectedLevel, summary.distanceTraversed)) {
+    bus.emit("onNewDistanceRecord", {
+      level: selectedLevel,
+      distance: recordsStore.getBest(selectedLevel),
+      previous,
+    });
+  }
+});
 
 // ─── UI layer ─────────────────────────────────────────────────────────────
 
@@ -644,6 +665,8 @@ const levelSelect = new LevelSelect(
     }
   },
   () => { levelSelect.hide(); title.show(); },
+  document.body,
+  recordsStore,
 );
 const gameOver = new GameOver(bus, scoreSystem, onRestart, onQuit);
 const victory = new Victory(bus, scoreSystem, onRestart, onQuit);

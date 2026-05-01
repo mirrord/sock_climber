@@ -134,6 +134,12 @@ export type GameEvents = {
   onGumEnter: Record<string, never>;
   /** Emitted by ScoreSystem when the climbed distance increases by ≥ 1 m. */
   onDistanceChanged: { distance: number };
+  /**
+   * Emitted once per run, after `onPlayerDeath`, when the run set a new
+   * best distance for the active tracked level (1–3). Consumed by
+   * `GameOver` to trigger the celebratory glitter effect.
+   */
+  onNewDistanceRecord: { level: number; distance: number; previous: number };
   /** Emitted by Title screen when the player starts a new run. */
   onGameStart: Record<string, never>;
   /** Emitted to pause game simulation and show the pause menu. */

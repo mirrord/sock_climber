@@ -74,4 +74,51 @@ describe("GameOver", () => {
     expect(onTitle).toHaveBeenCalledOnce();
     go.destroy();
   });
+
+  describe("new-record celebration", () => {
+    it("New Record banner is hidden when no record event was emitted", () => {
+      const go = new GameOver(bus, scoreSystem, vi.fn(), vi.fn(), container);
+      bus.emit("onPlayerDeath", { reason: "drowned" });
+      const banner = container.querySelector("#go-new-record");
+      expect(banner?.classList.contains("hidden")).toBe(true);
+      go.destroy();
+    });
+
+    it("New Record banner is visible when onNewDistanceRecord precedes onPlayerDeath", () => {
+      const go = new GameOver(bus, scoreSystem, vi.fn(), vi.fn(), container);
+      bus.emit("onNewDistanceRecord", { level: 1, distance: 42, previous: 10 });
+      bus.emit("onPlayerDeath", { reason: "drowned" });
+      const banner = container.querySelector("#go-new-record");
+      expect(banner?.classList.contains("hidden")).toBe(false);
+      go.destroy();
+    });
+
+    it("glitter canvas is appended to the overlay", () => {
+      const go = new GameOver(bus, scoreSystem, vi.fn(), vi.fn(), container);
+      const canvas = container.querySelector("#game-over .glitter-canvas");
+      expect(canvas).not.toBeNull();
+      go.destroy();
+    });
+
+    it("the new-record flag is consumed (does not persist across runs)", () => {
+      const go = new GameOver(bus, scoreSystem, vi.fn(), vi.fn(), container);
+      // First run sets a record.
+      bus.emit("onNewDistanceRecord", { level: 1, distance: 42, previous: 10 });
+      bus.emit("onPlayerDeath", { reason: "drowned" });
+      expect(container.querySelector("#go-new-record")?.classList.contains("hidden")).toBe(false);
+
+      // Hide and replay without emitting onNewDistanceRecord.
+      go.hide();
+      bus.emit("onPlayerDeath", { reason: "drowned" });
+      expect(container.querySelector("#go-new-record")?.classList.contains("hidden")).toBe(true);
+
+      go.destroy();
+    });
+
+    it("destroy() removes the glitter canvas from the DOM", () => {
+      const go = new GameOver(bus, scoreSystem, vi.fn(), vi.fn(), container);
+      go.destroy();
+      expect(container.querySelector(".glitter-canvas")).toBeNull();
+    });
+  });
 });

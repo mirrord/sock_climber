@@ -2,6 +2,7 @@ import type { EventBus, GameEvents, Unsubscribe } from "../core/EventBus.js";
 import type { ScoreSystem } from "../systems/ScoreSystem.js";
 import { el, setText, setVisible } from "./dom.js";
 import { TEXT } from "./i18n.js";
+import { GlitterEffect } from "./GlitterEffect.js";
 
 /**
  * GameOver — end-of-run score screen.
@@ -20,7 +21,11 @@ export class GameOver {
   private readonly _overlay: HTMLElement;
   private readonly _distanceEl: HTMLElement;
   private readonly _killsEl: HTMLElement;
+  private readonly _newRecordEl: HTMLElement;
+  private readonly _glitter: GlitterEffect;
   private readonly _unsubs: Unsubscribe[] = [];
+  /** Set true between an `onNewDistanceRecord` event and the next `show()`. */
+  private _pendingNewRecord = false;
 
   private readonly _buttons: HTMLButtonElement[] = [];
   private readonly _arrows: HTMLSpanElement[] = [];
@@ -47,6 +52,10 @@ export class GameOver {
 
     this._distanceEl = el("p", [], { id: "go-distance" });
     this._killsEl = el("p", [], { id: "go-kills" });
+    // "New Record!" banner — hidden by default; shown only when the
+    // most recent run set a new high score for the active level.
+    this._newRecordEl = el("p", ["hidden"], { id: "go-new-record" });
+    setText(this._newRecordEl, TEXT.gameOver.newRecord);
 
     const restartBtn = el("button", [], { id: "go-restart" });
     setText(restartBtn, TEXT.gameOver.restart);
@@ -72,14 +81,27 @@ export class GameOver {
     }
 
     this._overlay.appendChild(heading);
+    this._overlay.appendChild(this._newRecordEl);
     this._overlay.appendChild(this._distanceEl);
     this._overlay.appendChild(this._killsEl);
     this._overlay.appendChild(restartBtn);
     this._overlay.appendChild(titleBtn);
     container.appendChild(this._overlay);
 
+    // Particle overlay — owns its own canvas pinned over the game-over
+    // div. Inactive (no animation, no allocations) until `start()`.
+    this._glitter = new GlitterEffect(this._overlay);
+
     // ─── Subscribe ──────────────────────────────────────────────────────
     this._unsubs.push(
+      bus.on("onNewDistanceRecord", () => {
+        // Latch the flag. The companion `onPlayerDeath` handler runs
+        // immediately after this on the same event tick (subscription
+        // order in main.ts ensures the recordsStore listener — which
+        // emits this event — fires before GameOver's onPlayerDeath
+        // listener below) and consumes the flag in `show()`.
+        this._pendingNewRecord = true;
+      }),
       bus.on("onPlayerDeath", () => {
         const summary = scoreSystem.getSummary();
         setText(this._distanceEl, `${TEXT.gameOver.distance}: ${Math.floor(summary.distanceTraversed)} m`);
@@ -93,19 +115,32 @@ export class GameOver {
   show(): void {
     this._focusIndex = 0;
     this._updateArrows();
+    // Reveal / hide the "New Record!" banner and start the glitter
+    // burst when applicable. Consume the latched flag so a manual
+    // re-show (without a fresh death) does not retrigger the effect.
+    const isNewRecord = this._pendingNewRecord;
+    this._pendingNewRecord = false;
+    setVisible(this._newRecordEl, isNewRecord);
     setVisible(this._overlay, true);
+    if (isNewRecord) {
+      this._glitter.start();
+    } else {
+      this._glitter.stop();
+    }
     this._startGamepadNav();
   }
 
   /** Hide the score screen and stop gamepad navigation. */
   hide(): void {
     this._stopGamepadNav();
+    this._glitter.stop();
     setVisible(this._overlay, false);
   }
 
   /** Unsubscribe all listeners and remove the overlay from the DOM. */
   destroy(): void {
     this._stopGamepadNav();
+    this._glitter.destroy();
     for (const unsub of this._unsubs) unsub();
     this._unsubs.length = 0;
     this._overlay.parentElement?.removeChild(this._overlay);

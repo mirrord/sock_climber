@@ -28,6 +28,38 @@
         z-index: 10;
       }
 
+      /* ── Game-over: New Record banner + glitter canvas ──────────────── */
+      #game-over > * {
+        position: relative;
+        z-index: 1;
+      }
+      #game-over .glitter-canvas {
+        z-index: 0;
+      }
+      #go-new-record {
+        font-size: 1.8rem;
+        font-weight: bold;
+        letter-spacing: 0.08em;
+        margin: 0;
+        background: linear-gradient(90deg, #ffd66e, #ff8ad6, #6ee7ff, #ffd66e);
+        background-size: 300% 100%;
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        text-shadow: 0 0 18px rgba(255, 214, 110, 0.55);
+        animation: go-new-record-shimmer 2.4s linear infinite,
+                   go-new-record-pop 0.5s ease-out;
+      }
+      @keyframes go-new-record-shimmer {
+        0%   { background-position: 0% 50%; }
+        100% { background-position: 300% 50%; }
+      }
+      @keyframes go-new-record-pop {
+        0%   { transform: scale(0.6); opacity: 0; }
+        60%  { transform: scale(1.15); opacity: 1; }
+        100% { transform: scale(1.0); opacity: 1; }
+      }
+
       /* ── Patch picker modal ──────────────────────────────────────────── */
       #patch-picker {
         position: fixed;
@@ -328,6 +360,12 @@
         font-style: italic;
       }
       #level-select .level-btn-disabled:hover { background: #222; }
+      #level-select .level-best {
+        float: right;
+        opacity: 0.7;
+        font-size: 0.85rem;
+        font-style: italic;
+      }
       #level-select .level-back {
         margin-top: 0.25rem;
       }

@@ -31,6 +31,8 @@ export const TEXT = {
     subtitle: "Choose where to begin your climb",
     back: "Back",
     comingSoon: "Coming Soon",
+    bestDistance: "Best",
+    bestDistanceNone: "—",
     levels: {
       1: "Level 1 — The Laundry Pile",
       2: "Level 2 — The Sock Drawer",
@@ -42,6 +44,7 @@ export const TEXT = {
     heading: "Game Over",
     distance: "Distance",
     kills: "Kills",
+    newRecord: "New Record!",
     restart: "Play Again",
     title: "Exit to Main Menu",
   },

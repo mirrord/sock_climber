@@ -16,3 +16,6 @@ export type { RunSummary } from "./ScoreSystem.js";
 export { ScoreSystem } from "./ScoreSystem.js";
 
 export { SpawnSystem } from "./SpawnSystem.js";
+
+export type { TrackedLevelId, RecordsBlob } from "./Records.js";
+export { RecordsStore, TRACKED_LEVELS, isTrackedLevel } from "./Records.js";
