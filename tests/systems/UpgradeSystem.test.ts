@@ -223,6 +223,29 @@ describe("UpgradeSystem â€” picker opening", () => {
     for (const p of offer) expect(p.id).toBe("ExtraHP");
   });
 
+  it("tryOpenPicker returns false when full HP and ExtraHP already applied (regression: no-offer softlock)", () => {
+    // Repro: player is at full HP (0 empty containers) and has already
+    // taken the ExtraHP patch. With those constraints every catalog entry
+    // becomes ineligible; the picker must NOT open with an empty offer
+    // (which would render an undismissable modal and softlock the run).
+    const bus = createEventBus<GameEvents>();
+    const sys = new UpgradeSystem(bus, createRNG(1));
+    const player = makePlayer(3); // full health â†’ 0 empty containers
+
+    // Mark ExtraHP as already applied this run.
+    (sys as unknown as { _appliedPatchIds: Set<string> })._appliedPatchIds.add("ExtraHP");
+
+    // Fill the gauge.
+    for (let i = 0; i < 4; i++) bus.emit("onKill", { entityId: i });
+    expect(sys.gauge).toBeCloseTo(1);
+
+    // Picker must refuse to open; gauge must stay full so the player can
+    // retry once they take damage.
+    expect(sys.tryOpenPicker(player)).toBe(false);
+    expect(sys.isPickerOpen).toBe(false);
+    expect(sys.gauge).toBeCloseTo(1);
+  });
+
   it("tryOpenPicker returns false when gauge is not full", () => {
     const bus = createEventBus<GameEvents>();
     const sys = new UpgradeSystem(bus, createRNG(1));
@@ -403,7 +426,7 @@ describe("UpgradeSystem â€” selectPatch", () => {
 
 // --- Loadout mode + setEnabled (level 4) --------------------------------
 
-describe("UpgradeSystem — setEnabled", () => {
+describe("UpgradeSystem ï¿½ setEnabled", () => {
   it("disabling blocks gauge fill from kills", () => {
     const bus = createEventBus<GameEvents>();
     const sys = new UpgradeSystem(bus, createRNG(1));
@@ -439,7 +462,7 @@ describe("UpgradeSystem — setEnabled", () => {
   });
 });
 
-describe("UpgradeSystem — openLoadoutOffer", () => {
+describe("UpgradeSystem ï¿½ openLoadoutOffer", () => {
   it("opens the picker bypassing the gauge requirement", () => {
     const bus = createEventBus<GameEvents>();
     const sys = new UpgradeSystem(bus, createRNG(1));
@@ -464,7 +487,7 @@ describe("UpgradeSystem — openLoadoutOffer", () => {
     const bus = createEventBus<GameEvents>();
     const sys = new UpgradeSystem(bus, createRNG(1));
     const player = makePlayer();
-    // Player at full HP — no empty containers available.
+    // Player at full HP ï¿½ no empty containers available.
     expect(player.health.containers - player.health.current).toBe(0);
     sys.openLoadoutOffer(player);
     const offer = sys.currentOffer ?? [];

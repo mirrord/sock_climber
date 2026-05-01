@@ -163,9 +163,18 @@ export class UpgradeSystem {
     if (this._isPickerOpen) return false;
     if (this._gauge < 1) return false;
 
+    // Sample the offer first. If no eligible patches exist (e.g. player is
+    // at full HP after already taking ExtraHP, so no empty container is
+    // available to "spend" and ExtraHP is exhausted), refuse to open the
+    // picker rather than presenting an empty modal that the player cannot
+    // dismiss (the picker intentionally blocks Escape). The gauge is left
+    // full so the player can retry after taking damage frees a container.
+    const offer = this._sampleOffer(player);
+    if (offer.length === 0) return false;
+
     this._gauge = 0;
     this._gaugeFullEmitted = false;
-    this._currentOffer = this._sampleOffer(player);
+    this._currentOffer = offer;
     this._isPickerOpen = true;
     this._bus.emit("onGaugeChanged", { fill: 0 });
     this._bus.emit("onPickerOpen", {});
