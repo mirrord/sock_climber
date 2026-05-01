@@ -223,17 +223,20 @@ describe("UpgradeSystem — picker opening", () => {
     for (const p of offer) expect(p.id).toBe("ExtraHP");
   });
 
-  it("tryOpenPicker returns false when full HP and ExtraHP already applied (regression: no-offer softlock)", () => {
+  it("tryOpenPicker returns false when full HP and ExtraHP cap reached (regression: no-offer softlock)", () => {
     // Repro: player is at full HP (0 empty containers) and has already
-    // taken the ExtraHP patch. With those constraints every catalog entry
-    // becomes ineligible; the picker must NOT open with an empty offer
-    // (which would render an undismissable modal and softlock the run).
+    // maxed the ExtraHP container cap (5). With those constraints every
+    // catalog entry becomes ineligible; the picker must NOT open with an
+    // empty offer (which would render an undismissable modal and softlock
+    // the run).
     const bus = createEventBus<GameEvents>();
     const sys = new UpgradeSystem(bus, createRNG(1));
     const player = makePlayer(3); // full health → 0 empty containers
 
-    // Mark ExtraHP as already applied this run.
-    (sys as unknown as { _appliedPatchIds: Set<string> })._appliedPatchIds.add("ExtraHP");
+    // Bring the player up to the ExtraHP container cap so that patch
+    // also becomes ineligible.
+    player.gainContainer();
+    player.gainContainer();
 
     // Fill the gauge.
     for (let i = 0; i < 4; i++) bus.emit("onKill", { entityId: i });

@@ -117,7 +117,7 @@ const PLAYER_SHEETS: ReadonlyArray<{
 }> = [
   { state: "idle", file: "idle.png", frames: 8, frameW: 64, frameH: 64, fps: 8, loop: true },
   { state: "walk", file: "walk.png", frames: 7, frameW: 64, frameH: 64, fps: 14, loop: true },
-  { state: "crouch", file: "crouch.png", frames: 6, frameW: 64, frameH: 96, fps: 12, loop: false },
+  { state: "crouch", file: "crouch.png", frames: 6, frameW: 64, frameH: 96, fps: 24, loop: false },
   // Attack frames spread across the full ATTACK_TABLE.Normal duration (12 / 60 s).
   // 10 frames over 0.2 s ≈ 50 fps so the animation finishes alongside the attack.
   { state: "attack", file: "attack.png", frames: 10, frameW: 128, frameH: 128, fps: 50, loop: false },
@@ -645,7 +645,7 @@ const levelSelect = new LevelSelect(
   },
   () => { levelSelect.hide(); title.show(); },
 );
-const gameOver = new GameOver(bus, scoreSystem, onRestart);
+const gameOver = new GameOver(bus, scoreSystem, onRestart, onQuit);
 const victory = new Victory(bus, scoreSystem, onRestart, onQuit);
 
 /** Number of remaining loadout picks owed before `onGameStart` fires. */

@@ -26,6 +26,9 @@ export class PatchPicker {
   private readonly _icons: [HTMLImageElement, HTMLImageElement, HTMLImageElement];
   private readonly _names: [HTMLSpanElement, HTMLSpanElement, HTMLSpanElement];
   private readonly _descs: [HTMLSpanElement, HTMLSpanElement, HTMLSpanElement];
+  private readonly _skipButton: HTMLButtonElement;
+  /** All focusable buttons — patch buttons followed by Skip. */
+  private readonly _focusables: HTMLButtonElement[];
   private readonly _unsubs: Unsubscribe[] = [];
   private _upgradeSystem: UpgradeSystem;
   private _player: Player;
@@ -65,8 +68,18 @@ export class PatchPicker {
     this._descs = descs as [HTMLSpanElement, HTMLSpanElement, HTMLSpanElement];
     for (const btn of this._buttons) options.appendChild(btn);
 
+    this._skipButton = el("button", ["patch-skip-btn"]);
+    setText(this._skipButton, TEXT.patch.skip);
+    this._skipButton.addEventListener("click", () => {
+      this._upgradeSystem.skipPick();
+      setVisible(this._modal, false);
+    });
+
+    this._focusables = [...this._buttons, this._skipButton];
+
     this._modal.appendChild(heading);
     this._modal.appendChild(options);
+    this._modal.appendChild(this._skipButton);
     container.appendChild(this._modal);
 
     // ─── Subscribe ──────────────────────────────────────────────────────
@@ -147,25 +160,25 @@ export class PatchPicker {
 
   /** Index of the first visible button (falls back to 0 if none). */
   private _firstVisibleIndex(): number {
-    for (let i = 0; i < this._buttons.length; i++) {
-      if (!this._buttons[i]!.classList.contains("hidden")) return i;
+    for (let i = 0; i < this._focusables.length; i++) {
+      if (!this._focusables[i]!.classList.contains("hidden")) return i;
     }
     return 0;
   }
 
   private _updateFocus(): void {
-    for (let i = 0; i < this._buttons.length; i++) {
-      this._buttons[i]!.classList.toggle("focused", i === this._focusIndex);
+    for (let i = 0; i < this._focusables.length; i++) {
+      this._focusables[i]!.classList.toggle("focused", i === this._focusIndex);
     }
   }
 
   /** Move focus by `delta`, skipping hidden buttons. */
   private _moveFocus(delta: number): void {
-    const n = this._buttons.length;
+    const n = this._focusables.length;
     let next = this._focusIndex;
     for (let i = 0; i < n; i++) {
       next = (next + delta + n) % n;
-      if (!this._buttons[next]!.classList.contains("hidden")) {
+      if (!this._focusables[next]!.classList.contains("hidden")) {
         this._focusIndex = next;
         this._updateFocus();
         return;
@@ -233,7 +246,7 @@ export class PatchPicker {
     if (justPressed(15)) this._moveFocus(+1); // D-pad right
     if (justPressed(14)) this._moveFocus(-1); // D-pad left
     if (justPressed(0) || justPressed(9)) {   // A or Start → confirm
-      this._buttons[this._focusIndex]!.click();
+      this._focusables[this._focusIndex]!.click();
     }
 
     // Left-stick X — trigger once per deflection, require re-center.

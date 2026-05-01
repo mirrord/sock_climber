@@ -88,14 +88,22 @@ describe("PatchCatalog — AirDash eligibility", () => {
 // ─── ExtraHP cap ──────────────────────────────────────────────────────────
 
 describe("PatchCatalog — ExtraHP eligibility", () => {
-  it("eligible when not yet applied", () => {
+  it("eligible when player has fewer than 5 HP containers", () => {
     const player = new Player({ x: 0, y: 0 });
     expect(getEntry("ExtraHP").isEligible(player, new Set())).toBe(true);
   });
 
-  it("ineligible when already applied once", () => {
+  it("eligible even after being applied previously (cap is on container count, not pick count)", () => {
     const player = new Player({ x: 0, y: 0 });
-    expect(getEntry("ExtraHP").isEligible(player, new Set(["ExtraHP"]))).toBe(false);
+    expect(getEntry("ExtraHP").isEligible(player, new Set(["ExtraHP"]))).toBe(true);
+  });
+
+  it("ineligible when player already has 5 HP containers", () => {
+    const player = new Player({ x: 0, y: 0 });
+    player.gainContainer();
+    player.gainContainer();
+    expect(player.health.containers).toBe(5);
+    expect(getEntry("ExtraHP").isEligible(player, new Set())).toBe(false);
   });
 });
 

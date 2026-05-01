@@ -36,6 +36,7 @@ export class GameOver {
     bus: EventBus<GameEvents>,
     scoreSystem: ScoreSystem,
     onRestart: () => void,
+    onTitle: () => void,
     container: HTMLElement = document.body,
   ) {
     // ─── Build DOM ──────────────────────────────────────────────────────
@@ -54,8 +55,15 @@ export class GameOver {
       onRestart();
     });
 
+    const titleBtn = el("button", [], { id: "go-title" });
+    setText(titleBtn, TEXT.gameOver.title);
+    titleBtn.addEventListener("click", () => {
+      this.hide();
+      onTitle();
+    });
+
     // Arrow spans — one per button, prepended inside each button element.
-    for (const btn of [restartBtn]) {
+    for (const btn of [restartBtn, titleBtn]) {
       const arrow = el("span", ["menu-arrow", "hidden"]);
       setText(arrow, "▶ ");
       btn.prepend(arrow);
@@ -67,6 +75,7 @@ export class GameOver {
     this._overlay.appendChild(this._distanceEl);
     this._overlay.appendChild(this._killsEl);
     this._overlay.appendChild(restartBtn);
+    this._overlay.appendChild(titleBtn);
     container.appendChild(this._overlay);
 
     // ─── Subscribe ──────────────────────────────────────────────────────

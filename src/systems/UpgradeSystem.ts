@@ -220,6 +220,19 @@ export class UpgradeSystem {
     this._bus.emit("onPickerClose", {});
   }
 
+  /**
+   * Dismiss the picker without applying any patch.
+   * The gauge cost was already paid when the picker opened, so skipping
+   * forfeits the upgrade cycle. No `onPatchApplied` is emitted.
+   */
+  skipPick(): void {
+    if (!this._isPickerOpen) return;
+    this._isPickerOpen = false;
+    this._currentOffer = null;
+    this._loadoutMode = false;
+    this._bus.emit("onPickerClose", {});
+  }
+
   /** Upgrade gauge, clamped to [0, 1]. */
   get gauge(): number {
     return this._gauge;
@@ -263,7 +276,9 @@ export class UpgradeSystem {
   /** Sample 3 distinct eligible patches without replacement using `_rng`. */
   private _sampleOffer(player: Player): PatchEntry[] {
     const eligible = PATCH_CATALOG.filter((p) =>
-      p.isEligible(player, this._appliedPatchIds),
+      p.isEligible(player, this._appliedPatchIds, {
+        ignoreContainerCost: this._loadoutMode,
+      }),
     );
 
     // Shuffle eligible entries using Fisher-Yates via the seeded RNG.

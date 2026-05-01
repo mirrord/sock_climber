@@ -43,6 +43,7 @@ export const TEXT = {
     distance: "Distance",
     kills: "Kills",
     restart: "Play Again",
+    title: "Exit to Main Menu",
   },
   victory: {
     heading: "Boss Defeated!",
@@ -73,5 +74,6 @@ export const TEXT = {
   },
   patch: {
     heading: "Choose an Upgrade",
+    skip: "Skip Upgrade",
   },
 } as const;

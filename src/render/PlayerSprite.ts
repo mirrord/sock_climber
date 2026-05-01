@@ -179,11 +179,14 @@ export class PlayerAnimator {
       const prev = this._state;
       this._state = effectiveState;
       this._accum = 0;
-      // Special case: when leaving the crouch-attack into a held crouch,
-      // skip straight to the crouch sheet's final frame (the fully
-      // crouched pose) rather than replaying the crouch-down animation
-      // from frame 0.
-      if (prev === "crouchAttack" && effectiveState === "crouch") {
+      // Special case: when leaving any crouch-attack variant (grounded
+      // or aerial) into a held crouch, skip straight to the crouch
+      // sheet's final frame (the fully crouched pose) rather than
+      // replaying the crouch-down animation from frame 0.
+      if (
+        (prev === "crouchAttack" || prev === "aerialCrouchAttack") &&
+        effectiveState === "crouch"
+      ) {
         this._frame = Math.max(0, def.frames - 1);
       } else {
         this._frame = 0;

@@ -1,6 +1,7 @@
 import type { EventBus, GameEvents, Unsubscribe } from "../core/EventBus.js";
 import { el, setText, setVisible } from "./dom.js";
 import { TEXT } from "./i18n.js";
+import { PATCH_CATALOG } from "../systems/PatchCatalog.js";
 
 /**
  * HUD — heads-up display overlay.
@@ -13,6 +14,7 @@ import { TEXT } from "./i18n.js";
 export class HUD {
   private readonly _root: HTMLElement;
   private readonly _hpList: HTMLElement;
+  private readonly _patchList: HTMLElement;
   private readonly _gaugeRoot: HTMLElement;
   private readonly _gaugeFill: HTMLElement;
   private readonly _gaugeTrail: HTMLElement;
@@ -36,6 +38,9 @@ export class HUD {
 
     // HP row
     this._hpList = el("div", [], { id: "hud-hp" });
+
+    // Applied-patches row (shown beneath HP indicators).
+    this._patchList = el("div", [], { id: "hud-patches" });
 
     // Upgrade gauge — sprite-based: empty bar always visible, full bar
     // revealed left-to-right via the clip wrapper width. A trailing
@@ -68,6 +73,7 @@ export class HUD {
     this._buffList = el("div", ["buff-list"], { id: "hud-buffs" });
 
     this._root.appendChild(this._hpList);
+    this._root.appendChild(this._patchList);
     this._root.appendChild(this._gaugeRoot);
     this._root.appendChild(this._distanceEl);
     this._root.appendChild(this._buffList);
@@ -103,6 +109,12 @@ export class HUD {
       }),
       bus.on("onDistanceChanged", ({ distance }) => {
         setText(this._distanceEl, `${distance} ${TEXT.hud.distanceUnit}`);
+      }),
+      bus.on("onPatchApplied", ({ patchId }) => {
+        this._appendPatchIcon(patchId);
+      }),
+      bus.on("onGameStart", () => {
+        this._patchList.textContent = "";
       }),
     );
   }
@@ -193,5 +205,16 @@ export class HUD {
     img.alt = "";
     img.draggable = false;
     return img;
+  }
+
+  /** Append a small icon for the patch the player just applied. */
+  private _appendPatchIcon(patchId: string): void {
+    const entry = PATCH_CATALOG.find((p) => p.id === patchId);
+    if (entry === undefined) return;
+    const img = el("img", ["patch-applied"], { "data-patch-id": patchId });
+    img.src = entry.icon;
+    img.alt = entry.name;
+    img.draggable = false;
+    this._patchList.appendChild(img);
   }
 }

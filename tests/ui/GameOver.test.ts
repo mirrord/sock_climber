@@ -22,20 +22,20 @@ describe("GameOver", () => {
   });
 
   it("overlay starts hidden", () => {
-    const go = new GameOver(bus, scoreSystem, vi.fn(), container);
+    const go = new GameOver(bus, scoreSystem, vi.fn(), vi.fn(), container);
     expect(container.querySelector("#game-over")?.classList.contains("hidden")).toBe(true);
     go.destroy();
   });
 
   it("onPlayerDeath shows the overlay", () => {
-    const go = new GameOver(bus, scoreSystem, vi.fn(), container);
+    const go = new GameOver(bus, scoreSystem, vi.fn(), vi.fn(), container);
     bus.emit("onPlayerDeath", { reason: "drowned" });
     expect(container.querySelector("#game-over")?.classList.contains("hidden")).toBe(false);
     go.destroy();
   });
 
   it("displays distance from scoreSystem on death", () => {
-    const go = new GameOver(bus, scoreSystem, vi.fn(), container);
+    const go = new GameOver(bus, scoreSystem, vi.fn(), vi.fn(), container);
     scoreSystem.update(-50);
     bus.emit("onPlayerDeath", { reason: "drowned" });
 
@@ -45,7 +45,7 @@ describe("GameOver", () => {
   });
 
   it("displays kill count from scoreSystem on death", () => {
-    const go = new GameOver(bus, scoreSystem, vi.fn(), container);
+    const go = new GameOver(bus, scoreSystem, vi.fn(), vi.fn(), container);
     bus.emit("onKill", { entityId: 1 });
     bus.emit("onKill", { entityId: 2 });
     bus.emit("onPlayerDeath", { reason: "drowned" });
@@ -57,11 +57,21 @@ describe("GameOver", () => {
 
   it("clicking Play Again calls the onRestart callback", () => {
     const onRestart = vi.fn();
-    const go = new GameOver(bus, scoreSystem, onRestart, container);
+    const go = new GameOver(bus, scoreSystem, onRestart, vi.fn(), container);
     bus.emit("onPlayerDeath", { reason: "drowned" });
 
     container.querySelector<HTMLButtonElement>("#go-restart")?.click();
     expect(onRestart).toHaveBeenCalledOnce();
+    go.destroy();
+  });
+
+  it("clicking Exit to Main Menu calls the onTitle callback", () => {
+    const onTitle = vi.fn();
+    const go = new GameOver(bus, scoreSystem, vi.fn(), onTitle, container);
+    bus.emit("onPlayerDeath", { reason: "drowned" });
+
+    container.querySelector<HTMLButtonElement>("#go-title")?.click();
+    expect(onTitle).toHaveBeenCalledOnce();
     go.destroy();
   });
 });

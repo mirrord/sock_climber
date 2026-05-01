@@ -75,7 +75,7 @@ export const DEFAULT_PLAYER_STATS: PlayerStats = {
   jumpCutMultiplier: 0.5,
   coyoteTime: 6 / 60, // ~6 frames at 60 fps
   jumpBufferTime: 6 / 60,
-  dashDistance: 4,
+  dashDistance: 3.4,
   dashDuration: 0.15,
   dashCooldown: 0.5,
   dashIFrames: false,
