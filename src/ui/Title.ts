@@ -27,6 +27,7 @@ export class Title {
   constructor(
     onStart: () => void,
     openSettings: () => void,
+    openCredits: () => void,
     container: HTMLElement = document.body,
   ) {
     // ─── Build DOM ──────────────────────────────────────────────────────
@@ -46,8 +47,11 @@ export class Title {
     const settingsBtn = el("button", [], { id: "title-settings" });
     setText(settingsBtn, TEXT.title.settings);
 
+    const creditsBtn = el("button", [], { id: "title-credits" });
+    setText(creditsBtn, TEXT.title.credits);
+
     // Arrow spans — one per button, prepended inside each button element.
-    for (const btn of [startBtn, settingsBtn]) {
+    for (const btn of [startBtn, settingsBtn, creditsBtn]) {
       const arrow = el("span", ["menu-arrow", "hidden"]);
       setText(arrow, "▶ ");
       btn.prepend(arrow);
@@ -59,6 +63,7 @@ export class Title {
     this._overlay.appendChild(subtitle);
     this._overlay.appendChild(startBtn);
     this._overlay.appendChild(settingsBtn);
+    this._overlay.appendChild(creditsBtn);
     container.appendChild(this._overlay);
 
     // ─── Button handlers ────────────────────────────────────────────────
@@ -70,6 +75,10 @@ export class Title {
 
     settingsBtn.addEventListener("click", () => {
       openSettings();
+    });
+
+    creditsBtn.addEventListener("click", () => {
+      openCredits();
     });
 
     // Title is visible from the start — begin nav immediately.

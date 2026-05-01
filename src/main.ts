@@ -529,7 +529,9 @@ void loadSfxAssets();
 
 /** Logical music id → public asset filename in `public/assets/music/`. */
 const MUSIC_ASSETS = {
-  title: "The Perfect Pair.mp3",
+  title1: "The Perfect Pair.mp3",
+  title2: "Who I Am.mp3",
+  title3: "Sock Puppet Rock.mp3",
   gameOver: "winning.mp3",
   gameplay1: "Laundry Stomp.mp3",
   gameplay2: "Zipper Whistlestomp.mp3",
@@ -539,6 +541,15 @@ const MUSIC_ASSETS = {
 type MusicId = keyof typeof MUSIC_ASSETS;
 /** Subset of MusicIds randomly chosen from at level start. */
 const GAMEPLAY_MUSIC_IDS: readonly MusicId[] = ["gameplay1", "gameplay2", "gameplay3"];
+/** Subset of MusicIds randomly chosen from when entering the title screen. */
+const TITLE_MUSIC_IDS: readonly MusicId[] = ["title1", "title2", "title3"];
+
+/** Picks a random title-screen track and starts it. No-op if the chosen
+ *  track happens to match the one already playing. */
+function playTitleMusic(): void {
+  const idx = Math.floor(Math.random() * TITLE_MUSIC_IDS.length);
+  playMusic(TITLE_MUSIC_IDS[idx]!);
+}
 
 /** Decoded music buffers, keyed by MusicId. Populated asynchronously. */
 const musicBuffers = new Map<MusicId, AudioBuffer>();
@@ -593,7 +604,7 @@ function playMusic(id: MusicId): void {
 
 void loadMusicAssets();
 // Title screen is shown immediately on page load — queue its music too.
-playMusic("title");
+playTitleMusic();
 
 /**
  * Browsers suspend AudioContext until a user gesture. Resuming on
@@ -729,6 +740,14 @@ const pause = new Pause(bus, onQuit, () => { pause.hide(); openSettings(() => pa
 const title = new Title(
   () => { title.hide(); levelSelect.show(); },
   () => { title.hide(); openSettings(() => title.show()); },
+  () => {
+    title.hide();
+    playMusic("credits");
+    credits.show(() => {
+      title.show();
+      playTitleMusic();
+    });
+  },
 );
 const levelSelect = new LevelSelect(
   (level) => {
@@ -763,7 +782,7 @@ const victory = new Victory(
     playMusic("credits");
     credits.show(() => {
       title.show();
-      playMusic("title");
+      playTitleMusic();
     });
   },
 );
@@ -822,7 +841,7 @@ bus.on("onBossSpawn", ({ kind, tag, entity, position }) => {
 bus.on("onLevelComplete", () => {
   alive = false;
   hud.hide();
-  playMusic("title");
+  playTitleMusic();
   victory.show();
 });
 
@@ -1012,7 +1031,7 @@ function onQuit(): void {
   renderer.clearCanvas();
   scene.background = DEFAULT_SCENE_BACKGROUND;
   title.show();
-  playMusic("title");
+  playTitleMusic();
 }
 
 /** Diagnostic accessor so the selected level isn't an unused variable. */

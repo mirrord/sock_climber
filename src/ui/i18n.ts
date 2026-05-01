@@ -25,6 +25,7 @@ export const TEXT = {
     ],
     start: "Start",
     settings: "Settings",
+    credits: "Credits",
   },
   levelSelect: {
     heading: "Select a Level",
