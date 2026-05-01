@@ -107,7 +107,8 @@ export interface GeneratorOptions {
   lookahead?: number;
   /**
    * World-tile Y of the death plane.
-   * Chunks whose bottom edge is above (less than) `deathPlaneY − graceRows` are despawned.
+   * A chunk is despawned once its top edge is above the death plane by at least
+   * `graceRows` rows, i.e. `chunk.originY > deathPlaneY + graceRows`.
    * Defaults to Infinity (no despawn unless explicitly updated).
    */
   deathPlaneY?: number;
@@ -742,22 +743,23 @@ export function createGenerator(opts: GeneratorOptions): Generator {
       segmentCrossed = true;
     }
 
-    // Despawn chunks that have been passed by the death plane.
+    // Despawn chunks that have been fully passed by the death plane.
     // World Y: 0 = spawn height, negative = upward (where player climbs).
-    // The death plane starts at large positive Y (far below) and rises (Y decreases).
-    // A chunk is passed when its bottom edge (largest Y in the chunk) is ABOVE the
-    // death plane, i.e. chunkBottomY < deathPlaneY. Add a grace margin so the chunk
-    // is kept for a few extra rows after the plane passes.
-    // Despawn when: chunkBottomY < deathPlaneY - GRACE_ROWS
-    //   → chunk bottom is safely above the death plane by at least GRACE_ROWS.
-    const despawnThreshold = deathPlaneY - GRACE_ROWS;
+    // The death plane starts at positive Y (below the player) and rises, so
+    // deathPlaneY decreases over time. A chunk's top edge is its smallest Y
+    // (chunk.originY); its bottom edge is originY + length (largest Y).
+    // The plane has fully swept past a chunk only once it is above the chunk's
+    // TOP edge, i.e. deathPlaneY < chunk.originY. Add a grace margin so the
+    // chunk is kept for a few extra rows after the plane passes.
+    // Despawn when: chunk.originY > deathPlaneY + GRACE_ROWS
+    //   → plane has risen at least GRACE_ROWS above the chunk's top edge.
+    const despawnThreshold = deathPlaneY + GRACE_ROWS;
     let i = 0;
     while (i < chunks.length) {
       const chunk = chunks[i]!;
-      const chunkBottomY = chunk.originY + chunk.profile.size.length;
-      // chunkBottomY is negative for upward chunks; deathPlaneY starts positive.
-      // Despawn only when death plane has risen ABOVE (smaller Y than) chunk bottom.
-      if (chunkBottomY > despawnThreshold) {
+      // Despawn only when death plane has risen ABOVE (smaller Y than) chunk top
+      // by at least GRACE_ROWS rows.
+      if (chunk.originY > despawnThreshold) {
         // Collect entity IDs to despawn.
         for (const se of chunk.entities) {
           despawnedEntityIds.push(se.entity.id);

@@ -80,14 +80,12 @@ describe("Generator — despawn", () => {
     const initialChunkCount = gen.chunks.length;
     expect(initialChunkCount).toBeGreaterThan(0);
 
-    // Find the lowest chunk bottom (most positive Y = deepest chunk).
-    const deepestBottomY = Math.max(
-      ...gen.chunks.map((c) => c.originY + c.profile.size.length),
-    );
-    // Set the death plane ABOVE (smaller Y) all chunks + grace so everything despawns.
-    // despawnThreshold = deathPlaneY - GRACE_ROWS; despawn when chunkBottomY > threshold.
-    // We want threshold < smallest chunkBottomY, so deathPlaneY < deepestBottomY + 8 - 1.
-    const forcedDeathPlaneY = deepestBottomY - 100;
+    // Find the highest chunk top (most negative Y = furthest along the climb).
+    const highestTopY = Math.min(...gen.chunks.map((c) => c.originY));
+    // Despawn when chunk.originY > deathPlaneY + GRACE_ROWS, so to force despawn
+    // of every chunk we need deathPlaneY + GRACE_ROWS < every chunk.originY,
+    // i.e. deathPlaneY < highestTopY - GRACE_ROWS. Subtract a large margin to be safe.
+    const forcedDeathPlaneY = highestTopY - 100;
     const result = gen.advance(-40, forcedDeathPlaneY);
 
     expect(result.despawnedEntityIds).toBeDefined();
@@ -102,9 +100,9 @@ describe("Generator — despawn", () => {
     // Collect all entity ids before despawn.
     const allIds = gen.chunks.flatMap((c) => c.entities.map((e) => e.entity.id));
 
-    // Force despawn everything: set death plane far above all chunks (very negative Y).
-    const deepestBottom = Math.max(...gen.chunks.map((c) => c.originY + c.profile.size.length));
-    const result = gen.advance(-60, deepestBottom - 200);
+    // Force despawn everything: set death plane far above all chunk tops (very negative Y).
+    const highestTopY = Math.min(...gen.chunks.map((c) => c.originY));
+    const result = gen.advance(-60, highestTopY - 200);
 
     for (const id of result.despawnedEntityIds) {
       expect(allIds).toContain(id);
@@ -120,9 +118,9 @@ describe("Generator — despawn", () => {
       c.entities.map((e) => e.entity.id),
     );
 
-    // Force despawn: death plane far above all chunks.
-    const deepestBottom = Math.max(...gen.chunks.map((c) => c.originY + c.profile.size.length));
-    const forcedDeathPlaneY = deepestBottom - 200;
+    // Force despawn: death plane far above all chunk tops.
+    const highestTopY = Math.min(...gen.chunks.map((c) => c.originY));
+    const forcedDeathPlaneY = highestTopY - 200;
     const result1 = gen.advance(-50, forcedDeathPlaneY);
     const result2 = gen.advance(-50, forcedDeathPlaneY);
 
