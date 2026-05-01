@@ -223,6 +223,7 @@ const ENTITY_SPRITE_VARIANTS: ReadonlyArray<{
 }> = [
   { key: "KeysTelegraph", file: "keyjingle.png", frames: 2,  frameW: 45, frameH: 69, fps: 12 },
   { key: "KeysJump",      file: "keyjump.png",   frames: 16, frameW: 64, frameH: 64, fps: 24 },
+  { key: "DustBunnyBoom", file: "bunnyboom.png", frames: 12, frameW: 64, frameH: 64, fps: 24 },
 ];
 for (const sheet of ENTITY_SPRITE_VARIANTS) {
   _textureLoader.load(`assets/sprites/${encodeURI(sheet.file)}`, (tex) => {
@@ -333,6 +334,10 @@ function seedWorldBoundary(): void {
     world.fillRect(0, 2, W, 1, true);
     world.fillRect(0, yMin, 1, 3 - yMin, true);
     world.fillRect(W - 1, yMin, 1, 3 - yMin, true);
+    // Small starter platform centred on spawn.x, one tile below the
+    // spawn position. Keeps the player off the laundry-pile death plane
+    // for the first few seconds of the run (see DEV_PLAN.md).
+    seedSpawnPlatform();
   } else if (activeLevel.climbDir.axis === "x") {
     // Ceiling row.
     world.fillRect(0, yMin, W, 1, true);
@@ -359,7 +364,24 @@ function seedWorldBoundary(): void {
     const cx = Math.floor(activeLevel.spawn.x);
     const halfWPlusWall = 10; // CORRIDOR_HALF_WIDTH (9) + 1 wall tile.
     world.fillRect(cx - halfWPlusWall, 1, halfWPlusWall * 2 + 1, 8, true);
+    // Small starter platform centred on spawn.x, mirroring level 1 so
+    // the player isn't standing on the laundry-pile death plane at the
+    // start of the run.
+    seedSpawnPlatform();
   }
+}
+
+/**
+ * Seed a small 3-tile-wide solid platform one tile below the active
+ * level's spawn position. Used by levels 1 and 3 so the player begins
+ * the run on a visible platform with the rumbling laundry pile clearly
+ * separated below them. Tiles fall inside the player's spawn safe zone
+ * so the procedural generator never overwrites them.
+ */
+function seedSpawnPlatform(): void {
+  const cx = Math.floor(activeLevel.spawn.x);
+  const platformTy = Math.floor(activeLevel.spawn.y) + 1;
+  world.fillRect(cx - 1, platformTy, 3, 1, true);
 }
 
 seedWorldBoundary();

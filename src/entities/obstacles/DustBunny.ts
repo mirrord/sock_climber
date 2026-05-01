@@ -50,6 +50,16 @@ export class DustBunny extends Obstacle {
   }
 
   /**
+   * Render-side sprite variant. While the bunny's smoke cloud is
+   * active (post-explosion) the SpritePool swaps in the `bunnyboom`
+   * sheet so the cloud is depicted by the explosion animation; before
+   * the explosion the default per-tag `DustBunny` sheet is used.
+   */
+  get spriteVariant(): string | undefined {
+    return this._smokeTimer > 0 ? "DustBunnyBoom" : undefined;
+  }
+
+  /**
    * Launch this dust bunny on a ballistic trajectory (boss-throw). After
    * this call `updateObstacle` integrates the body's velocity and applies
    * gravity each step until the bunny explodes on player contact.

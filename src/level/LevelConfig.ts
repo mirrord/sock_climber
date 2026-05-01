@@ -49,7 +49,10 @@ const LEVEL_1: LevelConfig = {
   // Player spawns at y=0 and climbs toward negative Y; reserve a small
   // buffer below the floor row for underflow.
   worldYMin: -(4000 - 8),
-  spawn: { x: 11, y: 0 },
+  // Spawn 3 tiles above the floor; `seedWorldBoundary` places a small
+  // platform under this position so the player isn't standing directly
+  // on the rumbling laundry pile at the start of the run.
+  spawn: { x: 11, y: -3 },
   corridorLateralExtent: 22,
   deathPlaneStart: 3,
   deathPlaneActivationDistance: 20,
@@ -93,7 +96,11 @@ const LEVEL_3: LevelConfig = {
   // stay in bounds — `TileWorld._inBounds` rejects any tx < 0 and would
   // silently drop the entire left wall + left half of the seeded floor
   // cap if spawn.x were near 0.
-  spawn: { x: 1000, y: 0 },
+  //
+  // spawn.y is lifted above the seeded back-cap floor (top face at y=1)
+  // so `seedWorldBoundary` can place a small starter platform under the
+  // player; matches the level-1 layout for visual consistency.
+  spawn: { x: 1000, y: -4 },
   // Corridor interior spans CORRIDOR_HALF_WIDTH * 2 + 1 = 19 tiles, with
   // a single-tile wall band on each side, so wall-edge to wall-edge is
   // 21 m. The death-plane graphic must span the full wall-to-wall width

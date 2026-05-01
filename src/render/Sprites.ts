@@ -219,6 +219,20 @@ export class SpritePool {
   /** Climb direction the death plane is rendered for. */
   private _planeDir: ClimbDir = CLIMB_DIR_VERTICAL;
   /**
+   * Accumulated render-frame time in seconds, used to drive the
+   * red-blink tint applied to the death plane while it is rumbling
+   * (pre-activation). Reset is unnecessary — the value only feeds a
+   * periodic Math.floor(... * RATE) % 2 toggle.
+   */
+  private _planeBlinkTime = 0;
+  /**
+   * Hex tint currently applied to `_planeMat.color`. Tracked so we only
+   * touch the material when the blink phase actually flips, avoiding a
+   * needless `color.setHex` call (and the dirty-flag traffic that comes
+   * with it) on every render frame.
+   */
+  private _planeTint = 0xffffff;
+  /**
    * Smoothed mesh rotation for path-mode (level 3). The raw target
    * rotation derived from the local path tangent snaps instantaneously
    * at every bend; we exponentially blend toward the target each frame
@@ -261,6 +275,8 @@ export class SpritePool {
     }
     // Advance buff pulse phase (purely visual; uses render-frame dt).
     this._buffPulseTime += dt;
+    // Advance death-plane blink phase (used while rumbling).
+    this._planeBlinkTime += dt;
 
     // Advance per-tag entity sprite animations.
     for (const anim of this._entityAnims.values()) {
@@ -697,6 +713,20 @@ export class SpritePool {
       const AMP = 0.08;
       xJitter = (Math.random() - 0.5) * 2 * AMP;
       yJitter = (Math.random() - 0.5) * 2 * AMP;
+    }
+    // Red blink tint while rumbling: alternate between the texture's
+    // natural colour and a saturated red roughly 6 times per second so
+    // the impending death plane reads as a clear hazard. Restored to
+    // white the moment the plane starts moving (rumbling=false).
+    const BLINK_RATE_HZ = 6;
+    const RED_TINT = 0xff3030;
+    const targetTint =
+      rumbling && (Math.floor(this._planeBlinkTime * BLINK_RATE_HZ) & 1) === 1
+        ? RED_TINT
+        : 0xffffff;
+    if (targetTint !== this._planeTint) {
+      this._planeMat.color.setHex(targetTint);
+      this._planeTint = targetTint;
     }
     if (this._planeDir.axis === "y") {
       // Vertical climb: mesh is a horizontal bar. Position X = lateral centre, Y = -planePos (Y-flip).
