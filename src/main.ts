@@ -22,6 +22,7 @@ import {
   UpgradeSystem,
   ScoreSystem,
   SpawnSystem,
+  DustBunnySpawner,
   RecordsStore,
   isTrackedLevel,
 } from "./systems/index.js";
@@ -621,6 +622,13 @@ function activePath(): Path | null {
 let spawnSystem = new SpawnSystem(generator, world, bus);
 const combatSystem = new CombatSystem(bus);
 
+/**
+ * Periodic dust-bunny spawner that drops bunnies onto wall overhangs.
+ * Only enabled on level 1 (the only level whose generator emits
+ * overhangs); rebuilt and reset by `resetGame()`.
+ */
+let dustBunnySpawner: DustBunnySpawner | null = null;
+
 let deathPlaneSystem = new DeathPlaneSystem(bus, {
   climbDir: activeLevel.climbDir,
   start: activeLevel.deathPlaneStart,
@@ -889,6 +897,11 @@ function resetGame(): void {
 
   // Rebuild axis-aware systems.
   spawnSystem = new SpawnSystem(generator, world, bus);
+  // Wall-overhang dust bunny spawner is currently a level-1 feature only.
+  dustBunnySpawner =
+    activeLevel.id === 1
+      ? new DustBunnySpawner(generator, spawnSystem, player, rng)
+      : null;
   scoreSystem.setClimbDir(activeLevel.climbDir);
   scoreSystem.reset();
   deathPlaneSystem = new DeathPlaneSystem(bus, {
@@ -1328,6 +1341,8 @@ const loop = createLoop({
         : Math.floor(camera.worldClimb / TILE_SIZE);
     const deathPlaneTile = Math.floor(deathPlaneSystem.planePos / TILE_SIZE);
     spawnSystem.advance(generatorPos, deathPlaneTile);
+
+    if (dustBunnySpawner !== null) dustBunnySpawner.tick(dt);
 
     // 6. Upgrade picker.
     upgradeSystem.update(player, playerPathS);

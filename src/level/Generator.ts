@@ -66,6 +66,22 @@ export interface AdvanceResult {
   segmentCrossed: boolean;
 }
 
+/**
+ * A horizontal cantilever of solid tiles that juts inward from a boundary
+ * wall, with empty space directly underneath. Currently produced only by
+ * the vertical generator (level 1).
+ */
+export interface Overhang {
+  /** Boundary wall the overhang is anchored to. */
+  side: "left" | "right";
+  /** Leftmost world tile-X of the overhang span (inclusive). */
+  tx: number;
+  /** World tile-Y of the (single-row) overhang. */
+  ty: number;
+  /** Number of solid tiles in the span; >= 2. */
+  length: number;
+}
+
 /** Represents an already-generated chunk tracked in the generator's queue. */
 export interface GeneratedChunk {
   profile: ChunkProfile;
@@ -77,6 +93,11 @@ export interface GeneratedChunk {
   entities: SpawnedEntity[];
   /** Whether the segment-cross event has fired for this chunk. */
   segmentCrossedFired: boolean;
+  /**
+   * Wall overhangs placed in this chunk. Optional because only the vertical
+   * generator emits them today; other generators omit the field.
+   */
+  overhangs?: Overhang[];
 }
 
 /** Registries passed to `createGenerator`. */
@@ -583,6 +604,114 @@ export function createGenerator(opts: GeneratorOptions): Generator {
       }
     }
 
+    // ── Overhangs ────────────────────────────────────────────────────────
+    // Add a few wall overhangs that jut inward from the boundary walls,
+    // creating cantilevered ledges with empty space underneath. They are
+    // also registered as platform candidates so the reachability tracker
+    // can chain off their tops.
+    const overhangs: Overhang[] = [];
+    const OVERHANG_MAX_PER_CHUNK = 2;
+    const OVERHANG_ATTEMPTS = 5;
+    const OVERHANG_CHANCE = 0.55;
+    const usedOverhangRows = new Set<number>();
+    // Need at least 4 rows of vertical clearance from chunk edges so an
+    // overhang doesn't merge awkwardly with a neighbouring chunk's wall
+    // bumps.
+    if (chunkLen >= 8) {
+      for (
+        let attempt = 0;
+        attempt < OVERHANG_ATTEMPTS && overhangs.length < OVERHANG_MAX_PER_CHUNK;
+        attempt++
+      ) {
+        if (chunkRng.next() > OVERHANG_CHANCE) continue;
+
+        const row = chunkRng.int(3, chunkLen - 4);
+        if (usedOverhangRows.has(row)) continue;
+        // Avoid stacking two overhangs vertically adjacent to each other.
+        if (
+          usedOverhangRows.has(row - 1) ||
+          usedOverhangRows.has(row + 1)
+        ) {
+          continue;
+        }
+
+        const worldTy = chunkOriginY + row;
+        const length = chunkRng.int(2, 4);
+        const side: "left" | "right" =
+          chunkRng.next() < 0.5 ? "left" : "right";
+        const startTx =
+          side === "left" ? 0 : WORLD_WIDTH - length;
+        const tipTx = side === "left" ? startTx + length - 1 : startTx;
+
+        // Keep the corridor traversable: the inner tip must stay clear of
+        // the opposite wall by at least 4 columns so the player can still
+        // walk/jump through.
+        if (side === "left" && tipTx > WORLD_WIDTH - 5) continue;
+        if (side === "right" && tipTx < 4) continue;
+
+        // Skip rows already covered by a platform strip — overlapping a
+        // platform with an overhang would lose the visual cantilever and
+        // could swallow the platform's spawn cell.
+        let blockedByPlatform = false;
+        for (const p of platformCandidates) {
+          if (p.ty !== worldTy) continue;
+          if (p.tx + p.width > startTx && p.tx < startTx + length) {
+            blockedByPlatform = true;
+            break;
+          }
+        }
+        if (blockedByPlatform) continue;
+
+        // Skip if the row already has an interior wall bump from the
+        // profile that extends past the overhang base on the same side
+        // (would merge into a chunky pillar rather than a cantilever).
+        const t = row / Math.max(chunkLen - 1, 1);
+        const slice = profile.wallProfile(t);
+        const profileLeftWorldEnd = chunkOriginX + slice.left;
+        const profileRightWorldStart = chunkOriginX + slice.right;
+        if (side === "left" && profileLeftWorldEnd > startTx + 1) continue;
+        if (side === "right" && profileRightWorldStart < startTx + length - 1) continue;
+
+        // Skip if any tile in the span is in the spawn safe zone, would
+        // pinch against an existing solid, or is already occupied. The
+        // pinch check matters even though overhangs intentionally have
+        // empty cells beneath them — a nearby platform tile diagonally
+        // below the overhang tip would create a 1-tile diagonal gap that
+        // the player cannot squeeze through.
+        let safeBlocked = false;
+        for (let i = 0; i < length; i++) {
+          const ttx = startTx + i;
+          if (
+            inSpawnSafeZone(ttx, worldTy) ||
+            isSolid(ttx, worldTy) ||
+            wouldCreatePinch(ttx, worldTy)
+          ) {
+            safeBlocked = true;
+            break;
+          }
+        }
+        if (safeBlocked) continue;
+
+        // Place tiles unconditionally — having validated above that no
+        // diagonal pinch would form, the cantilevered cells beneath the
+        // inner tiles are intentional empty space.
+        for (let i = 0; i < length; i++) {
+          placeSolidUnchecked(startTx + i, worldTy, tiles);
+        }
+
+        overhangs.push({ side, tx: startTx, ty: worldTy, length });
+        usedOverhangRows.add(row);
+
+        // Treat the overhang's top row as a platform candidate so the
+        // reachability tracker can route through it.
+        platformCandidates.push({
+          tx: startTx,
+          ty: worldTy,
+          width: length,
+        });
+      }
+    }
+
     // Update lastPlatforms for next chunk's reachability check.
     if (platformCandidates.length > 0) {
       lastPlatforms = platformCandidates;
@@ -717,6 +846,7 @@ export function createGenerator(opts: GeneratorOptions): Generator {
       originX: chunkOriginX,
       entities,
       segmentCrossedFired: false,
+      overhangs,
     };
 
     return { chunk, tiles, entities };
