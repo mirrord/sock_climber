@@ -29,6 +29,7 @@ export class Victory {
     onRestart: () => void,
     onTitle: () => void,
     container: HTMLElement = document.body,
+    onCredits?: () => void,
   ) {
     // ─── Build DOM ──────────────────────────────────────────────────────
     this._overlay = el("div", ["hidden"], { id: "victory" });
@@ -55,7 +56,23 @@ export class Victory {
       onTitle();
     });
 
-    for (const btn of [restartBtn, titleBtn]) {
+    let creditsBtn: HTMLButtonElement | null = null;
+    if (onCredits !== undefined) {
+      creditsBtn = el("button", [], { id: "vt-credits" });
+      setText(creditsBtn, TEXT.victory.credits);
+      creditsBtn.addEventListener("click", () => {
+        this._fadeOutThen(() => {
+          this.hide();
+          onCredits();
+        });
+      });
+    }
+
+    const orderedButtons: HTMLButtonElement[] =
+      creditsBtn !== null
+        ? [restartBtn, creditsBtn, titleBtn]
+        : [restartBtn, titleBtn];
+    for (const btn of orderedButtons) {
       const arrow = el("span", ["menu-arrow", "hidden"]);
       setText(arrow, "▶ ");
       btn.prepend(arrow);
@@ -67,6 +84,7 @@ export class Victory {
     this._overlay.appendChild(subtitle);
     this._overlay.appendChild(this._killsEl);
     this._overlay.appendChild(restartBtn);
+    if (creditsBtn !== null) this._overlay.appendChild(creditsBtn);
     this._overlay.appendChild(titleBtn);
     container.appendChild(this._overlay);
 
@@ -93,6 +111,24 @@ export class Victory {
   hide(): void {
     this._stopGamepadNav();
     setVisible(this._overlay, false);
+    // Reset any inline opacity left over from a fade.
+    this._overlay.style.opacity = "";
+    this._overlay.style.transition = "";
+  }
+
+  /**
+   * Fade the overlay to transparent over ~0.6 s, then invoke `cb`.
+   * Used by the Credits button so the transition into the Credits
+   * screen is smooth instead of a hard cut.
+   */
+  private _fadeOutThen(cb: () => void): void {
+    this._stopGamepadNav();
+    this._overlay.style.transition = "opacity 0.6s ease";
+    // Force a reflow so the browser registers the starting opacity
+    // before we change it on the next frame.
+    void this._overlay.offsetWidth;
+    this._overlay.style.opacity = "0";
+    window.setTimeout(cb, 600);
   }
 
   destroy(): void {

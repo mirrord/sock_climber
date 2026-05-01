@@ -54,6 +54,20 @@ export const TEXT = {
     kills: "Enemies defeated",
     restart: "Play Again",
     title: "Quit to Title",
+    credits: "Credits",
+  },
+  credits: {
+    heading: "Credits",
+    body:
+      "Thank you for playing Sock Climber!" +
+      "" +
+      "Director         Brice Howard" +
+      "Music            Sarah Howard" +
+      "Art              There was art?" +
+      "Programming      Dane Howard & various Claudes" +
+      "QA               Weena Mercator" +
+      "",
+    hint: "Press any button to return to the main menu",
   },
   loadout: {
     heading: "Choose Your Loadout",

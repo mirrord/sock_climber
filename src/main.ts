@@ -26,7 +26,7 @@ import {
   isTrackedLevel,
 } from "./systems/index.js";
 import { ATTACK_TABLE } from "./systems/AttackTable.js";
-import { HUD, PatchPicker, Pause, Settings, Title, LevelSelect, GameOver, Victory } from "./ui/index.js";
+import { HUD, PatchPicker, Pause, Settings, Title, LevelSelect, GameOver, Victory, Credits } from "./ui/index.js";
 import type { LevelId } from "./ui/index.js";
 import { Renderer, GameCamera, SpritePool, ParticleSystem, DebugOverlay } from "./render/index.js";
 import {
@@ -464,6 +464,7 @@ const MUSIC_ASSETS = {
   gameplay1: "Laundry Stomp.mp3",
   gameplay2: "Zipper Whistlestomp.mp3",
   gameplay3: "Found Object Folk.mp3",
+  credits: "Sock Puppet Rock.mp3",
 } as const;
 type MusicId = keyof typeof MUSIC_ASSETS;
 /** Subset of MusicIds randomly chosen from at level start. */
@@ -669,7 +670,24 @@ const levelSelect = new LevelSelect(
   recordsStore,
 );
 const gameOver = new GameOver(bus, scoreSystem, onRestart, onQuit);
-const victory = new Victory(bus, scoreSystem, onRestart, onQuit);
+const credits = new Credits(document.body);
+const victory = new Victory(
+  bus,
+  scoreSystem,
+  onRestart,
+  onQuit,
+  document.body,
+  () => {
+    // Credits flow: switch to the credits track and reveal the
+    // credits overlay. When the user dismisses it, return to the
+    // title screen and music.
+    playMusic("credits");
+    credits.show(() => {
+      title.show();
+      playMusic("title");
+    });
+  },
+);
 
 /** Number of remaining loadout picks owed before `onGameStart` fires. */
 let _loadoutPicksRemaining = 0;

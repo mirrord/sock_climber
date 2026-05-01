@@ -7,3 +7,4 @@ export { LevelSelect } from "./LevelSelect.js";
 export type { LevelId } from "./LevelSelect.js";
 export { GameOver } from "./GameOver.js";
 export { Victory } from "./Victory.js";
+export { Credits } from "./Credits.js";
