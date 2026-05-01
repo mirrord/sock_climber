@@ -54,8 +54,18 @@ export class PathBuilder {
   private readonly _minLen: number;
   private readonly _maxLen: number;
   private readonly _halfW: number;
-  /** World tile cells (`"tx,ty"`) covered by the corridor interior so far. */
+  /**
+   * World tile cells (`"tx,ty"`) covered by every *non-current* prior
+   * segment's corridor interior + 1-tile padding. The immediately
+   * previous segment's tiles are tracked separately in
+   * `_prevSegmentTiles` so the corner-overlap exemption in
+   * `_wouldIntersect` only excuses tiles belonging to the actual
+   * previous segment — never an unrelated older segment that the path
+   * has snaked back near.
+   */
   private readonly _occupied = new Set<string>();
+  /** Tiles swept by the most-recently appended segment. */
+  private _prevSegmentTiles = new Set<string>();
 
   constructor(opts: PathBuilderOptions) {
     this._rng = opts.rng;
@@ -67,46 +77,73 @@ export class PathBuilder {
     // distribution as later segments for symmetry.
     const initialLen = this._rng.int(this._minLen, this._maxLen);
     this.path = new Path(opts.start, { x: 0, y: -1 }, initialLen);
-    this._occupySegment(this.path.lastSegment.origin, { x: 0, y: -1 }, initialLen);
+    this._commitSegment(this.path.lastSegment.origin, { x: 0, y: -1 }, initialLen);
   }
 
   /** Extend the path until its total arc length is at least `targetS`. */
   extendTo(targetS: number): void {
     let safety = 64;
     while (this.path.totalLength < targetS && safety-- > 0) {
-      this._appendNext();
+      if (!this._appendNext()) break;
     }
   }
 
-  /** Append one more segment (turn + straight). */
-  private _appendNext(): void {
+  /**
+   * Append one more segment (turn + straight). Returns `false` if no
+   * non-self-intersecting candidate could be found at any tested
+   * direction or length — the builder then stops extending so the
+   * path never doubles back through itself (which would seal the
+   * corridor and produce a dead-end).
+   */
+  private _appendNext(): boolean {
     const prev = this.path.lastSegment.direction;
-    // Try directions in deterministic order until one fits.
+    const tail = this.path.tailPosition;
+
+    const isBack = (d: Vec2) => d.x === -prev.x && d.y === -prev.y;
+    const isStraight = (d: Vec2) => d.x === prev.x && d.y === prev.y;
+
+    // Phase 1: prefer a turn (the corridor's signature behaviour) at a
+    // freshly-sampled length. Skip doubling back (degenerate) and
+    // continuing straight (handled in phase 2 if no turn fits).
     const order = this._directionOrder(prev);
     for (const dir of order) {
-      // Doubling back is degenerate (path immediately re-enters itself).
-      if (dir.x === -prev.x && dir.y === -prev.y) continue;
-      // Skip continuing straight — the corridor must actually turn at
-      // each bend so the player encounters the level's signature
-      // direction changes. Straight extensions are still possible by
-      // chaining a 90° turn followed by another 90° turn back, but
-      // back-to-back same-direction segments are disallowed here.
-      if (dir.x === prev.x && dir.y === prev.y) continue;
+      if (isBack(dir) || isStraight(dir)) continue;
       const length = this._rng.int(this._minLen, this._maxLen);
-      const tail = this.path.tailPosition;
       if (this._wouldIntersect(tail, dir, length)) continue;
       this.path.appendSegment(dir, length);
-      this._occupySegment(tail, dir, length);
-      return;
+      this._commitSegment(tail, dir, length);
+      return true;
     }
-    // Every turn candidate intersected. Force a continuation in the
-    // same direction as a last resort so the builder always makes
-    // progress (rare — only happens when both perpendicular turns
-    // would re-enter the occupied corridor).
-    const length = this._rng.int(this._minLen, this._maxLen);
-    const tail = this.path.tailPosition;
-    this.path.appendSegment(prev, length);
-    this._occupySegment(tail, prev, length);
+
+    // Phase 2: no turn fit. Try continuing straight — checked against
+    // the occupancy grid, unlike the old unconditional fallback.
+    {
+      const length = this._rng.int(this._minLen, this._maxLen);
+      if (!this._wouldIntersect(tail, prev, length)) {
+        this.path.appendSegment(prev, length);
+        this._commitSegment(tail, prev, length);
+        return true;
+      }
+    }
+
+    // Phase 3: tight pocket. Retry every non-back direction (turns +
+    // straight) at progressively shorter lengths so the builder can
+    // squeeze a short stub into a confined area without overlapping.
+    const lengths: number[] = [];
+    for (let len = this._minLen; len >= 4; len = Math.floor(len / 2)) {
+      lengths.push(len);
+    }
+    for (const length of lengths) {
+      for (const dir of order) {
+        if (isBack(dir)) continue;
+        if (this._wouldIntersect(tail, dir, length)) continue;
+        this.path.appendSegment(dir, length);
+        this._commitSegment(tail, dir, length);
+        return true;
+      }
+    }
+
+    return false;
   }
 
   /**
@@ -136,19 +173,18 @@ export class PathBuilder {
 
   /**
    * True if the corridor swept by a hypothetical new segment would
-   * overlap any previously occupied tile (other than the immediate
-   * neighbourhood of `tail` — corners always touch).
+   * overlap any tile occupied by a *non-adjacent* prior segment. The
+   * immediately previous segment's tiles (tracked in
+   * `_prevSegmentTiles`) are excluded from the check because corners
+   * legally share cells with the previous segment's terminus.
    */
   private _wouldIntersect(tail: Vec2, dir: Vec2, length: number): boolean {
     const w = this._halfW;
-    // Skip the first ~2*halfW metres of the new segment because the
-    // corner naturally re-occupies the previous segment's terminus.
-    const skip = w * 2;
     // Sub-unit stepping along both axes so diagonal segments — whose
     // perpendicular `(-d.y, d.x)` is itself diagonal — don't skip
     // over tile cells between integer samples.
     const step = 0.5;
-    for (let s = skip; s <= length; s += step) {
+    for (let s = 0; s <= length; s += step) {
       const cx = tail.x + dir.x * s;
       const cy = tail.y + dir.y * s;
       const px = -dir.y; // perp x
@@ -156,12 +192,51 @@ export class PathBuilder {
       for (let n = -w; n <= w; n += step) {
         const wx = cx + px * n;
         const wy = cy + py * n;
-        const tx = Math.floor(wx);
-        const ty = Math.floor(wy);
-        if (this._occupied.has(`${tx},${ty}`)) return true;
+        const key = `${Math.floor(wx)},${Math.floor(wy)}`;
+        if (this._prevSegmentTiles.has(key)) continue;
+        if (this._occupied.has(key)) return true;
       }
     }
     return false;
+  }
+
+  /**
+   * Commit a freshly accepted segment: rotate the previous segment's
+   * tiles into the global `_occupied` grid (with padding) and record
+   * this segment's interior tiles as the new `_prevSegmentTiles`.
+   */
+  private _commitSegment(origin: Vec2, dir: Vec2, length: number): void {
+    // Promote previous-segment tiles into the global occupancy. They
+    // were already tracked there via `_occupySegment`, but we ensure
+    // their padding is recorded for any future intersection test.
+    for (const k of this._prevSegmentTiles) this._occupied.add(k);
+    // Record this segment's padded interior tiles in `_occupied`.
+    this._occupySegment(origin, dir, length);
+    // And remember its un-padded interior as the new "prev" set.
+    this._prevSegmentTiles = this._sweepInterior(origin, dir, length);
+  }
+
+  /** Tiles in the padded sweep of a segment (matches `_occupySegment`). */
+  private _sweepInterior(origin: Vec2, dir: Vec2, length: number): Set<string> {
+    const tiles = new Set<string>();
+    const w = this._halfW;
+    const px = -dir.y;
+    const py = dir.x;
+    const step = 0.5;
+    for (let s = 0; s <= length; s += step) {
+      const cx = origin.x + dir.x * s;
+      const cy = origin.y + dir.y * s;
+      // Match `_occupySegment`'s `[-w-1, w+1]` padding so the previous
+      // segment's wall ring is also exempted at the corner — otherwise
+      // every turn candidate would clip those padded tiles and be
+      // rejected, leaving the path unable to extend at all.
+      for (let n = -w - 1; n <= w + 1; n += step) {
+        const wx = cx + px * n;
+        const wy = cy + py * n;
+        tiles.add(`${Math.floor(wx)},${Math.floor(wy)}`);
+      }
+    }
+    return tiles;
   }
 
   /** Mark all tiles in the corridor swept by this segment as occupied. */
