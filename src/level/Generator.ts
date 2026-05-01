@@ -246,7 +246,11 @@ export function createGenerator(opts: GeneratorOptions): Generator {
 
   const LOOKAHEAD = opts.lookahead ?? 80;
   const GRACE_ROWS = opts.graceRows ?? 8;
-  const OPEN_BIAS = opts.openBias ?? 0.6;
+  // Tilt the mix toward tight chunks so long stretches of open
+  // walljump-only corridor are rare. Open chunks themselves now
+  // include alternating wall jutters (see Chunks.ts) so the player
+  // must engage with platforms even in "open" sections.
+  const OPEN_BIAS = opts.openBias ?? 0.45;
   const WORLD_WIDTH = opts.worldWidth ?? 12;
   const SPAWN_SAFE_ZONE = opts.spawnSafeZone;
   const ENEMY_SPAWN_MIN_HEIGHT = opts.enemySpawnMinHeight ?? 30;

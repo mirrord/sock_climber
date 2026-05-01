@@ -59,28 +59,47 @@ export interface ChunkProfile {
 // Built-in profiles
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Wide open shaft — few platforms, gentle walls, sparse enemies. */
+/** Wide open shaft — alternating wall jutters break the straight tube
+ *  so the player cannot simply wall-jump up between two flat boundary
+ *  walls without ever interacting with the level geometry. */
 const OPEN_WIDE: ChunkProfile = {
   id: "open_wide_a",
   kind: "open",
   size: { length: 16, width: 12 },
-  wallProfile: (_t) => ({ left: 1, right: 11 }),
-  platformDensity: 0.35,
-  entityBudget: { enemies: 2, obstacles: 1, buffs: 1 },
+  wallProfile: (t) => {
+    // Alternate a 2-tile bump on the left/right wall every ~5 rows so
+    // a continuous walljump up the boundary walls is interrupted.
+    const row = Math.floor(t * 16);
+    const band = Math.floor(row / 5);
+    if (row % 5 === 2) {
+      return band % 2 === 0
+        ? { left: 3, right: 11 }
+        : { left: 1, right: 9 };
+    }
+    return { left: 1, right: 11 };
+  },
+  platformDensity: 0.5,
+  entityBudget: { enemies: 3, obstacles: 2, buffs: 1 },
   allowedTags: ["Keys", "Phone", "Gum", "SpeedSock", "HighJumpSock"],
 };
 
-/** Slightly narrowing corridor variant. */
+/** Slightly narrowing corridor variant — also injects alternating
+ *  wall jutters so the squeeze is non-uniform. */
 const OPEN_NARROWING: ChunkProfile = {
   id: "open_narrowing_b",
   kind: "open",
   size: { length: 16, width: 12 },
   wallProfile: (t) => {
     const squeeze = Math.floor(t * 1.5);
-    return { left: squeeze, right: 12 - squeeze };
+    const row = Math.floor(t * 16);
+    const bump = row % 4 === 0 ? 1 : 0;
+    const flip = Math.floor(row / 4) % 2;
+    const left = squeeze + (flip === 0 ? bump : 0);
+    const right = 12 - squeeze - (flip === 1 ? bump : 0);
+    return { left, right };
   },
-  platformDensity: 0.4,
-  entityBudget: { enemies: 2, obstacles: 2, buffs: 1 },
+  platformDensity: 0.5,
+  entityBudget: { enemies: 3, obstacles: 2, buffs: 1 },
   allowedTags: ["Wallet", "Lipstick", "DustBunny", "LowGravitySock", "PowerSock"],
 };
 

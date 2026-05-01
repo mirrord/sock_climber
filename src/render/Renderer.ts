@@ -47,4 +47,13 @@ export class Renderer {
   resize(w: number, h: number): void {
     this._r.setSize(w, h);
   }
+
+  /**
+   * Set the device pixel ratio used for the underlying drawing buffer.
+   * Re-apply on browser zoom (Ctrl+scroll) so WebGL output stays sharp
+   * at the new effective resolution.
+   */
+  setPixelRatio(dpr: number): void {
+    this._r.setPixelRatio(dpr);
+  }
 }

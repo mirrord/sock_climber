@@ -1348,7 +1348,49 @@ const loop = createLoop({
 loop.start();
 
 window.addEventListener("resize", () => {
-  renderer.resize(window.innerWidth, window.innerHeight);
-  camera.resize(window.innerWidth, window.innerHeight);
+  syncViewport();
 });
+
+/**
+ * Push the current viewport size and device pixel ratio into the
+ * renderer + camera. Called on every event that can change the
+ * effective viewport: window resize, browser zoom (Ctrl+scroll, which
+ * shifts `devicePixelRatio` and fires a media-query change but no
+ * window `resize`), and visual viewport changes (mobile pinch-zoom,
+ * on-screen keyboard, etc.).
+ */
+function syncViewport(): void {
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  // Cap DPR at 2 so extreme zoom-in doesn't blow up the WebGL buffer
+  // beyond what most GPUs handle gracefully.
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  renderer.setPixelRatio(dpr);
+  renderer.resize(w, h);
+  camera.resize(w, h);
+}
+
+// Browser zoom (Ctrl+scroll) does not fire `resize`, but it does shift
+// `window.devicePixelRatio`. Re-arm a media-query listener at the new
+// DPR after every change so we keep tracking subsequent zoom steps.
+let _dprMediaQuery: MediaQueryList | null = null;
+function _onDprChange(): void {
+  syncViewport();
+  _watchDevicePixelRatio();
+}
+function _watchDevicePixelRatio(): void {
+  if (_dprMediaQuery) {
+    _dprMediaQuery.removeEventListener("change", _onDprChange);
+  }
+  _dprMediaQuery = window.matchMedia(
+    `(resolution: ${window.devicePixelRatio}dppx)`,
+  );
+  _dprMediaQuery.addEventListener("change", _onDprChange);
+}
+_watchDevicePixelRatio();
+syncViewport();
+
+// Pinch-zoom on touch devices and some desktop browsers fires
+// `visualViewport.resize` instead of `window.resize`.
+window.visualViewport?.addEventListener("resize", syncViewport);
 

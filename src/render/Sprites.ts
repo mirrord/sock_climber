@@ -169,6 +169,14 @@ export class SpritePool {
   /** Offset along climb axis added to the mesh position. Default 0 = mesh
    *  centred on `planePos` (image midpoint = death line). */
   private _planePosOffset = 0;
+  /**
+   * Mesh thickness along the chase axis (world units). Used in path mode
+   * to shift the mesh backward along the local tangent so its leading
+   * edge — not its centre — sits at the death-plane `s` position.
+   * Without this offset the pile image extends half its thickness ahead
+   * of the death line, swallowing the player's spawn.
+   */
+  private _planeThickness = 0;
   /** Climb direction the death plane is rendered for. */
   private _planeDir: ClimbDir = CLIMB_DIR_VERTICAL;
   /**
@@ -570,10 +578,26 @@ export class SpritePool {
         const LATERAL_TILE_OFFSET = 0.5;
         const perpRenderX = -tangent.y;
         const perpRenderY = -tangent.x;
+        // Shift the mesh backward along the local tangent so the
+        // leading (player-facing) edge sits at the death-plane `s`
+        // position. The mesh's local +Y axis is the leading edge
+        // (see rotation derivation below); in render space that is
+        // `t_r = (tangent.x, -tangent.y)`. Subtracting half the mesh
+        // thickness along `t_r` moves the centre back so the leading
+        // edge lands exactly on the projection point.
+        const tangentRenderX = tangent.x;
+        const tangentRenderY = -tangent.y;
+        const backShift = this._planeThickness * 0.5;
         this._planeMesh.position.x =
-          position.x + perpRenderX * LATERAL_TILE_OFFSET + xJitter;
+          position.x +
+          perpRenderX * LATERAL_TILE_OFFSET -
+          tangentRenderX * backShift +
+          xJitter;
         this._planeMesh.position.y =
-          -position.y + perpRenderY * LATERAL_TILE_OFFSET + yJitter;
+          -position.y +
+          perpRenderY * LATERAL_TILE_OFFSET -
+          tangentRenderY * backShift +
+          yJitter;
         // Geometry is (lateralExtent, planeThickness) — the mesh's
         // local +Y axis is the "front" / leading edge of the texture.
         // We want that leading edge to point along the local tangent
@@ -666,6 +690,7 @@ export class SpritePool {
     });
 
     this._planeCenterLateral = lateralCenter;
+    this._planeThickness = planeThickness;
     this._planeDir = climbDir;
 
     if (this._planeMesh) {
